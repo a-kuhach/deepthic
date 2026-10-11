@@ -13,7 +13,7 @@
 *.ico binary
 
 # Files excluded from GitHub auto-generated archives
-agent/ export-ignore
+/agent/ export-ignore
 code_mutation.ps1 export-ignore
 build_exe.bat export-ignore
 run_app.bat export-ignore
