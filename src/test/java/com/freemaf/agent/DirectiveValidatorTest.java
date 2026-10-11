@@ -92,4 +92,53 @@ class DirectiveValidatorTest {
         assertFalse(r.allowed());
         assertTrue(r.reason().contains("agent_instructions.md"));
     }
-}
+@Test
+    void blockedStopProcessByName() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate(
+                "Get-Process -Name java -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue");
+        assertFalse(r.allowed());
+        assertTrue(r.reason().toLowerCase(java.util.Locale.ROOT).contains("broad"));
+    }
+
+    @Test
+    void blockedStopProcessNameDirect() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("Stop-Process -Name javaw -Force");
+        assertFalse(r.allowed());
+    }
+
+    @Test
+    void blockedGetProcessPipeStopProcess() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("Get-Process java | Stop-Process");
+        assertFalse(r.allowed());
+    }
+
+    @Test
+    void blockedTaskkillByImage() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("taskkill /F /IM java.exe");
+        assertFalse(r.allowed());
+    }
+
+    @Test
+    void blockedPkill() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("pkill -f java");
+        assertFalse(r.allowed());
+    }
+
+    @Test
+    void allowedStopProcessByIdPid() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("Stop-Process -Id 1234 -Force");
+        assertTrue(r.allowed());
+    }
+
+    @Test
+    void allowedTaskkillByPid() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("taskkill /F /T /PID 1234");
+        assertTrue(r.allowed());
+    }
+
+    @Test
+    void allowedGetProcessListing() {
+        DirectiveValidator.ValidationResult r = DirectiveValidator.validate("Get-Process -Name java");
+        assertTrue(r.allowed());
+    }
+}

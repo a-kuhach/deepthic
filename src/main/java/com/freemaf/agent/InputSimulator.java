@@ -203,7 +203,29 @@ public final class InputSimulator {
 
     public void ctrlV() { pressKeys(VK_CONTROL, VK_V); }
 
-    public void enter() { pressKeys(VK_ENTER); }
+    private int inputAreaY(String markerKey) {
+
+        int base = config.getInt(markerKey + ".y", 0);
+
+        if (config.getSendShiftActive()) {
+
+            base += config.getInputAreaDyOffset();
+
+        }
+
+        return base;
+
+    }
+
+    public void enter() {
+
+        pressKeys(VK_ENTER);
+
+        try { config.setSendShiftActive(false); }
+
+        catch (RuntimeException e) { AppLogger.warn("sendShiftActive persist failed: " + e.getMessage()); }
+
+    }
 
     public void refreshPage() throws InterruptedException {
 
@@ -221,7 +243,7 @@ public final class InputSimulator {
 
         int x = config.getInt("marker.input_field.x", 0);
 
-        int y = config.getInt("marker.input_field.y", 0);
+        int y = inputAreaY("marker.input_field");
 
         if (x <= 0 || y <= 0) {
 
@@ -249,7 +271,7 @@ public final class InputSimulator {
 
         int x = config.getInt("marker.input_field.x", 0);
 
-        int y = config.getInt("marker.input_field.y", 0);
+        int y = inputAreaY("marker.input_field");
 
         if (x <= 0 || y <= 0) {
 
@@ -273,7 +295,7 @@ public final class InputSimulator {
 
         int x = config.getInt("marker.input_field.x", 0);
 
-        int y = config.getInt("marker.input_field.y", 0);
+        int y = inputAreaY("marker.input_field");
 
         if (x <= 0 || y <= 0) {
 
@@ -328,6 +350,14 @@ public final class InputSimulator {
     }
 
     private boolean waitForUploadWithRetry() throws InterruptedException {
+        String activeColor = config.get("marker.send.active_color", "");
+        String disabledColor = config.get("marker.send.disabled_color", "");
+        if (activeColor != null && disabledColor != null
+                && !activeColor.isBlank() && activeColor.equalsIgnoreCase(disabledColor.trim())) {
+            AppLogger.warn("waitForUploadWithRetry: active_color == disabled_color ("
+                    + activeColor + "); SEND-state cannot be detected, skipping wait");
+            return true;
+        }
 
         while (!EmergencyStop.isStopped()) {
 
@@ -353,7 +383,7 @@ public final class InputSimulator {
 
         int x = config.getInt("marker.send.x", 0);
 
-        int y = config.getInt("marker.send.y", 0);
+        int y = inputAreaY("marker.send");
 
         if (x <= 0 || y <= 0 || target == null || target.isBlank()) return false;
 

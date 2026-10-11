@@ -44,6 +44,12 @@ public final class DirectiveValidator {
         String[] lines = scriptContent.split("\\r?\\n", -1);
         for (String line : lines) {
             String normalized = normalize(line);
+            if (hasForbiddenKillIntent(normalized)) {
+                return new ValidationResult(false,
+                        "Script blocked: broad process termination by name is forbidden. "
+                                + "Framework A runs as a java process; a name-based kill terminates the framework. "
+                                + "Use Stop-Process -Id <pid> or taskkill /F /T /PID <pid> with a PID produced by the same script (Start-Process -PassThru).");
+            }
             if (!hasWriteIntent(normalized)) {
                 continue;
             }
@@ -68,7 +74,30 @@ public final class DirectiveValidator {
         return REDIRECT.matcher(normalizedLine).find();
     }
 
-    static String normalize(String value) {
+
+    private static boolean hasForbiddenKillIntent(String normalizedLine) {
+        boolean hasStopProcess = normalizedLine.contains("stop-process");
+        boolean hasGetProcess = normalizedLine.contains("get-process");
+        boolean hasNameArg = normalizedLine.contains("-name");
+        boolean hasPipe = normalizedLine.contains("|");
+        boolean hasTaskkill = normalizedLine.contains("taskkill");
+        boolean hasImageFlag = normalizedLine.contains("/im");
+        boolean hasPkill = normalizedLine.contains("pkill");
+        if (hasStopProcess && hasNameArg) {
+            return true;
+        }
+        if (hasGetProcess && hasPipe && hasStopProcess) {
+            return true;
+        }
+        if (hasTaskkill && hasImageFlag) {
+            return true;
+        }
+        if (hasPkill) {
+            return true;
+        }
+        return false;
+    }
+    static String normalize(String value) {
         String replaced = value.replace('\\', '/');
         if (replaced.startsWith("./")) {
             replaced = replaced.substring(2);

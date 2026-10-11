@@ -173,6 +173,8 @@ public final class Config {
         DEFAULTS.put("session.executorMessageCount", "0");
         DEFAULTS.put("session.ignoredHwnds", "");
         DEFAULTS.put("session.resumeAfterStop", "false");
+        DEFAULTS.put("marker.input_area.dy_offset", "-84");
+        DEFAULTS.put("config.migrated.v2", "no");
 
     }
 
@@ -217,33 +219,35 @@ public final class Config {
     }
 
     private void migrate() {
+        boolean changed = false;
+
+        // Schema migration v2: input-area Y coordinates are now stored as normal (post-send) baseline.
+        if (!getMigratedV2()) {
+            int canonical = -84;
+            shiftMarkerY("marker.input_field.y", canonical);
+            shiftMarkerY("marker.deepthink.y", canonical);
+            shiftMarkerY("marker.search.y", canonical);
+            shiftMarkerY("marker.send.y", canonical);
+            props.setProperty("config.migrated.v2", "yes");
+            AppLogger.info("Config: schema migration v2 applied (input-area dy_offset=" + canonical + ")");
+            changed = true;
+        }
 
         java.util.List<String> obsolete = new java.util.ArrayList<>();
-
         for (Object rawKey : props.keySet()) {
-
             String key = String.valueOf(rawKey);
-
             if (!DEFAULTS.containsKey(key)) obsolete.add(key);
-
+        }
+        if (!obsolete.isEmpty()) {
+            for (String key : obsolete) props.remove(key);
+            AppLogger.info("Config: removed obsolete keys (" + obsolete.size() + "): " + obsolete);
+            changed = true;
         }
 
-        if (obsolete.isEmpty()) return;
-
-        for (String key : obsolete) props.remove(key);
-
-        AppLogger.info("Config: removed obsolete keys (" + obsolete.size() + "): " + obsolete);
-
-        try {
-
-            save();
-
-        } catch (IOException e) {
-
-            AppLogger.warn("Config: failed to persist migration: " + e.getMessage());
-
+        if (changed) {
+            try { save(); }
+            catch (IOException e) { AppLogger.warn("Config: failed to persist migration: " + e.getMessage()); }
         }
-
     }
 
     public String getWindowTitle() { return get("window.title", "DeepSeek"); }
@@ -502,5 +506,33 @@ public final class Config {
     public void setResumeAfterStop(boolean value) {
         props.setProperty("session.resumeAfterStop", String.valueOf(value));
         persist();
+    }
+
+    public int getInputAreaDyOffset() {
+        String raw = get("marker.input_area.dy_offset", "-84");
+        try { return Integer.parseInt(raw.trim()); }
+        catch (NumberFormatException e) { return -84; }
+    }
+
+    public boolean getSendShiftActive() {
+        return getBoolean("session.sendShiftActive", true);
+    }
+
+    public void setSendShiftActive(boolean value) {
+        props.setProperty("session.sendShiftActive", String.valueOf(value));
+        persist();
+    }
+
+    public boolean getMigratedV2() {
+        return "yes".equalsIgnoreCase(get("config.migrated.v2", "no"));
+    }
+
+    private void shiftMarkerY(String key, int dyOffset) {
+        String raw = props.getProperty(key);
+        if (raw == null || raw.isBlank()) return;
+        try {
+            int v = Integer.parseInt(raw.trim());
+            if (v > 0) props.setProperty(key, String.valueOf(v - dyOffset));
+        } catch (NumberFormatException ignored) { }
     }
 }

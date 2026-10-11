@@ -83,4 +83,18 @@
   <rule>Если хотя бы один скрипт превышает 30 минут — вердикт CODE_REJECTED.</rule>
 </directive>
 <directive id="DIRECTIVE_FILE_PROTECTION" severity="CRITICAL">   <rule>During review, inspect the generated PS scripts for any write operations against agent/rules/*.md or agent/AGENT_INSTRUCTIONS.md.</rule>   <rule>If such operations are present, return a FAIL verdict.</rule> </directive> 
+
+<directive id="BLOCKING_QUESTION_PAUSE_CHECK" severity="CRITICAL">
+  <rule>During review, inspect every generated PS script for the following pattern: the script asks the user a blocking question (acceptance of the result, commit approval, disambiguation, any decision the user must answer before the loop may continue) via USER_MSG but does NOT emit the paired AGENT_PAUSE marker.</rule>
+  <rule>If such a script is present, return FAIL. The violation is CRITICAL and forces FAIL regardless of other flags.</rule>
+  <rule>Non-blocking informational USER_MSG without AGENT_PAUSE is not a defect.</rule>
+  <rationale>The pause contract between the executor and the automation loop requires the pair USER_MSG + AGENT_PAUSE for any blocking question. A missing AGENT_PAUSE leaves the loop running and the executor re-emits the same question (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.3-beta).</rationale>
+</directive>
+
+<directive id="NO_BROAD_PROCESS_KILL_CHECK" severity="CRITICAL">
+  <rule>During review, inspect every generated PS script for broad process-kill patterns: Get-Process -Name java | Stop-Process, Get-Process -Name javaw | Stop-Process, Stop-Process -Name java, taskkill /IM java.exe, taskkill /IM javaw.exe, pkill -f java, or any equivalent that terminates processes by name rather than by a specific known PID.</rule>
+  <rule>If found, return FAIL. The violation is CRITICAL and forces FAIL regardless of other flags.</rule>
+  <rule>Kills by explicit PID are not a defect, provided the PID was produced by the same script (Start-Process -PassThru, $proc.Id, etc.).</rule>
+  <rationale>Framework A runs as a java process; broad kills terminate the framework. See PROJECT_STATE.md CHANGELOG 0.1.4-beta.</rationale>
+</directive>
 </role>

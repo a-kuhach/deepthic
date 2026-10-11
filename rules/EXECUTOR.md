@@ -161,4 +161,22 @@
   </rationale>
 </directive>
 <directive id="MEMORY_MD_AND_EXECUTOR_DIRECTIVES">   <file>agent/project/MEMORY.md</file>   <rule>On every session start, read agent/project/MEMORY.md if it exists.</rule>   <rule>If the file contains the section "## EXECUTOR_DIRECTIVES", treat every entry in it as a permanent project directive.</rule>   <rule>When a new permanent directive must be recorded, act along one of three branches:</rule>   <branch condition="agent/project/MEMORY.md does not exist">Create the file containing at least the section "## EXECUTOR_DIRECTIVES", then write the directive into the section.</branch>   <branch condition="MEMORY.md exists but section is absent">Append the section "## EXECUTOR_DIRECTIVES" to the file, then write the directive into the section.</branch>   <branch condition="section already present">Append the directive to the existing section.</branch>   <rule>Directives are added to "## EXECUTOR_DIRECTIVES": (a) by an explicit user command; (b) on own initiative if the user instruction is clearly intended as a permanent project rule. When in doubt — ask the user; do not add silently.</rule>   <rule>Among directive files, the executor may modify ONLY agent/project/MEMORY.md. Files agent/rules/*.md and agent/AGENT_INSTRUCTIONS.md are protected; any PS script attempting to write to them is blocked by the DirectiveValidator.</rule> </directive> 
+
+<directive id="BLOCKING_QUESTION_PAUSE" severity="CRITICAL">
+  <rule>Whenever a blocking question to the user is required before further progress (acceptance of the result, commit approval, disambiguation, any decision the user must answer before the loop may continue), the executor MUST emit BOTH markers in the SAME PS script.</rule>
+  <rule>Both markers must follow the exact syntax of SCRIPT_OUTPUT_MARKERS: one USER_MSG line with the question, immediately paired with one AGENT_PAUSE line carrying a short reason.</rule>
+  <forbid>Emitting USER_MSG alone (without a paired AGENT_PAUSE) for a blocking question.</forbid>
+  <forbid>Emitting AGENT_PAUSE alone (without a preceding USER_MSG) for a blocking question.</forbid>
+  <forbid>Repeating the same blocking question in the next iteration: after USER_MSG + AGENT_PAUSE the loop is paused until the user replies; a repeat is a defect.</forbid>
+  <allow>Non-blocking informational USER_MSG (progress reports, status lines the user does not need to answer) without AGENT_PAUSE.</allow>
+  <rationale>Without the paired AGENT_PAUSE the automation loop keeps running and the executor re-emits the same question on the next iteration (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.3-beta).</rationale>
+</directive>
+
+<directive id="NO_BROAD_PROCESS_KILL" severity="CRITICAL">
+  <rule>Forbid process termination by generic name or wildcard: Get-Process -Name java | Stop-Process, Get-Process -Name javaw | Stop-Process, Stop-Process -Name java, taskkill /IM java.exe, taskkill /IM javaw.exe, pkill -f java, and any equivalent pattern that terminates processes by name rather than by an explicit PID known to belong to a child process started by the same PS script.</rule>
+  <rule>Allow process termination only when the exact PID was produced by the same PS script (for example, the PID returned by Start-Process -PassThru). Kill by explicit PID only: Stop-Process -Id $pid, taskkill /F /T /PID $pid.</rule>
+  <rule>To restart an application, remember the PID returned at start, kill that PID, then launch a new process. Do not kill every java/javaw process on the machine.</rule>
+  <rule>If a running instance was not started by the current script, do not kill it. Ask the user to close it manually via USER_MSG + AGENT_PAUSE (see BLOCKING_QUESTION_PAUSE).</rule>
+  <rationale>Framework A itself runs as a java process. A generic process kill (Get-Process -Name java | Stop-Process) terminates framework A along with the target application; the framework exits with code -1 (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.4-beta).</rationale>
+</directive>
 </role>

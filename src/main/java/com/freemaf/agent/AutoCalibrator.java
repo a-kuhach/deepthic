@@ -1,4 +1,3 @@
-
 package com.freemaf.agent;
 
 import java.io.IOException;
@@ -17,17 +16,17 @@ public final class AutoCalibrator {
 
     public static CalibrationResult calibrateStatic(Config config) throws IOException {
 
-        return calibrate(config, STATIC_MARKERS);
+        return calibrate(config, STATIC_MARKERS, true);
 
     }
 
     public static CalibrationResult calibrateDynamic(Config config) throws IOException {
 
-        return calibrate(config, DYNAMIC_MARKERS);
+        return calibrate(config, DYNAMIC_MARKERS, false);
 
     }
 
-    private static CalibrationResult calibrate(Config config, String[] markers) throws IOException {
+    private static CalibrationResult calibrate(Config config, String[] markers, boolean applyShift) throws IOException {
 
         int winX = config.getInt("window.work.x", 50);
 
@@ -53,17 +52,19 @@ public final class AutoCalibrator {
 
             int absX = winX + dx;
 
-            int absY = winY + dy;
+            int readY = winY + dy;
 
-            int rgb = pixels.readPixel(absX, absY);
+            int rgb = pixels.readPixel(absX, readY);
 
             String hex = ColorUtils.toHex(rgb);
 
-            config.saveMarker(marker, absX, absY, rgb);
+            int storedY = applyShift ? (readY - config.getInputAreaDyOffset()) : readY;
+
+            config.saveMarker(marker, absX, storedY, rgb);
 
             result.put(marker, hex);
 
-            AppLogger.info("AutoCalibrator: " + marker + " (" + absX + "," + absY + ") = #" + hex);
+            AppLogger.info("AutoCalibrator: " + marker + " (" + absX + "," + readY + ") = #" + hex);
 
         }
 
@@ -81,7 +82,81 @@ public final class AutoCalibrator {
 
     public static CalibrationResult calibrateSendActive(Config config) throws IOException {
 
-        return calibrateSendColor(config, "active_color");
+        return calibrateSendActiveByPolling(config);
+
+    }
+
+    private static CalibrationResult calibrateSendActiveByPolling(Config config) throws IOException {
+
+        int winX = config.getInt("window.work.x", 50);
+
+        int winY = config.getInt("window.work.y", 50);
+
+        int dx = config.getInt("marker.send.dx", -1);
+
+        int dy = config.getInt("marker.send.dy", -1);
+
+        if (dx < 0 || dy < 0) {
+
+            throw new IOException("marker.send.dx/dy not configured");
+
+        }
+
+        int absX = winX + dx;
+
+        int readY = winY + dy;
+
+        PixelColorService pixels = new PixelColorService();
+
+        String disabled = config.get("marker.send.disabled_color", "");
+
+        long deadline = System.currentTimeMillis() + 3000L;
+
+        int observedRgb = pixels.readPixel(absX, readY);
+
+        String observedHex = ColorUtils.toHex(observedRgb);
+
+        while (System.currentTimeMillis() < deadline) {
+
+            if (disabled != null && !disabled.isBlank() && !observedHex.equalsIgnoreCase(disabled.trim())) {
+
+                break;
+
+            }
+
+            try { Thread.sleep(50L); }
+
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("calibrateSendActiveByPolling interrupted"); }
+
+            observedRgb = pixels.readPixel(absX, readY);
+
+            observedHex = ColorUtils.toHex(observedRgb);
+
+        }
+
+        if (disabled != null && !disabled.isBlank() && observedHex.equalsIgnoreCase(disabled.trim())) {
+
+            AppLogger.warn("AutoCalibrator: send.active_color did not differ from disabled_color after 3000 ms; check marker.send.dx/dy - the pixel may not hit the SEND button visual");
+
+        }
+
+        int storedY = readY - config.getInputAreaDyOffset();
+
+        config.set("marker.send.x", String.valueOf(absX));
+
+        config.set("marker.send.y", String.valueOf(storedY));
+
+        config.set("marker.send.active_color", observedHex);
+
+        config.save();
+
+        Map<String, String> result = new LinkedHashMap<>();
+
+        result.put("send.active_color", observedHex);
+
+        AppLogger.info("AutoCalibrator: send.active_color (" + absX + "," + readY + ") = #" + observedHex);
+
+        return new CalibrationResult(result);
 
     }
 
@@ -105,15 +180,17 @@ public final class AutoCalibrator {
 
         int absX = winX + dx;
 
-        int absY = winY + dy;
+        int readY = winY + dy;
 
-        int rgb = pixels.readPixel(absX, absY);
+        int rgb = pixels.readPixel(absX, readY);
 
         String hex = ColorUtils.toHex(rgb);
 
+        int storedY = readY - config.getInputAreaDyOffset();
+
         config.set("marker.send.x", String.valueOf(absX));
 
-        config.set("marker.send.y", String.valueOf(absY));
+        config.set("marker.send.y", String.valueOf(storedY));
 
         config.set("marker.send." + colorKey, hex);
 
@@ -123,7 +200,7 @@ public final class AutoCalibrator {
 
         result.put("send." + colorKey, hex);
 
-        AppLogger.info("AutoCalibrator: send." + colorKey + " (" + absX + "," + absY + ") = #" + hex);
+        AppLogger.info("AutoCalibrator: send." + colorKey + " (" + absX + "," + readY + ") = #" + hex);
 
         return new CalibrationResult(result);
 

@@ -144,6 +144,7 @@ public final class AutomationLoop implements Runnable {
                 config.setLastReviewerTitle("");
 
                 config.setExecutorMessageCount(0L);
+                config.setSendShiftActive(true);
                 d = new SessionDetector.SessionDecision(SessionDetector.Decision.OPEN_NEW_CHAT, w, w, null, null);
                                 debug("bootstrap: OPEN_NEW_CHAT hwnd=" + Pointer.nativeValue(executorHwnd));
 
@@ -155,6 +156,13 @@ public final class AutomationLoop implements Runnable {
 
                 if (!excludes.contains(reviewerHwnd)) excludes.add(reviewerHwnd);
 
+                // executorHwnd restored from SessionDecision on RESUME_REVIEWER_SESSION
+                if (d.executorWindow() != null) {
+                    this.executorHwnd = d.executorWindow().hwnd();
+                    if (!excludes.contains(executorHwnd)) excludes.add(executorHwnd);
+                } else {
+                    AppLogger.warn("bootstrap RESUME_REVIEWER_SESSION: executor window is missing in SessionDecision");
+                }
                 this.activeReviewerRole = config.getLastPhase();
 
                 windowManager.select(d.reviewerWindow());
@@ -198,6 +206,7 @@ public final class AutomationLoop implements Runnable {
                 promptQueue.add(Prompt.user(d.recoveryMessage(), List.of()));
 
                 config.setExecutorMessageCount(0L);
+                config.setSendShiftActive(true);
                 d = new SessionDetector.SessionDecision(SessionDetector.Decision.RECOVER_NEW_EXECUTOR, w, w, null, d.recoveryMessage());
                                 debug("bootstrap: RECOVER_NEW_EXECUTOR hwnd=" + Pointer.nativeValue(executorHwnd));
 
@@ -206,18 +215,6 @@ public final class AutomationLoop implements Runnable {
         }
 
         return d;
-
-    }
-
-
-
-    public void pause() {
-
-        paused = true;
-
-        statusMarker.setState(StatusMarker.State.PAUSED);
-
-        AppLogger.info("AutomationLoop: paused by user");
 
     }
 
@@ -246,8 +243,7 @@ public final class AutomationLoop implements Runnable {
         String role = activeReviewerRole != null ? activeReviewerRole : "EXECUTOR";
 
         String msg = "### ROLE_TO_ACT: " + role + System.lineSeparator()
-
-                + "Сессия была прервана пользователем, повтори последнее действие.";
+                + "Пользователь вернулся без ответа на твой вопрос (пустой ответ). Ты вправе переспросить или решить вопрос самостоятельно.";
 
         promptQueue.add(msg);
 
@@ -312,6 +308,7 @@ public final class AutomationLoop implements Runnable {
             config.setLastReviewerHwnd(0);
             config.setLastReviewerTitle("");
             config.setExecutorMessageCount(0);
+            config.setSendShiftActive(true);
             StringBuilder init = new StringBuilder();
             if (commitLog != null && !commitLog.isBlank()) {
                 init.append("Результат завершающего коммита:").append(System.lineSeparator());
@@ -431,6 +428,13 @@ public final class AutomationLoop implements Runnable {
 
     public void resetExecutorContext() {
 
+        // executorHwnd refreshed from WindowManager after a recovery handoff
+        Pointer currentExecutor = windowManager.hwnd();
+        if (currentExecutor != null) {
+            this.executorHwnd = currentExecutor;
+            if (!excludes.contains(currentExecutor)) excludes.add(currentExecutor);
+            AppLogger.info("AutomationLoop: executorHwnd refreshed from WindowManager hwnd=" + Pointer.nativeValue(currentExecutor));
+        }
         this.executorContextRequired = true;
 
         AppLogger.info("AutomationLoop: executorContextRequired reset to true");
@@ -722,6 +726,16 @@ public final class AutomationLoop implements Runnable {
 
                 deleteDeliveryScript();
 
+                if (EmergencyStop.isStopped()) {
+
+                    debug("EmergencyStop detected after script execution; skipping further processing");
+
+                    statusMarker.setState(StatusMarker.State.STOPPED);
+
+                    return;
+
+                }
+
 
 
                 List<MarkerEvent> events = MarkerParser.parse(result.stdout());
@@ -817,36 +831,13 @@ public final class AutomationLoop implements Runnable {
 
 
 
-                boolean isAdmissionQuestion = userMsgs.contains("Принимаете")
-
-                        || userMsgs.contains("принимаете")
-
-                        || userMsgs.contains("коммит")
-
-                        || userMsgs.contains("Коммит");
-
-
-
-                boolean honorPause = "ANALYST".equals(responseRole) || isAdmissionQuestion;
-
-
-
-                if (mp == MarkerProcessResult.PAUSE && !honorPause) {
-
-                    debug("ignoring AGENT_PAUSE for role " + responseRole
-
-                            + " (no admission question detected)");
-
-                } else if (mp == MarkerProcessResult.PAUSE) {
-
+                                if (mp == MarkerProcessResult.PAUSE) {
                     appendSystem("Agent paused: " + pauseMessage(events));
                     paused = true;
                     statusMarker.setState(StatusMarker.State.PAUSED);
                     synchronized (pauseMonitor) { pauseMonitor.notifyAll(); }
-                    debug("honoring AGENT_PAUSE for role " + responseRole);
-
+                    debug("honoring AGENT_PAUSE for role " + responseRole + " (unconditional)");
                     continue;
-
                 }
 
 

@@ -5,11 +5,11 @@ import com.freemaf.agent.winapi.WinApiService;
 
 public final class GlobalHotkeyListener implements Runnable {
 
-    private static final int VK_CONTROL = 0x11;
 
     private static final int VK_SHIFT = 0x10;
 
     private static final int VK_S = 0x53;
+    private static final int VK_F12 = 0x7B;
 
     private final Runnable onTrigger;
 
@@ -31,17 +31,16 @@ public final class GlobalHotkeyListener implements Runnable {
 
         while (running) {
 
-            int ctrl = WinApiService.USER32.GetAsyncKeyState(VK_CONTROL);
 
             int shift = WinApiService.USER32.GetAsyncKeyState(VK_SHIFT);
 
-            int s = WinApiService.USER32.GetAsyncKeyState(VK_S);
+            int f12 = WinApiService.USER32.GetAsyncKeyState(VK_F12);
 
-            boolean pressed = (ctrl & 0x8000) != 0 && (shift & 0x8000) != 0 && (s & 0x8000) != 0;
+            boolean pressed = ((shift & 0x8000) != 0) && ((f12 & 0x8000) != 0);
 
             if (pressed && !wasPressed) {
 
-                AppLogger.info("Global hotkey Ctrl+Shift+S detected");
+                AppLogger.info("Global hotkey Shift+F12 detected");
 
                 try { onTrigger.run(); } catch (Exception e) {
 

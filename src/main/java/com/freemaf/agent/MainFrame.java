@@ -333,7 +333,6 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         topRow.add(Box.createHorizontalStrut(12));
         startButton = new JButton("\u25B6");
-        JButton stopButton = new JButton("Stop (Ctrl+Shift+S)");
 
         JButton restartButton = new JButton("Restart Plan");
 
@@ -341,9 +340,14 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         JButton clearChatButton = new JButton("Clear Chat");
         startButton.setFont(new Font("Segoe UI Symbol", Font.PLAIN, 18));
-        topRow.add(startButton);
+        JLabel hotkeyLabel = new JLabel("Shift+F12");
+        JPanel startColumn = new JPanel();
+        startColumn.setLayout(new BoxLayout(startColumn, BoxLayout.Y_AXIS));
+        startColumn.setBackground(DarkTheme.BG);
+        startColumn.add(startButton);
+        startColumn.add(hotkeyLabel);
+        topRow.add(startColumn);
 
-        topRow.add(stopButton);
 
         topRow.add(restartButton);
 
@@ -457,7 +461,6 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
 
         rebuildAttachmentsList();
         startButton.addActionListener(e -> handleStartButtonClick());
-        stopButton.addActionListener(e -> stopAction());
 
         restartButton.addActionListener(e -> restartAction());
 
@@ -745,9 +748,9 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             currentLoop.resumeFromPause();
             return;
         }
-        if (currentLoop != null && currentState == StatusMarker.State.WORKING) {
-            appendSystem("Pausing...");
-            currentLoop.pause();
+        if (currentLoop != null && (currentState == StatusMarker.State.WORKING
+                || currentState == StatusMarker.State.PLANNING)) {
+            stopAction();
             return;
         }
         if (startSequenceRunning) {
@@ -759,10 +762,8 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
 
     private void updateStartButton() {
         if (startButton == null) return;
-        boolean activeWork = currentState == StatusMarker.State.WORKING
-                || currentState == StatusMarker.State.PLANNING;
         boolean userPaused = currentLoop != null && currentLoop.isPaused();
-        startButton.setText(activeWork && !userPaused ? "\u23F8" : "\u25B6");
+        startButton.setText(StartButtonGlyph.glyph(currentState, userPaused));
     }
 
     private void calibrationAction() {
@@ -935,7 +936,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                 if (decision.decision() == SessionDetector.Decision.CONTINUE_OLD_SESSION
                         || decision.decision() == SessionDetector.Decision.OPEN_NEW_CHAT) {
                     String resumeMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
-                            + "Сессия была прервана пользователем, повтори последнее действие.";
+                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью.";
                     promptQueue.addUser(resumeMsg, java.util.List.of());
                     appendSystem("Resume-after-stop: queued continuation prompt.");
                 }
@@ -1194,6 +1195,8 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         }
 
         setStatus(StatusMarker.State.STOPPED);
+        startSequenceRunning = false;
+        currentLoop = null;
 
         updateStartButton();
         chatConsole.appendSystem("Stopped by user");
