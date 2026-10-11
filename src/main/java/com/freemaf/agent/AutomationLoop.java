@@ -144,7 +144,7 @@ public final class AutomationLoop implements Runnable {
                 config.setLastReviewerTitle("");
 
                 config.setExecutorMessageCount(0L);
-                config.setSendShiftActive(true);
+                config.setShiftActiveForHwnd(w.hwndValue(), true);
                 d = new SessionDetector.SessionDecision(SessionDetector.Decision.OPEN_NEW_CHAT, w, w, null, null);
                                 debug("bootstrap: OPEN_NEW_CHAT hwnd=" + Pointer.nativeValue(executorHwnd));
 
@@ -206,7 +206,7 @@ public final class AutomationLoop implements Runnable {
                 promptQueue.add(Prompt.user(d.recoveryMessage(), List.of()));
 
                 config.setExecutorMessageCount(0L);
-                config.setSendShiftActive(true);
+                config.setShiftActiveForHwnd(w.hwndValue(), true);
                 d = new SessionDetector.SessionDecision(SessionDetector.Decision.RECOVER_NEW_EXECUTOR, w, w, null, d.recoveryMessage());
                                 debug("bootstrap: RECOVER_NEW_EXECUTOR hwnd=" + Pointer.nativeValue(executorHwnd));
 
@@ -308,7 +308,7 @@ public final class AutomationLoop implements Runnable {
             config.setLastReviewerHwnd(0);
             config.setLastReviewerTitle("");
             config.setExecutorMessageCount(0);
-            config.setSendShiftActive(true);
+            config.setShiftActiveForHwnd(w.hwndValue(), true);
             StringBuilder init = new StringBuilder();
             if (commitLog != null && !commitLog.isBlank()) {
                 init.append("Результат завершающего коммита:").append(System.lineSeparator());
@@ -510,6 +510,7 @@ public final class AutomationLoop implements Runnable {
         reviewerHwnd = win.hwnd();
 
         excludes.add(reviewerHwnd);
+        config.setShiftActiveForHwnd(win.hwndValue(), true);
 
         debug("opened reviewer window hwnd=" + Pointer.nativeValue(reviewerHwnd)
 

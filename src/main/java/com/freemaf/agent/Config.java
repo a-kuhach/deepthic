@@ -131,9 +131,9 @@ public final class Config {
 
         DEFAULTS.put("marker.retry.max_attempts", "10");
 
-        DEFAULTS.put("marker.send.dx", "610");
+        DEFAULTS.put("marker.send.dx", "609");
 
-        DEFAULTS.put("marker.send.dy", "402");
+        DEFAULTS.put("marker.send.dy", "323");
 
         DEFAULTS.put("marker.send.x", "0");
 
@@ -175,6 +175,8 @@ public final class Config {
         DEFAULTS.put("session.resumeAfterStop", "false");
         DEFAULTS.put("marker.input_area.dy_offset", "-84");
         DEFAULTS.put("config.migrated.v2", "no");
+        DEFAULTS.put("config.migrated.v3", "no");
+        DEFAULTS.put("session.shiftActiveMap", "");;
 
     }
 
@@ -232,6 +234,26 @@ public final class Config {
             AppLogger.info("Config: schema migration v2 applied (input-area dy_offset=" + canonical + ")");
             changed = true;
         }
+
+        // Schema migration v3: correct SEND marker coordinates for the fresh-window input-area shift.
+        // The SEND button sits 84 px higher in a fresh chat window. The previous send.dy (402) was
+        // measured against the shifted pixel and hit the background. Correct values, derived from the
+        // post-send absolute measurement (659,457) with window origin (50,50) and dyOffset -84:
+        //   marker.send.dx = 609  (fresh-window X within window; X never shifts)
+        //   marker.send.dy = 323  (fresh-window Y within window)
+        //   marker.send.x  = 659  (post-send absolute X, informational)
+        //   marker.send.y  = 457  (post-send absolute Y; runtime baseline after first Enter)
+        if (!getMigratedV3()) {
+            props.setProperty("marker.send.dx", "609");
+            props.setProperty("marker.send.dy", "323");
+            props.setProperty("marker.send.x", "659");
+            props.setProperty("marker.send.y", "457");
+            props.setProperty("marker.send.active_color", "000000");
+            props.setProperty("marker.send.disabled_color", "000000");
+            props.setProperty("config.migrated.v3", "yes");
+            AppLogger.info("Config: schema migration v3 applied (SEND marker corrected: dx=609, dy=323, y=457)");
+            changed = true;
+        }
 
         java.util.List<String> obsolete = new java.util.ArrayList<>();
         for (Object rawKey : props.keySet()) {
@@ -514,18 +536,59 @@ public final class Config {
         catch (NumberFormatException e) { return -84; }
     }
 
-    public boolean getSendShiftActive() {
-        return getBoolean("session.sendShiftActive", true);
-    }
-
-    public void setSendShiftActive(boolean value) {
-        props.setProperty("session.sendShiftActive", String.valueOf(value));
-        persist();
-    }
+    
+    public boolean getShiftActiveForHwnd(long hwndValue) {
+        if (hwndValue == 0L) return true;
+        String raw = get("session.shiftActiveMap", "");
+        if (raw == null || raw.isBlank()) return true;
+        for (String entry : raw.split(";")) {
+            int idx = entry.indexOf(':');
+            if (idx <= 0) continue;
+            try {
+                long h = Long.parseLong(entry.substring(0, idx).trim());
+                if (h == hwndValue) return "1".equals(entry.substring(idx + 1).trim());
+            } catch (NumberFormatException ignored) { }
+        }
+        return true;
+    }
+
+    public void setShiftActiveForHwnd(long hwndValue, boolean value) {
+        if (hwndValue == 0L) return;
+        java.util.LinkedHashMap<Long, String> map = new java.util.LinkedHashMap<>();
+        String existing = get("session.shiftActiveMap", "");
+        if (existing != null && !existing.isBlank()) {
+            for (String entry : existing.split(";")) {
+                int idx = entry.indexOf(':');
+                if (idx <= 0) continue;
+                try {
+                    long h = Long.parseLong(entry.substring(0, idx).trim());
+                    map.put(h, entry.substring(idx + 1).trim());
+                } catch (NumberFormatException ignored) { }
+            }
+        }
+        map.remove(hwndValue);
+        map.put(hwndValue, value ? "1" : "0");
+        while (map.size() > 20) {
+            java.util.Iterator<Long> it = map.keySet().iterator();
+            it.next();
+            it.remove();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (java.util.Map.Entry<Long, String> e : map.entrySet()) {
+            if (sb.length() > 0) sb.append(';');
+            sb.append(e.getKey()).append(':').append(e.getValue());
+        }
+        props.setProperty("session.shiftActiveMap", sb.toString());
+        persist();
+    }
 
     public boolean getMigratedV2() {
         return "yes".equalsIgnoreCase(get("config.migrated.v2", "no"));
     }
+
+    public boolean getMigratedV3() {
+        return "yes".equalsIgnoreCase(get("config.migrated.v3", "no"));
+    }
 
     private void shiftMarkerY(String key, int dyOffset) {
         String raw = props.getProperty(key);

@@ -204,27 +204,25 @@ public final class InputSimulator {
     public void ctrlV() { pressKeys(VK_CONTROL, VK_V); }
 
     private int inputAreaY(String markerKey) {
-
         int base = config.getInt(markerKey + ".y", 0);
-
-        if (config.getSendShiftActive()) {
-
-            base += config.getInputAreaDyOffset();
-
+        long hwndValue = 0L;
+        if (windowManager != null && windowManager.hwnd() != null) {
+            hwndValue = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
         }
-
+        if (config.getShiftActiveForHwnd(hwndValue)) {
+            base += config.getInputAreaDyOffset();
+        }
         return base;
-
     }
 
     public void enter() {
-
         pressKeys(VK_ENTER);
-
-        try { config.setSendShiftActive(false); }
-
-        catch (RuntimeException e) { AppLogger.warn("sendShiftActive persist failed: " + e.getMessage()); }
-
+        long hwndValue = 0L;
+        if (windowManager != null && windowManager.hwnd() != null) {
+            hwndValue = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
+        }
+        try { config.setShiftActiveForHwnd(hwndValue, false); }
+        catch (RuntimeException e) { AppLogger.warn("shiftActive persist failed: " + e.getMessage()); }
     }
 
     public void refreshPage() throws InterruptedException {
