@@ -177,8 +177,33 @@ public final class Config {
         DEFAULTS.put("config.migrated.v2", "no");
         DEFAULTS.put("config.migrated.v3", "no");
         DEFAULTS.put("session.shiftActiveMap", "");;
+        DEFAULTS.put("windows.system.scale.percent", "0");
+        DEFAULTS.put("windows.scale.min.percent", "100");
+        DEFAULTS.put("windows.scale.max.percent", "225");
+        DEFAULTS.put("config.migrated.v4", "false");
+        DEFAULTS.put("window.growth.step.px", "10");
+        DEFAULTS.put("window.size.max.width", "0");
+        DEFAULTS.put("window.size.max.height", "0");
 
     }
+
+    static final List<String> CALIBRATION_KEYS = List.of(
+            "marker.regenerate.x", "marker.regenerate.y",
+            "marker.regenerate.dx", "marker.regenerate.dy",
+            "marker.copy_last.x", "marker.copy_last.y",
+            "marker.copy_last.dx", "marker.copy_last.dy",
+            "marker.input_field.x", "marker.input_field.y",
+            "marker.input_field.dx", "marker.input_field.dy",
+            "marker.deepthink.x", "marker.deepthink.y",
+            "marker.deepthink.dx", "marker.deepthink.dy",
+            "marker.search.x", "marker.search.y",
+            "marker.search.dx", "marker.search.dy",
+            "marker.retry.x", "marker.retry.y",
+            "marker.send.dx", "marker.send.dy",
+            "marker.send.x", "marker.send.y",
+            "marker.send.active_color", "marker.send.disabled_color",
+            "marker.input_area.dy_offset"
+    );
 
     private final Properties props = new Properties();
 
@@ -220,7 +245,7 @@ public final class Config {
 
     }
 
-    private void migrate() {
+    void migrate() {
         boolean changed = false;
 
         // Schema migration v2: input-area Y coordinates are now stored as normal (post-send) baseline.
@@ -234,26 +259,60 @@ public final class Config {
             AppLogger.info("Config: schema migration v2 applied (input-area dy_offset=" + canonical + ")");
             changed = true;
         }
-
-        // Schema migration v3: correct SEND marker coordinates for the fresh-window input-area shift.
-        // The SEND button sits 84 px higher in a fresh chat window. The previous send.dy (402) was
-        // measured against the shifted pixel and hit the background. Correct values, derived from the
-        // post-send absolute measurement (659,457) with window origin (50,50) and dyOffset -84:
-        //   marker.send.dx = 609  (fresh-window X within window; X never shifts)
-        //   marker.send.dy = 323  (fresh-window Y within window)
-        //   marker.send.x  = 659  (post-send absolute X, informational)
-        //   marker.send.y  = 457  (post-send absolute Y; runtime baseline after first Enter)
-        if (!getMigratedV3()) {
-            props.setProperty("marker.send.dx", "609");
-            props.setProperty("marker.send.dy", "323");
-            props.setProperty("marker.send.x", "659");
-            props.setProperty("marker.send.y", "457");
-            props.setProperty("marker.send.active_color", "000000");
-            props.setProperty("marker.send.disabled_color", "000000");
-            props.setProperty("config.migrated.v3", "yes");
-            AppLogger.info("Config: schema migration v3 applied (SEND marker corrected: dx=609, dy=323, y=457)");
-            changed = true;
-        }
+
+
+        // Schema migration v3: correct SEND marker coordinates for the fresh-window input-area shift.
+
+        // The SEND button sits 84 px higher in a fresh chat window. The previous send.dy (402) was
+
+        // measured against the shifted pixel and hit the background. Correct values, derived from the
+
+        // post-send absolute measurement (659,457) with window origin (50,50) and dyOffset -84:
+
+        //   marker.send.dx = 609  (fresh-window X within window; X never shifts)
+
+        //   marker.send.dy = 323  (fresh-window Y within window)
+
+        //   marker.send.x  = 659  (post-send absolute X, informational)
+
+        //   marker.send.y  = 457  (post-send absolute Y; runtime baseline after first Enter)
+
+        if (!getMigratedV3()) {
+
+            props.setProperty("marker.send.dx", "609");
+
+            props.setProperty("marker.send.dy", "323");
+
+            props.setProperty("marker.send.x", "659");
+
+            props.setProperty("marker.send.y", "457");
+
+            props.setProperty("marker.send.active_color", "000000");
+
+            props.setProperty("marker.send.disabled_color", "000000");
+
+            props.setProperty("config.migrated.v3", "yes");
+
+            AppLogger.info("Config: schema migration v3 applied (SEND marker corrected: dx=609, dy=323, y=457)");
+
+            changed = true;
+
+        }
+
+
+        // Schema migration v4 (Stage S1): reset only calibration keys.
+        if (!isMigratedV4()) {
+            int reset = 0;
+            for (String key : CALIBRATION_KEYS) {
+                if (DEFAULTS.containsKey(key)) {
+                    props.setProperty(key, DEFAULTS.get(key));
+                    reset++;
+                }
+            }
+            props.setProperty("config.migrated.v4", "true");
+            AppLogger.info("Config: schema migration v4 applied (" + reset + " calibration keys reset)");
+            changed = true;
+        }
 
         java.util.List<String> obsolete = new java.util.ArrayList<>();
         for (Object rawKey : props.keySet()) {
@@ -537,58 +596,203 @@ public final class Config {
     }
 
     
-    public boolean getShiftActiveForHwnd(long hwndValue) {
-        if (hwndValue == 0L) return true;
-        String raw = get("session.shiftActiveMap", "");
-        if (raw == null || raw.isBlank()) return true;
-        for (String entry : raw.split(";")) {
-            int idx = entry.indexOf(':');
-            if (idx <= 0) continue;
-            try {
-                long h = Long.parseLong(entry.substring(0, idx).trim());
-                if (h == hwndValue) return "1".equals(entry.substring(idx + 1).trim());
-            } catch (NumberFormatException ignored) { }
-        }
-        return true;
-    }
-
-    public void setShiftActiveForHwnd(long hwndValue, boolean value) {
-        if (hwndValue == 0L) return;
-        java.util.LinkedHashMap<Long, String> map = new java.util.LinkedHashMap<>();
-        String existing = get("session.shiftActiveMap", "");
-        if (existing != null && !existing.isBlank()) {
-            for (String entry : existing.split(";")) {
-                int idx = entry.indexOf(':');
-                if (idx <= 0) continue;
-                try {
-                    long h = Long.parseLong(entry.substring(0, idx).trim());
-                    map.put(h, entry.substring(idx + 1).trim());
-                } catch (NumberFormatException ignored) { }
-            }
-        }
-        map.remove(hwndValue);
-        map.put(hwndValue, value ? "1" : "0");
-        while (map.size() > 20) {
-            java.util.Iterator<Long> it = map.keySet().iterator();
-            it.next();
-            it.remove();
-        }
-        StringBuilder sb = new StringBuilder();
-        for (java.util.Map.Entry<Long, String> e : map.entrySet()) {
-            if (sb.length() > 0) sb.append(';');
-            sb.append(e.getKey()).append(':').append(e.getValue());
-        }
-        props.setProperty("session.shiftActiveMap", sb.toString());
-        persist();
-    }
+    public boolean getShiftActiveForHwnd(long hwndValue) {
+
+        if (hwndValue == 0L) return true;
+
+        String raw = get("session.shiftActiveMap", "");
+
+        if (raw == null || raw.isBlank()) return true;
+
+        for (String entry : raw.split(";")) {
+
+            int idx = entry.indexOf(':');
+
+            if (idx <= 0) continue;
+
+            try {
+
+                long h = Long.parseLong(entry.substring(0, idx).trim());
+
+                if (h == hwndValue) return "1".equals(entry.substring(idx + 1).trim());
+
+            } catch (NumberFormatException ignored) { }
+
+        }
+
+        return true;
+
+    }
+
+
+
+    public void setShiftActiveForHwnd(long hwndValue, boolean value) {
+
+        if (hwndValue == 0L) return;
+
+        java.util.LinkedHashMap<Long, String> map = new java.util.LinkedHashMap<>();
+
+        String existing = get("session.shiftActiveMap", "");
+
+        if (existing != null && !existing.isBlank()) {
+
+            for (String entry : existing.split(";")) {
+
+                int idx = entry.indexOf(':');
+
+                if (idx <= 0) continue;
+
+                try {
+
+                    long h = Long.parseLong(entry.substring(0, idx).trim());
+
+                    map.put(h, entry.substring(idx + 1).trim());
+
+                } catch (NumberFormatException ignored) { }
+
+            }
+
+        }
+
+        map.remove(hwndValue);
+
+        map.put(hwndValue, value ? "1" : "0");
+
+        while (map.size() > 20) {
+
+            java.util.Iterator<Long> it = map.keySet().iterator();
+
+            it.next();
+
+            it.remove();
+
+        }
+
+        StringBuilder sb = new StringBuilder();
+
+        for (java.util.Map.Entry<Long, String> e : map.entrySet()) {
+
+            if (sb.length() > 0) sb.append(';');
+
+            sb.append(e.getKey()).append(':').append(e.getValue());
+
+        }
+
+        props.setProperty("session.shiftActiveMap", sb.toString());
+
+        persist();
+
+    }
+
 
     public boolean getMigratedV2() {
         return "yes".equalsIgnoreCase(get("config.migrated.v2", "no"));
     }
 
-    public boolean getMigratedV3() {
-        return "yes".equalsIgnoreCase(get("config.migrated.v3", "no"));
-    }
+    public boolean getMigratedV3() {
+
+        return "yes".equalsIgnoreCase(get("config.migrated.v3", "no"));
+
+    }
+
+
+    public int getSystemScalePercent() {
+        return getInt("windows.system.scale.percent", 0);
+    }
+
+    public void setSystemScalePercent(int percent) {
+        if (percent == 0) {
+            props.setProperty("windows.system.scale.percent", "0");
+            persist();
+            return;
+        }
+        int min = getScaleMinPercent();
+        int max = getScaleMaxPercent();
+        if (percent < min || percent > max) {
+            AppLogger.warn("Config: scale percent " + percent + " out of range [" + min + "," + max + "]");
+            return;
+        }
+        props.setProperty("windows.system.scale.percent", String.valueOf(percent));
+        persist();
+    }
+
+    public int getScaleMinPercent() {
+        return getInt("windows.scale.min.percent", 100);
+    }
+
+    public void setScaleMinPercent(int percent) {
+        int max = getScaleMaxPercent();
+        if (percent >= max) {
+            AppLogger.warn("Config: scale.min.percent must be < max");
+            return;
+        }
+        props.setProperty("windows.scale.min.percent", String.valueOf(percent));
+        persist();
+    }
+
+    public int getScaleMaxPercent() {
+        return getInt("windows.scale.max.percent", 225);
+    }
+
+    public void setScaleMaxPercent(int percent) {
+        int min = getScaleMinPercent();
+        if (percent <= min) {
+            AppLogger.warn("Config: scale.max.percent must be > min");
+            return;
+        }
+        props.setProperty("windows.scale.max.percent", String.valueOf(percent));
+        persist();
+    }
+
+    public boolean isMigratedV4() {
+        return "true".equalsIgnoreCase(get("config.migrated.v4", "false"));
+    }
+
+    public void setMigratedV4(boolean value) {
+        props.setProperty("config.migrated.v4", String.valueOf(value));
+    }
+
+    public int getWindowGrowthStepPx() {
+        int value = getInt("window.growth.step.px", 10);
+        return value >= 1 ? value : 10;
+    }
+
+    public void setWindowGrowthStepPx(int stepPx) {
+        if (stepPx < 1) {
+            AppLogger.warn("Config: window.growth.step.px must be >= 1, ignoring " + stepPx);
+            return;
+        }
+        props.setProperty("window.growth.step.px", String.valueOf(stepPx));
+        persist();
+    }
+
+    public int getWindowSizeMaxWidth() {
+        int value = getInt("window.size.max.width", 0);
+        return value >= 0 ? value : 0;
+    }
+
+    public void setWindowSizeMaxWidth(int width) {
+        if (width < 0) {
+            AppLogger.warn("Config: window.size.max.width must be >= 0, ignoring " + width);
+            return;
+        }
+        props.setProperty("window.size.max.width", String.valueOf(width));
+        persist();
+    }
+
+    public int getWindowSizeMaxHeight() {
+        int value = getInt("window.size.max.height", 0);
+        return value >= 0 ? value : 0;
+    }
+
+    public void setWindowSizeMaxHeight(int height) {
+        if (height < 0) {
+            AppLogger.warn("Config: window.size.max.height must be >= 0, ignoring " + height);
+            return;
+        }
+        props.setProperty("window.size.max.height", String.valueOf(height));
+        persist();
+    }
 
     private void shiftMarkerY(String key, int dyOffset) {
         String raw = props.getProperty(key);

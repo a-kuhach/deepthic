@@ -87,6 +87,39 @@ public final class WindowManager {
 
     }
 
+    public boolean applySize(int width, int height) {
+        if (!isWindowValid()) return false;
+        if (width <= 0 || height <= 0) return false;
+        WinApiService.RECT saved = new WinApiService.RECT();
+        if (!WinApiService.USER32.GetWindowRect(hwnd, saved)) return false;
+        int x = saved.left;
+        int y = saved.top;
+        int finalLeft = x, finalTop = y, finalRight = x + width, finalBottom = y + height;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            unmaximizeIfNeeded();
+            WinApiService.USER32.ShowWindow(hwnd, WinApiService.SW_SHOW);
+            WinApiService.USER32.SetWindowPos(hwnd, null, x, y, width, height, WinApiService.SWP_NOZORDER);
+            try { Thread.sleep(150L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; }
+            WinApiService.RECT actual = new WinApiService.RECT();
+            if (!WinApiService.USER32.GetWindowRect(hwnd, actual)) continue;
+            int dw = Math.abs((actual.right - actual.left) - width);
+            int dh = Math.abs((actual.bottom - actual.top) - height);
+            int dx = Math.abs(actual.left - x);
+            int dy = Math.abs(actual.top - y);
+            if (dw <= 2 && dh <= 2 && dx <= 2 && dy <= 2) {
+                finalLeft = actual.left; finalTop = actual.top;
+                finalRight = actual.right; finalBottom = actual.bottom;
+                this.left = finalLeft; this.top = finalTop;
+                this.right = finalRight; this.bottom = finalBottom;
+                return true;
+            }
+        }
+        WinApiService.USER32.SetWindowPos(hwnd, null, saved.left, saved.top,
+                saved.right - saved.left, saved.bottom - saved.top, WinApiService.SWP_NOZORDER);
+        try { Thread.sleep(150L); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        return false;
+    }
+
     public void activate() {
 
         if (!isWindowValid()) return;

@@ -43,6 +43,10 @@ public final class WinApiService {
 
     public static final int SM_CYSCREEN = 1;
 
+    public static final int SM_CXWORKAREA = 48;
+    public static final int SM_CYWORKAREA = 49;
+    public static final int MONITOR_DEFAULTTONEAREST = 2;
+
     public static final int SWP_NOZORDER = 0x0004;
 
     public static final int SWP_NOACTIVATE = 0x0010;
@@ -62,17 +66,74 @@ public final class WinApiService {
     public static final int GMEM_MOVEABLE = 0x0002;
 
     
-private WinApiService() {}
-
-    public static boolean isWindow(long hwndValue) {
-        if (hwndValue == 0L) return false;
-        return USER32.IsWindow(new Pointer(hwndValue));
-    }
-
-    public static void closeWindow(long hwndValue) {
-        if (hwndValue == 0L) return;
-        USER32.PostMessageW(new Pointer(hwndValue), WM_CLOSE, null, null);
-    }
+private WinApiService() {}
+
+    public static WorkspaceBounds getWorkspaceBounds(Pointer hwnd) {
+        try {
+            if (hwnd != null && USER32.IsWindow(hwnd)) {
+                Pointer hMon = USER32.MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+                if (hMon != null) {
+                    MONITORINFO mi = new MONITORINFO();
+                    mi.cbSize = mi.size();
+                    if (USER32.GetMonitorInfoW(hMon, mi)) {
+                        int w = mi.rcWork.right - mi.rcWork.left;
+                        int h = mi.rcWork.bottom - mi.rcWork.top;
+                        if (w > 0 && h > 0) {
+                            return new WorkspaceBounds(mi.rcWork.left, mi.rcWork.top, w, h);
+                        }
+                    }
+                }
+            }
+        } catch (Throwable ignored) { }
+        int fallbackW = USER32.GetSystemMetrics(SM_CXWORKAREA);
+        int fallbackH = USER32.GetSystemMetrics(SM_CYWORKAREA);
+        return new WorkspaceBounds(0, 0, Math.max(fallbackW, 0), Math.max(fallbackH, 0));
+    }
+
+
+
+    public static boolean isWindow(long hwndValue) {
+
+        if (hwndValue == 0L) return false;
+
+        return USER32.IsWindow(new Pointer(hwndValue));
+
+    }
+
+
+
+    public static void closeWindow(long hwndValue) {
+
+        if (hwndValue == 0L) return;
+
+        USER32.PostMessageW(new Pointer(hwndValue), WM_CLOSE, null, null);
+
+    }
+
+
+    public static int dpiToPercent(int dpi) {
+        if (dpi <= 0) return 0;
+        return (int) Math.round(dpi / 96.0 * 100.0);
+    }
+
+    public static int systemScalePercent() {
+        try {
+            int dpi = USER32.GetDpiForSystem();
+            return dpiToPercent(dpi);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
+
+    public static int windowScalePercent(Pointer hwnd) {
+        if (hwnd == null || !USER32.IsWindow(hwnd)) return 0;
+        try {
+            int dpi = USER32.GetDpiForWindow(hwnd);
+            return dpiToPercent(dpi);
+        } catch (Throwable t) {
+            return 0;
+        }
+    }
 
     public interface WndEnumProc extends StdCallCallback {
 
@@ -140,6 +201,14 @@ private WinApiService() {}
 
         boolean IsClipboardFormatAvailable(int format);
 
+        int GetDpiForSystem();
+
+        int GetDpiForWindow(Pointer hwnd);
+
+        Pointer MonitorFromWindow(Pointer hwnd, int dwFlags);
+
+        boolean GetMonitorInfoW(Pointer hMonitor, MONITORINFO lpmi);
+
     }
 
     public interface Gdi32 extends StdCallLibrary {
@@ -176,6 +245,16 @@ private WinApiService() {}
 
     }
 
+    public static class MONITORINFO extends Structure {
+        public int cbSize;
+        public RECT rcMonitor = new RECT();
+        public RECT rcWork = new RECT();
+        public int dwFlags;
+        @Override protected List<String> getFieldOrder() { return List.of("cbSize","rcMonitor","rcWork","dwFlags"); }
+    }
+
+    public record WorkspaceBounds(int left, int top, int width, int height) { }
+
     public static class MOUSEINPUT extends Structure {
 
         public int dx; public int dy; public int mouseData; public int dwFlags; public int time; public Pointer dwExtraInfo;
@@ -203,4 +282,3 @@ private WinApiService() {}
     }
 
 }
-
