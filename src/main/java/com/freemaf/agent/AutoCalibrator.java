@@ -90,6 +90,8 @@ public final class AutoCalibrator {
         // No mass-centering, no full-region aggregation - early exit on match.
         if (spec.rule() == MarkerSpec.SelectionRule.TOPMOST_LEFT
                 || spec.rule() == MarkerSpec.SelectionRule.FIRST_MATCH) {
+            int blackCount = 0;
+            java.util.Map<String, Integer> freqFm = new java.util.HashMap<>();
             for (int yy = 0; yy < rh; yy += step) {
                 int rowBase = yy * rw;
                 int screenY = y0 + yy;
@@ -98,24 +100,40 @@ public final class AutoCalibrator {
                     if (rgb == -1) continue;
                     scanned++;
                     String hex = ColorUtils.toHex(rgb);
+                    String hexU = hex.toUpperCase();
+                    freqFm.merge(hexU, 1, Integer::sum);
+                    if ("000000".equals(hexU)) blackCount++;
                     if (matchesAny(hex, spec.activeColorsHex(), spec.tolerance())) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH ("
-                                + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
+                                + (x0 + xx) + "," + screenY + ") #" + hexU
                                 + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
-                        return new MarkerHit(x0 + xx, screenY, hex.toUpperCase(), false);
+                        return new MarkerHit(x0 + xx, screenY, hexU, false);
                     }
                     if (matchesAny(hex, spec.disabledColorsHex(), spec.tolerance())) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH disabled ("
-                                + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
+                                + (x0 + xx) + "," + screenY + ") #" + hexU
                                 + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
-                        return new MarkerHit(x0 + xx, screenY, hex.toUpperCase(), true);
+                        return new MarkerHit(x0 + xx, screenY, hexU, true);
                     }
                 }
             }
+            int unique = freqFm.size();
+            double blackRatio = scanned == 0 ? 0.0 : (double) blackCount / scanned;
+            java.util.List<java.util.Map.Entry<String, Integer>> topFm = new java.util.ArrayList<>(freqFm.entrySet());
+            topFm.sort((e1, e2) -> Integer.compare(e2.getValue(), e1.getValue()));
+            StringBuilder tnFm = new StringBuilder();
+            for (int i = 0; i < Math.min(15, topFm.size()); i++) {
+                if (i > 0) tnFm.append(", ");
+                tnFm.append("#").append(topFm.get(i).getKey()).append(" x").append(topFm.get(i).getValue());
+            }
             AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: NO MATCH (rule=" + spec.rule()
                     + ", area=" + rw + "x" + rh + ", scanned=" + scanned
+                    + ", unique=" + unique
+                    + ", blackCount=" + blackCount
+                    + ", blackRatio=" + String.format(java.util.Locale.ROOT, "%.3f", blackRatio)
+                    + ", top15=[" + tnFm + "]"
                     + ", expectedActive=" + spec.activeColorsHex()
                     + ", expectedDisabled=" + spec.disabledColorsHex() + ")");
             return null;
@@ -192,9 +210,10 @@ public final class AutoCalibrator {
             int er  = Integer.parseInt(e.substring(0, 2), 16);
             int eg  = Integer.parseInt(e.substring(2, 4), 16);
             int eb  = Integer.parseInt(e.substring(4, 6), 16);
-            return Math.abs(or_ - er) <= tolerance
-                    && Math.abs(og - eg) <= tolerance
-                    && Math.abs(ob - eb) <= tolerance;
+            int dR = Math.abs(or_ - er);
+            int dG = Math.abs(og - eg);
+            int dB = Math.abs(ob - eb);
+            return (dR + dG + dB) <= tolerance;
         } catch (NumberFormatException ex) {
             return o.equalsIgnoreCase(e);
         }

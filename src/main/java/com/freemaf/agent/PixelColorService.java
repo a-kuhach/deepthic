@@ -108,11 +108,19 @@ public final class PixelColorService implements PixelReader, AutoCloseable {
                 java.util.Arrays.fill(out, -1);
                 return out;
             }
+            int blackLocal = 0;
             for (int i = 0, p = 0; i < out.length; i++, p += 4) {
                 int b = buf[p] & 0xFF;
                 int g = buf[p + 1] & 0xFF;
                 int r = buf[p + 2] & 0xFF;
+                if (r == 0 && g == 0 && b == 0) blackLocal++;
                 out[i] = (r << 16) | (g << 8) | b;
+            }
+            if (blackLocal * 2 > out.length) {
+                AppLogger.warn("PixelColorService.readRegion: BLACK BIAS at " + x0 + "," + y0
+                        + " " + w + "x" + h + " -> blackCount=" + blackLocal + "/" + out.length
+                        + " (BitBlt/DWM capture failed). Falling back to per-pixel GetPixel path.");
+                return PixelReader.super.readRegion(x0, y0, w, h);
             }
             return out;
         } finally {

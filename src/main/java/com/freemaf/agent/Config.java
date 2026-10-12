@@ -38,6 +38,7 @@ public final class Config {
         DEFAULTS.put("window.work.width", "731");
 
         DEFAULTS.put("window.work.height", "473");
+DEFAULTS.put("config.migrated.v5", "false");
 
         DEFAULTS.put("chrome.exe.path", "");
 

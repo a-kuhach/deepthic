@@ -57,7 +57,7 @@ public record MarkerSpec(CalibrationMarker type,
                     List.of("C9CBD0"), List.of(),
                     new SearchArea(0.0, 0.15, 1.0, 0.85),
                     SelectionRule.FIRST_MATCH,
-                    0);
+                    12);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");
         };
