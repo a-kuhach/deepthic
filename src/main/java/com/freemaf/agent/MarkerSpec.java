@@ -66,7 +66,7 @@ public record MarkerSpec(CalibrationMarker type,
                     SelectionRule.FIRST_MATCH);
             case CODE_COPY -> new MarkerSpec(type,
                     List.of(), List.of(),
-                    new SearchArea(0.0, 0.30, 1.0, 0.55),
+                    new SearchArea(0.65, 0.35, 1.0, 0.55),
                     SelectionRule.FIRST_MATCH,
                     0,
                     1,
