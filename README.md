@@ -21,7 +21,8 @@ WinAPI and OS-level virtual input (SendInput).
 
 ## Requirements
 
-- Windows 10 or 11, display scale 100-225% (tested on 125% and 225%).
+- Windows 10 or 11, display scale must be **100%**. Other scales (125%, 150%, 175%, 200%, 225%) are not supported yet.
+  - A future release will add scale-independent calibration; the codebase already contains the growth loop and tolerance-based matching, they are disabled until the real Copy-button colour at those scales is measured (see `agent/project/PROJECT_STATE.md` -> "Deferred — scale-independent calibration").
 - Monitor working area at least 1920x1080.
 - DeepSeek page zoom in Chrome must be 100% at all times (not modified programmatically).
 - JDK 21 or newer (`java` in PATH).
