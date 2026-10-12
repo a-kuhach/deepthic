@@ -6,7 +6,8 @@ public record MarkerSpec(CalibrationMarker type,
                          List<String> activeColorsHex,
                          List<String> disabledColorsHex,
                          SearchArea area,
-                         SelectionRule rule) {
+                         SelectionRule rule,
+                         int tolerance) {
 
     public enum SelectionRule { FIRST_MATCH, CENTER_MATCH, TOPMOST_LEFT }
 
@@ -25,6 +26,16 @@ public record MarkerSpec(CalibrationMarker type,
         if (type == null) throw new IllegalArgumentException("type is null");
         if (area == null) throw new IllegalArgumentException("area is null");
         if (rule == null) throw new IllegalArgumentException("rule is null");
+        if (tolerance < 0) throw new IllegalArgumentException("tolerance must be >= 0");
+    }
+
+    /** Backward-compatible constructor: exact match (tolerance = 0). */
+    public MarkerSpec(CalibrationMarker type,
+                      List<String> activeColorsHex,
+                      List<String> disabledColorsHex,
+                      SearchArea area,
+                      SelectionRule rule) {
+        this(type, activeColorsHex, disabledColorsHex, area, rule, 0);
     }
 
     public static MarkerSpec forType(CalibrationMarker type) {
@@ -44,8 +55,9 @@ public record MarkerSpec(CalibrationMarker type,
                     SelectionRule.FIRST_MATCH);
             case CODE_COPY -> new MarkerSpec(type,
                     List.of("C9CBD0"), List.of(),
-                    new SearchArea(0.0, 0.30, 1.0, 0.55),
-                    SelectionRule.FIRST_MATCH);
+                    new SearchArea(0.0, 0.15, 1.0, 0.85),
+                    SelectionRule.FIRST_MATCH,
+                    25);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");
         };

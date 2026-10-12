@@ -98,14 +98,14 @@ public final class AutoCalibrator {
                     if (rgb == -1) continue;
                     scanned++;
                     String hex = ColorUtils.toHex(rgb);
-                    if (matchesAny(hex, spec.activeColorsHex())) {
+                    if (matchesAny(hex, spec.activeColorsHex(), spec.tolerance())) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH ("
                                 + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
                                 + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
                         return new MarkerHit(x0 + xx, screenY, hex.toUpperCase(), false);
                     }
-                    if (matchesAny(hex, spec.disabledColorsHex())) {
+                    if (matchesAny(hex, spec.disabledColorsHex(), spec.tolerance())) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH disabled ("
                                 + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
@@ -139,10 +139,10 @@ public final class AutoCalibrator {
                 scanned++;
                 String hex = ColorUtils.toHex(rgb);
                 freq.merge(hex.toUpperCase(), 1, Integer::sum);
-                if (matchesAny(hex, spec.activeColorsHex())) {
+                if (matchesAny(hex, spec.activeColorsHex(), spec.tolerance())) {
                     ax += (x0 + xx); ay += screenY; ac++;
                     if (aHex == null) aHex = hex.toUpperCase();
-                } else if (matchesAny(hex, spec.disabledColorsHex())) {
+                } else if (matchesAny(hex, spec.disabledColorsHex(), spec.tolerance())) {
                     dxc += (x0 + xx); dyc += screenY; dc++;
                     if (dHex == null) dHex = hex.toUpperCase();
                 }
@@ -168,11 +168,36 @@ public final class AutoCalibrator {
         return null;
     }
     private static boolean matchesAny(String hex, List<String> colors) {
+        return matchesAny(hex, colors, 0);
+    }
+
+    private static boolean matchesAny(String hex, List<String> colors, int tolerance) {
         if (colors == null || colors.isEmpty()) return false;
         for (String c : colors) {
-            if (c != null && !c.isBlank() && c.equalsIgnoreCase(hex.trim())) return true;
+            if (matchesHexWithTolerance(hex, c, tolerance)) return true;
         }
         return false;
+    }
+
+    private static boolean matchesHexWithTolerance(String observed, String expected, int tolerance) {
+        if (observed == null || expected == null) return false;
+        String o = observed.trim();
+        String e = expected.trim();
+        if (o.isEmpty() || e.isEmpty()) return false;
+        if (tolerance <= 0 || o.length() != 6 || e.length() != 6) return o.equalsIgnoreCase(e);
+        try {
+            int or_ = Integer.parseInt(o.substring(0, 2), 16);
+            int og  = Integer.parseInt(o.substring(2, 4), 16);
+            int ob  = Integer.parseInt(o.substring(4, 6), 16);
+            int er  = Integer.parseInt(e.substring(0, 2), 16);
+            int eg  = Integer.parseInt(e.substring(2, 4), 16);
+            int eb  = Integer.parseInt(e.substring(4, 6), 16);
+            return Math.abs(or_ - er) <= tolerance
+                    && Math.abs(og - eg) <= tolerance
+                    && Math.abs(ob - eb) <= tolerance;
+        } catch (NumberFormatException ex) {
+            return o.equalsIgnoreCase(e);
+        }
     }
 
     @Deprecated

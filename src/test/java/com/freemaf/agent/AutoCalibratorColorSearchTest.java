@@ -131,19 +131,19 @@ class AutoCalibratorColorSearchTest {
 
     @Test
     void findCodeCopyReturnsHitWhenMatchInLowerArea() {
-        // CODE_COPY area (0.0, 0.30, 1.0, 0.55) on 500x500 -> x0=0, y0=150, x1=500, y1=275.
-        // On-grid pixel inside: (300, 154) -- 154-150=4.
-        PixelReader r = sparse(new int[]{300}, new int[]{154}, new int[]{CODE_COPY_RGB});
+        // CODE_COPY area (0.0, 0.15, 1.0, 0.85) on 500x500 -> x0=0, y0=75, x1=500, y1=425.
+        // On-grid pixel inside: (300, 155) -- 155-75=80 (multiple of step 4).
+        PixelReader r = sparse(new int[]{300}, new int[]{155}, new int[]{CODE_COPY_RGB});
         Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
         assertTrue(hit.isPresent(), "code_copy hit expected");
         assertEquals(300, hit.get().x());
-        assertEquals(154, hit.get().y());
+        assertEquals(155, hit.get().y());
     }
 
     @Test
     void findCodeCopyIgnoresMatchesOutsideSearchArea() {
-        // y=100 is above 0.30*500=150, outside CODE_COPY area.
-        PixelReader r = sparse(new int[]{300}, new int[]{100}, new int[]{CODE_COPY_RGB});
+        // y=40 is above 0.15*500=75, outside CODE_COPY area.
+        PixelReader r = sparse(new int[]{300}, new int[]{40}, new int[]{CODE_COPY_RGB});
         Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
         assertTrue(hit.isEmpty());
     }

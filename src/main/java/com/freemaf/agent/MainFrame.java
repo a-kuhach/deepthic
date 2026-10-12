@@ -1173,72 +1173,109 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                     + (sendHit2 == null ? "NOT FOUND" : sendHit2.x() + "," + sendHit2.y() + " #" + sendHit2.observedColorHex()
                             + " disabled=" + sendHit2.disabledObserved()));
 
-            // -------- Step 7: CODE_COPY with window-height growth loop --------
+            // -------- Step 7: CODE_COPY with window growth loop (both axes, 20 px step) --------
             WinApiChatScroller scroller = new WinApiChatScroller();
             AutoCalibrator.MarkerHit copyHit = null;
             long hwndLong7 = window.hwndValue();
+            int startW = window.right() - window.left();
             int startH = window.bottom() - window.top();
             com.freemaf.agent.winapi.WinApiService.WorkspaceBounds wb7 =
                     com.freemaf.agent.winapi.WinApiService.getWorkspaceBounds(window.hwnd());
+            int workspaceW7 = wb7 == null ? 1920 : wb7.width();
             int workspaceH7 = wb7 == null ? 1080 : wb7.height();
+            int maxW7 = Math.min(workspaceW7 > 0 ? workspaceW7 : 1920, 1920);
             int maxH7 = Math.min(workspaceH7 > 0 ? workspaceH7 : 1080, 1080);
-            final int GROW_STEP_H = 100;
+            final int GROW_STEP = 20;
+            final int POLLS_PER_STEP = 4;
+            final int FINAL_STABILITY_POLLS = 3;
+            WindowInfo current7 = window;
+            int acceptedW = startW;
             int acceptedH = startH;
-            AppLogger.info("runCalibrationSequence: STEP7 grow loop startH=" + startH
-                    + " maxH=" + maxH7 + " step=" + GROW_STEP_H);
-            for (int curH = startH; curH <= maxH7; curH += GROW_STEP_H) {
-                WindowInfo current7 = window;
-                if (curH != startH) {
-                    boolean applied = windowManager.applySize(731, curH);
+            AppLogger.info("runCalibrationSequence: STEP7 grow loop start=" + startW + "x" + startH
+                    + " max=" + maxW7 + "x" + maxH7 + " step=" + GROW_STEP
+                    + " pollsPerStep=" + POLLS_PER_STEP);
+            int growIter = 0;
+            for (int curW = startW, curH = startH; ; curW += GROW_STEP, curH += GROW_STEP, growIter++) {
+                if (curW > maxW7 && curH > maxH7) break;
+                int nextW = Math.min(curW, maxW7);
+                int nextH = Math.min(curH, maxH7);
+                if (growIter > 0) {
+                    boolean applied = windowManager.applySize(nextW, nextH);
                     try { Thread.sleep(500L); }
                     catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-                    current7 = WindowFinder.findByHwnd(hwndLong7, config.getWindowTitle()).orElse(window);
-                    AppLogger.info("runCalibrationSequence: STEP7 grow applied=" + applied
-                            + " height=" + curH + " actualWindow="
-                            + (current7.bottom() - current7.top()));
+                    current7 = WindowFinder.findByHwnd(hwndLong7, config.getWindowTitle()).orElse(current7);
+                    int actualW = current7.right() - current7.left();
+                    int actualH = current7.bottom() - current7.top();
+                    AppLogger.info("runCalibrationSequence: STEP7 grow it=" + growIter
+                            + " applied=" + applied + " requested=" + nextW + "x" + nextH
+                            + " actual=" + actualW + "x" + actualH);
+                    if (!applied) break;
                 }
                 long t7 = System.currentTimeMillis();
-                long deadline7 = t7 + 20_000L;
                 int scrolls = 0;
-                int polls7 = 0;
-                int prevCopyY = -1;
-                int copyStable = 0;
-                while (System.currentTimeMillis() < deadline7 && !EmergencyStop.isStopped()) {
-                    polls7++;
+                for (int p = 0; p < POLLS_PER_STEP && !EmergencyStop.isStopped(); p++) {
                     try { scroller.scrollToBottom(current7); scrolls++; } catch (Throwable ignored) { }
                     try { Thread.sleep(500L); }
                     catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
                     java.util.Optional<AutoCalibrator.MarkerHit> opt = AutoCalibrator.findCodeCopy(current7, windowManager, svc);
-                    if (opt.isPresent()) {
-                        AutoCalibrator.MarkerHit h = opt.get();
-                        if (h.y() == prevCopyY) { copyStable++; }
-                        else { copyStable = 0; prevCopyY = h.y(); }
-                        AppLogger.info("runCalibrationSequence: findCodeCopy h=" + curH
-                                + " poll#" + polls7 + " scrolls=" + scrolls
-                                + " result=" + h.x() + "," + h.y() + " #" + h.observedColorHex()
-                                + " stable=" + copyStable);
-                        if (copyStable >= 2) { copyHit = h; break; }
-                    } else {
-                        prevCopyY = -1; copyStable = 0;
-                    }
+                    if (opt.isPresent()) { copyHit = opt.get(); break; }
                 }
-                AppLogger.info("runCalibrationSequence: STEP7 height=" + curH
-                        + " total=" + (System.currentTimeMillis() - t7)
-                        + " ms polls=" + polls7 + " scrolls=" + scrolls
+                AppLogger.info("runCalibrationSequence: STEP7 size=" + nextW + "x" + nextH
+                        + " iterMs=" + (System.currentTimeMillis() - t7)
+                        + " scrolls=" + scrolls
                         + " result=" + (copyHit == null ? "NOT FOUND" : "FOUND"));
-                if (copyHit != null) { acceptedH = curH; break; }
+                if (copyHit != null) {
+                    acceptedW = nextW;
+                    acceptedH = nextH;
+                    int prevY = copyHit.y();
+                    int stable = 0;
+                    for (int s = 0; s < FINAL_STABILITY_POLLS && !EmergencyStop.isStopped(); s++) {
+                        try { scroller.scrollToBottom(current7); } catch (Throwable ignored) { }
+                        try { Thread.sleep(500L); }
+                        catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+                        java.util.Optional<AutoCalibrator.MarkerHit> opt = AutoCalibrator.findCodeCopy(current7, windowManager, svc);
+                        if (opt.isPresent()) {
+                            AutoCalibrator.MarkerHit h = opt.get();
+                            if (h.y() == prevY) stable++;
+                            else { stable = 0; prevY = h.y(); }
+                            copyHit = h;
+                        } else { stable = 0; }
+                    }
+                    AppLogger.info("runCalibrationSequence: STEP7 stability=" + stable
+                            + " final=" + copyHit.x() + "," + copyHit.y() + " #" + copyHit.observedColorHex());
+                    break;
+                }
             }
             if (copyHit == null) {
-                return failCalibration(scale, "STEP7: code_copy not found at any window height in ["
-                        + startH + ".." + maxH7 + "] step=" + GROW_STEP_H);
+                return failCalibration(scale, "STEP7: code_copy not found at any window size up to "
+                        + maxW7 + "x" + maxH7 + " (step=" + GROW_STEP
+                        + ", start=" + startW + "x" + startH + ")");
             }
-            if (acceptedH != startH) {
+            if (acceptedW != startW || acceptedH != startH) {
+                config.set("window.work.width", String.valueOf(acceptedW));
                 config.set("window.work.height", String.valueOf(acceptedH));
                 config.save();
-                AppLogger.info("runCalibrationSequence: window.work.height persisted as " + acceptedH);
+                AppLogger.info("runCalibrationSequence: window.work size persisted as " + acceptedW + "x" + acceptedH);
             }
+
+            // -------- Step 7.5: re-scan INPUT_FIELD and SEND on final window size (shift already cleared) --------
+            WindowInfo finalWindow = WindowFinder.findByHwnd(hwndLong7, config.getWindowTitle()).orElse(current7);
+            AutoCalibrator.MarkerHit inputHitFinal = AutoCalibrator.findInputField(finalWindow, svc);
+            AutoCalibrator.MarkerHit sendHitFinal  = AutoCalibrator.findSend(finalWindow, svc);
+            if (inputHitFinal == null || sendHitFinal == null) {
+                return failCalibration(scale, "STEP7.5: input/send re-scan failed on final size "
+                        + acceptedW + "x" + acceptedH
+                        + " (input=" + (inputHitFinal == null ? "NOT FOUND" : "ok")
+                        + ", send=" + (sendHitFinal == null ? "NOT FOUND" : "ok") + ")");
+            }
+            inputHit2 = inputHitFinal;
+            sendHit2 = sendHitFinal;
+            AppLogger.info("runCalibrationSequence: STEP7.5 final size=" + acceptedW + "x" + acceptedH
+                    + " input=" + inputHitFinal.x() + "," + inputHitFinal.y() + " #" + inputHitFinal.observedColorHex()
+                    + " send=" + sendHitFinal.x() + "," + sendHitFinal.y() + " #" + sendHitFinal.observedColorHex()
+                    + " disabled=" + sendHitFinal.disabledObserved());
             appendDebug("[Calib 5/6] code_copy at " + copyHit.x() + "," + copyHit.y() + " #" + copyHit.observedColorHex()
-                    + " (window height=" + acceptedH + ")");
+                    + " (window " + acceptedW + "x" + acceptedH + ")");
 
             // -------- Step 8: REGENERATE at xR = xCopy - const --------
             appendDebug("[Calib 6/6] searching regenerate (xR = code_copy.x - const)...");
@@ -1246,7 +1283,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             int xR = copyHit.x() - xOffset;
             AppLogger.info("runCalibrationSequence: STEP8 xCopy=" + copyHit.x() + " xOffset=" + xOffset + " xR=" + xR);
             long t8 = System.currentTimeMillis();
-            AutoCalibrator.MarkerHit regenHit = AutoCalibrator.findRegenerate(window, xR, svc);
+            AutoCalibrator.MarkerHit regenHit = AutoCalibrator.findRegenerate(finalWindow, xR, svc);
             AppLogger.info("runCalibrationSequence: STEP8 REGENERATE done total=" + (System.currentTimeMillis() - t8)
                     + " ms result=" + (regenHit == null ? "NOT FOUND"
                             : regenHit.x() + "," + regenHit.y() + " #" + regenHit.observedColorHex()));
