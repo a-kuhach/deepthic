@@ -379,25 +379,31 @@ public final class AutoCalibrator {
         int yStartAbs = window.top() + (int) Math.floor(0.40 * h);
         int yEndAbs = window.top() + (int) Math.ceil(0.95 * h);
         if (yEndAbs <= yStartAbs) return null;
+        final int xBand = 5;
+        int xStart = Math.max(1, xR - xBand);
+        int xEnd = xR + xBand + 1;
         AppLogger.info("AutoCalibrator.findRegenerate: xR=" + xR
+                + " xRange=[" + xStart + ".." + xEnd + ")"
                 + " y=[" + yStartAbs + ".." + yEndAbs + ") anchor=#" + REGENERATE_ANCHOR_HEX);
         long t0 = System.nanoTime();
         int scanned = 0;
-        for (int y = yStartAbs; y < yEndAbs; y++) {
-            int rgb;
-            try { rgb = reader.readPixel(xR, y); }
-            catch (RuntimeException e) {
-                AppLogger.warn("findRegenerate: readPixel failed at " + xR + "," + y + ": " + e.getMessage());
-                continue;
-            }
-            if (rgb == -1) continue;
-            scanned++;
-            String hex = ColorUtils.toHex(rgb);
-            if (REGENERATE_ANCHOR_HEX.equalsIgnoreCase(hex)) {
-                long ms = (System.nanoTime() - t0) / 1_000_000L;
-                AppLogger.info("AutoCalibrator.findRegenerate: FOUND (" + xR + "," + y + ") #" + hex
-                        + " in " + ms + " ms (scanned=" + scanned + ")");
-                return new MarkerHit(xR, y, hex.toUpperCase(), false);
+        for (int x = xStart; x < xEnd; x++) {
+            for (int y = yStartAbs; y < yEndAbs; y++) {
+                int rgb;
+                try { rgb = reader.readPixel(x, y); }
+                catch (RuntimeException e) {
+                    AppLogger.warn("findRegenerate: readPixel failed at " + x + "," + y + ": " + e.getMessage());
+                    continue;
+                }
+                if (rgb == -1) continue;
+                scanned++;
+                String hex = ColorUtils.toHex(rgb);
+                if (REGENERATE_ANCHOR_HEX.equalsIgnoreCase(hex)) {
+                    long ms = (System.nanoTime() - t0) / 1_000_000L;
+                    AppLogger.info("AutoCalibrator.findRegenerate: FOUND (" + x + "," + y + ") #" + hex
+                            + " in " + ms + " ms (scanned=" + scanned + ")");
+                    return new MarkerHit(x, y, hex.toUpperCase(), false);
+                }
             }
         }
         long ms = (System.nanoTime() - t0) / 1_000_000L;
