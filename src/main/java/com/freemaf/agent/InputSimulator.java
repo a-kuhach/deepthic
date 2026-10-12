@@ -1,4 +1,3 @@
-
 package com.freemaf.agent;
 
 import com.freemaf.agent.winapi.WinApiService;
@@ -37,6 +36,8 @@ public final class InputSimulator {
 
     private volatile WaitRetryCallback waitRetryCallback;
 
+    private volatile AutoCalibrator.CalibrationResult calibration;
+
     public InputSimulator(Config config, ClipboardService clipboardService) {
 
         this.config = config;
@@ -52,6 +53,17 @@ public final class InputSimulator {
     public void setSpeedMode(SpeedMode m) { this.speedMode = m; }
 
     public SpeedMode getSpeedMode() { return speedMode; }
+
+    public void setCalibration(AutoCalibrator.CalibrationResult calibration) { this.calibration = calibration; }
+
+    AutoCalibrator.MarkerHit requireHit(CalibrationMarker marker) {
+        AutoCalibrator.CalibrationResult c = calibration;
+        if (c == null) {
+            throw new IllegalStateException("InputSimulator: calibration not set; run AutoCalibrator before input.");
+        }
+        return c.hit(marker).orElseThrow(() -> new IllegalStateException(
+                "InputSimulator: marker " + marker.id() + " missing in calibration result."));
+    }
 
     public void moveMouse(int x, int y) {
 
@@ -203,26 +215,22 @@ public final class InputSimulator {
 
     public void ctrlV() { pressKeys(VK_CONTROL, VK_V); }
 
-    private int inputAreaY(String markerKey) {
-        int base = config.getInt(markerKey + ".y", 0);
-        long hwndValue = 0L;
-        if (windowManager != null && windowManager.hwnd() != null) {
-            hwndValue = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
-        }
-        if (config.getShiftActiveForHwnd(hwndValue)) {
-            base += config.getInputAreaDyOffset();
-        }
-        return base;
-    }
-
     public void enter() {
+
         pressKeys(VK_ENTER);
+
         long hwndValue = 0L;
+
         if (windowManager != null && windowManager.hwnd() != null) {
+
             hwndValue = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
+
         }
+
         try { config.setShiftActiveForHwnd(hwndValue, false); }
+
         catch (RuntimeException e) { AppLogger.warn("shiftActive persist failed: " + e.getMessage()); }
+
     }
 
     public void refreshPage() throws InterruptedException {
@@ -239,17 +247,11 @@ public final class InputSimulator {
 
     public void typeTextViaClipboard(String text) throws InterruptedException {
 
-        int x = config.getInt("marker.input_field.x", 0);
+        AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);
 
-        int y = inputAreaY("marker.input_field");
+        int x = hit.x();
 
-        if (x <= 0 || y <= 0) {
-
-            throw new IllegalStateException("Input field marker has zero coordinates (x=" + x + ", y=" + y
-
-                    + "). Run Calibration before starting the cycle.");
-
-        }
+        int y = hit.y();
 
         activateChrome();
 
@@ -267,15 +269,11 @@ public final class InputSimulator {
 
     public void typeTextWithoutEnter(String text) throws InterruptedException {
 
-        int x = config.getInt("marker.input_field.x", 0);
+        AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);
 
-        int y = inputAreaY("marker.input_field");
+        int x = hit.x();
 
-        if (x <= 0 || y <= 0) {
-
-            throw new IllegalStateException("Input field marker has zero coordinates (x=" + x + ", y=" + y + ").");
-
-        }
+        int y = hit.y();
 
         activateChrome();
 
@@ -291,15 +289,11 @@ public final class InputSimulator {
 
     public void typeFilesAndTextViaClipboard(List<File> files, String text) throws InterruptedException {
 
-        int x = config.getInt("marker.input_field.x", 0);
+        AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);
 
-        int y = inputAreaY("marker.input_field");
+        int x = hit.x();
 
-        if (x <= 0 || y <= 0) {
-
-            throw new IllegalStateException("Input field marker has zero coordinates (x=" + x + ", y=" + y + ").");
-
-        }
+        int y = hit.y();
 
         activateChrome();
 
@@ -348,13 +342,21 @@ public final class InputSimulator {
     }
 
     private boolean waitForUploadWithRetry() throws InterruptedException {
+
         String activeColor = config.get("marker.send.active_color", "");
+
         String disabledColor = config.get("marker.send.disabled_color", "");
+
         if (activeColor != null && disabledColor != null
+
                 && !activeColor.isBlank() && activeColor.equalsIgnoreCase(disabledColor.trim())) {
+
             AppLogger.warn("waitForUploadWithRetry: active_color == disabled_color ("
+
                     + activeColor + "); SEND-state cannot be detected, skipping wait");
+
             return true;
+
         }
 
         while (!EmergencyStop.isStopped()) {
@@ -379,11 +381,23 @@ public final class InputSimulator {
 
         String target = config.get(key, "");
 
-        int x = config.getInt("marker.send.x", 0);
+        if (target == null || target.isBlank()) return false;
 
-        int y = inputAreaY("marker.send");
+        AutoCalibrator.MarkerHit hit;
 
-        if (x <= 0 || y <= 0 || target == null || target.isBlank()) return false;
+        try {
+
+            hit = requireHit(CalibrationMarker.SEND);
+
+        } catch (IllegalStateException e) {
+
+            return false;
+
+        }
+
+        int x = hit.x();
+
+        int y = hit.y();
 
         long deadline = System.currentTimeMillis() + maxMs;
 

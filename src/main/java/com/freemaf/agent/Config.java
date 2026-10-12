@@ -173,7 +173,7 @@ public final class Config {
         DEFAULTS.put("session.executorMessageCount", "0");
         DEFAULTS.put("session.ignoredHwnds", "");
         DEFAULTS.put("session.resumeAfterStop", "false");
-        DEFAULTS.put("marker.input_area.dy_offset", "-84");
+        DEFAULTS.put("marker.input_area.dy_offset", "0");
         DEFAULTS.put("config.migrated.v2", "no");
         DEFAULTS.put("config.migrated.v3", "no");
         DEFAULTS.put("session.shiftActiveMap", "");;
@@ -589,6 +589,7 @@ public final class Config {
         persist();
     }
 
+    @Deprecated
     public int getInputAreaDyOffset() {
         String raw = get("marker.input_area.dy_offset", "-84");
         try { return Integer.parseInt(raw.trim()); }

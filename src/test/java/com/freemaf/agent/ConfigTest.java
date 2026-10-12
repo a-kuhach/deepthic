@@ -266,4 +266,13 @@ class ConfigTest {
             config.setWindowSizeMaxHeight(prevMaxH);
         }
     }
+
+    @Test
+    void deprecatedMarkerKeysRemainInDefaultsForMigrationCompat() {
+        assertEquals("0", Config.DEFAULTS.get("marker.input_area.dy_offset"));
+        assertTrue(Config.CALIBRATION_KEYS.contains("marker.input_area.dy_offset"));
+        assertTrue(Config.CALIBRATION_KEYS.contains("marker.send.dx"));
+        assertTrue(Config.CALIBRATION_KEYS.contains("marker.input_field.dx"));
+        assertTrue(Config.CALIBRATION_KEYS.contains("marker.regenerate.dy"));
+    }
 }
