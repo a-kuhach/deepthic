@@ -1173,41 +1173,72 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                     + (sendHit2 == null ? "NOT FOUND" : sendHit2.x() + "," + sendHit2.y() + " #" + sendHit2.observedColorHex()
                             + " disabled=" + sendHit2.disabledObserved()));
 
-            // -------- Step 7: CODE_COPY up to 20 s with scroll --------
-            long t7 = System.currentTimeMillis();
+            // -------- Step 7: CODE_COPY with window-height growth loop --------
             WinApiChatScroller scroller = new WinApiChatScroller();
             AutoCalibrator.MarkerHit copyHit = null;
-            long deadline7 = t7 + 20_000L;
-            int scrolls = 0;
-            int polls7 = 0;
-            int prevCopyY = -1;
-            int copyStable = 0;
-            while (System.currentTimeMillis() < deadline7 && !EmergencyStop.isStopped()) {
-                polls7++;
-                try { scroller.scrollToBottom(window); scrolls++; } catch (Throwable ignored) { }
-                try { Thread.sleep(500L); }
-                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-                java.util.Optional<AutoCalibrator.MarkerHit> opt = AutoCalibrator.findCodeCopy(window, windowManager, svc);
-                if (opt.isPresent()) {
-                    AutoCalibrator.MarkerHit h = opt.get();
-                    if (h.y() == prevCopyY) { copyStable++; }
-                    else { copyStable = 0; prevCopyY = h.y(); }
-                    AppLogger.info("runCalibrationSequence: findCodeCopy poll#" + polls7
-                            + " scrolls=" + scrolls + " result=" + h.x() + "," + h.y() + " #" + h.observedColorHex()
-                            + " stable=" + copyStable);
-                    if (copyStable >= 2) { copyHit = h; break; }
-                } else {
-                    prevCopyY = -1; copyStable = 0;
-                    AppLogger.info("runCalibrationSequence: findCodeCopy poll#" + polls7 + " scrolls=" + scrolls + " result=empty");
+            long hwndLong7 = window.hwndValue();
+            int startH = window.bottom() - window.top();
+            com.freemaf.agent.winapi.WinApiService.WorkspaceBounds wb7 =
+                    com.freemaf.agent.winapi.WinApiService.getWorkspaceBounds(window.hwnd());
+            int workspaceH7 = wb7 == null ? 1080 : wb7.height();
+            int maxH7 = Math.min(workspaceH7 > 0 ? workspaceH7 : 1080, 1080);
+            final int GROW_STEP_H = 100;
+            int acceptedH = startH;
+            AppLogger.info("runCalibrationSequence: STEP7 grow loop startH=" + startH
+                    + " maxH=" + maxH7 + " step=" + GROW_STEP_H);
+            for (int curH = startH; curH <= maxH7; curH += GROW_STEP_H) {
+                WindowInfo current7 = window;
+                if (curH != startH) {
+                    boolean applied = windowManager.applySize(731, curH);
+                    try { Thread.sleep(500L); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+                    current7 = WindowFinder.findByHwnd(hwndLong7, config.getWindowTitle()).orElse(window);
+                    AppLogger.info("runCalibrationSequence: STEP7 grow applied=" + applied
+                            + " height=" + curH + " actualWindow="
+                            + (current7.bottom() - current7.top()));
                 }
+                long t7 = System.currentTimeMillis();
+                long deadline7 = t7 + 20_000L;
+                int scrolls = 0;
+                int polls7 = 0;
+                int prevCopyY = -1;
+                int copyStable = 0;
+                while (System.currentTimeMillis() < deadline7 && !EmergencyStop.isStopped()) {
+                    polls7++;
+                    try { scroller.scrollToBottom(current7); scrolls++; } catch (Throwable ignored) { }
+                    try { Thread.sleep(500L); }
+                    catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+                    java.util.Optional<AutoCalibrator.MarkerHit> opt = AutoCalibrator.findCodeCopy(current7, windowManager, svc);
+                    if (opt.isPresent()) {
+                        AutoCalibrator.MarkerHit h = opt.get();
+                        if (h.y() == prevCopyY) { copyStable++; }
+                        else { copyStable = 0; prevCopyY = h.y(); }
+                        AppLogger.info("runCalibrationSequence: findCodeCopy h=" + curH
+                                + " poll#" + polls7 + " scrolls=" + scrolls
+                                + " result=" + h.x() + "," + h.y() + " #" + h.observedColorHex()
+                                + " stable=" + copyStable);
+                        if (copyStable >= 2) { copyHit = h; break; }
+                    } else {
+                        prevCopyY = -1; copyStable = 0;
+                    }
+                }
+                AppLogger.info("runCalibrationSequence: STEP7 height=" + curH
+                        + " total=" + (System.currentTimeMillis() - t7)
+                        + " ms polls=" + polls7 + " scrolls=" + scrolls
+                        + " result=" + (copyHit == null ? "NOT FOUND" : "FOUND"));
+                if (copyHit != null) { acceptedH = curH; break; }
             }
-            AppLogger.info("runCalibrationSequence: STEP7 CODE_COPY done total=" + (System.currentTimeMillis() - t7)
-                    + " ms polls=" + polls7 + " scrolls=" + scrolls
-                    + " result=" + (copyHit == null ? "NOT FOUND" : "FOUND"));
             if (copyHit == null) {
-                return failCalibration(scale, "STEP7: code_copy not detected within 20 s after submit");
+                return failCalibration(scale, "STEP7: code_copy not found at any window height in ["
+                        + startH + ".." + maxH7 + "] step=" + GROW_STEP_H);
             }
-            appendDebug("[Calib 5/6] code_copy at " + copyHit.x() + "," + copyHit.y() + " #" + copyHit.observedColorHex());
+            if (acceptedH != startH) {
+                config.set("window.work.height", String.valueOf(acceptedH));
+                config.save();
+                AppLogger.info("runCalibrationSequence: window.work.height persisted as " + acceptedH);
+            }
+            appendDebug("[Calib 5/6] code_copy at " + copyHit.x() + "," + copyHit.y() + " #" + copyHit.observedColorHex()
+                    + " (window height=" + acceptedH + ")");
 
             // -------- Step 8: REGENERATE at xR = xCopy - const --------
             appendDebug("[Calib 6/6] searching regenerate (xR = code_copy.x - const)...");
