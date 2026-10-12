@@ -40,6 +40,25 @@ public final class Config {
         DEFAULTS.put("window.work.height", "473");
 DEFAULTS.put("config.migrated.v5", "false");
 
+        // Calibration mode: "legacy" = hardcoded coordinates + read colours at those pixels;
+        //                  "dynamic" = colour-search (kept for future work, disabled by default).
+        DEFAULTS.put("calibration.mode", "legacy");
+
+        // Legacy calibration coordinates (absolute pixel positions inside a Chrome window at (50, 50), size 731x473).
+        // The runtime adds (window.left()-50, window.top()-50) to each when the window is not at (50, 50).
+        DEFAULTS.put("legacy.input.fresh.x", "94");
+        DEFAULTS.put("legacy.input.fresh.y", "333");
+        DEFAULTS.put("legacy.input.cleared.x", "94");
+        DEFAULTS.put("legacy.input.cleared.y", "365");
+        DEFAULTS.put("legacy.send.fresh.x", "709");
+        DEFAULTS.put("legacy.send.fresh.y", "372");
+        DEFAULTS.put("legacy.send.cleared.x", "725");
+        DEFAULTS.put("legacy.send.cleared.y", "456");
+        DEFAULTS.put("legacy.code_copy.x", "605");
+        DEFAULTS.put("legacy.code_copy.y", "247");
+        DEFAULTS.put("legacy.regenerate.x", "125");
+        DEFAULTS.put("legacy.regenerate.y", "308");
+
         DEFAULTS.put("chrome.exe.path", "");
 
         DEFAULTS.put("chrome.deepseek.url", "https://chat.deepseek.com/");

@@ -1075,6 +1075,12 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         appendSystem("Running calibration (scale=" + scale + "%, shift=" + shiftActive + ")...");
         setStatus(StatusMarker.State.CALIBRATION);
 
+        String calMode = config.get("calibration.mode", "legacy");
+        AppLogger.info("runCalibrationSequence: calibration.mode=" + calMode);
+        if ("legacy".equalsIgnoreCase(calMode)) {
+            return runLegacyCalibrationSequence(window, scale);
+        }
+
         try (PixelColorService svc = new PixelColorService()) {
             // -------- Step 1: INPUT_FIELD (polling up to 10 s) --------
             appendDebug("[Calib 1/6] searching input_field (up to 10 s)...");
@@ -1312,6 +1318,112 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             long totalMs = System.currentTimeMillis() - tStartAll;
             appendSystem("Calibration completed (scale=" + scale + "%).");
             AppLogger.info("runCalibrationSequence: calibration ready, markers=" + hits.size() + " total=" + totalMs + " ms");
+            setStatus(StatusMarker.State.PAUSED);
+            return true;
+        }
+    }
+
+    private boolean runLegacyCalibrationSequence(WindowInfo window, int scale) throws Exception {
+        long tStartAll = System.currentTimeMillis();
+        int dx = window.left() - 50;
+        int dy = window.top() - 50;
+        int inFreshX = config.getInt("legacy.input.fresh.x", 94) + dx;
+        int inFreshY = config.getInt("legacy.input.fresh.y", 333) + dy;
+        int inClrX   = config.getInt("legacy.input.cleared.x", 94) + dx;
+        int inClrY   = config.getInt("legacy.input.cleared.y", 365) + dy;
+        int sendFreshX = config.getInt("legacy.send.fresh.x", 709) + dx;
+        int sendFreshY = config.getInt("legacy.send.fresh.y", 372) + dy;
+        int sendClrX = config.getInt("legacy.send.cleared.x", 725) + dx;
+        int sendClrY = config.getInt("legacy.send.cleared.y", 456) + dy;
+        int copyX = config.getInt("legacy.code_copy.x", 605) + dx;
+        int copyY = config.getInt("legacy.code_copy.y", 247) + dy;
+        int regenX = config.getInt("legacy.regenerate.x", 125) + dx;
+        int regenY = config.getInt("legacy.regenerate.y", 308) + dy;
+        AppLogger.info("runLegacyCalibrationSequence: window offset dx=" + dx + " dy=" + dy);
+
+        try (PixelColorService svc = new PixelColorService()) {
+            appendDebug("[Calib L 1/6] reading input_field.fresh at " + inFreshX + "," + inFreshY);
+            String freshInputHex = ColorUtils.toHex(svc.readPixel(inFreshX, inFreshY));
+            AppLogger.info("runLegacy: input.fresh=" + inFreshX + "," + inFreshY + " #" + freshInputHex);
+            if (!"2C2C2E".equalsIgnoreCase(freshInputHex)) {
+                return failCalibration(scale, "legacy 1/6: input_field.fresh colour mismatch: expected #2C2C2E, got #" + freshInputHex);
+            }
+
+            appendDebug("[Calib L 2/6] reading send.fresh(disabled) at " + sendFreshX + "," + sendFreshY);
+            String sendFreshDisabledHex = ColorUtils.toHex(svc.readPixel(sendFreshX, sendFreshY));
+            AppLogger.info("runLegacy: send.fresh(disabled)=" + sendFreshX + "," + sendFreshY + " #" + sendFreshDisabledHex);
+            if (!"3C5082".equalsIgnoreCase(sendFreshDisabledHex)) {
+                return failCalibration(scale, "legacy 2/6: send.fresh disabled colour mismatch: expected #3C5082, got #" + sendFreshDisabledHex);
+            }
+
+            appendDebug("[Calib L 3/6] inserting calibration prompt");
+            String calPrompt = config.get("calibration.prompt",
+                    "Reply with exactly one fenced code block and no text outside it. The block must contain a single line: OK");
+            windowManager.activate();
+            Thread.sleep(200L);
+            clipboardService.setText(calPrompt);
+            inputSimulator.click(inFreshX, inFreshY);
+            Thread.sleep(120L);
+            inputSimulator.ctrlA();
+            Thread.sleep(80L);
+            inputSimulator.ctrlV();
+            Thread.sleep(150L);
+
+            appendDebug("[Calib L 4/6] waiting for send.fresh to become active (up to 5 s)");
+            long deadline4 = System.currentTimeMillis() + 5000L;
+            String sendFreshActiveHex = "";
+            while (System.currentTimeMillis() < deadline4 && !EmergencyStop.isStopped()) {
+                sendFreshActiveHex = ColorUtils.toHex(svc.readPixel(sendFreshX, sendFreshY));
+                if ("5686FE".equalsIgnoreCase(sendFreshActiveHex)) break;
+                Thread.sleep(200L);
+            }
+            AppLogger.info("runLegacy: send.fresh(active)=" + sendFreshX + "," + sendFreshY + " #" + sendFreshActiveHex);
+            if (!"5686FE".equalsIgnoreCase(sendFreshActiveHex)) {
+                return failCalibration(scale, "legacy 4/6: send.fresh active colour mismatch after text insertion: got #" + sendFreshActiveHex);
+            }
+
+            appendDebug("[Calib L 5/6] submitting prompt");
+            clipboardService.flushClipboard();
+            Thread.sleep(80L);
+            inputSimulator.enter();
+            Thread.sleep(1500L);
+
+            appendDebug("[Calib L 6/6] reading cleared-state markers");
+            String clearedInputHex = ColorUtils.toHex(svc.readPixel(inClrX, inClrY));
+            String clearedSendHex = ColorUtils.toHex(svc.readPixel(sendClrX, sendClrY));
+            String copyHex = ColorUtils.toHex(svc.readPixel(copyX, copyY));
+            String regenHex = ColorUtils.toHex(svc.readPixel(regenX, regenY));
+            AppLogger.info("runLegacy: cleared input=" + inClrX + "," + inClrY + " #" + clearedInputHex
+                    + " | send=" + sendClrX + "," + sendClrY + " #" + clearedSendHex
+                    + " | code_copy=" + copyX + "," + copyY + " #" + copyHex
+                    + " | regenerate=" + regenX + "," + regenY + " #" + regenHex);
+
+            if (!"2C2C2E".equalsIgnoreCase(clearedInputHex)) {
+                return failCalibration(scale, "legacy 6/6: input_field.cleared colour mismatch: expected #2C2C2E, got #" + clearedInputHex);
+            }
+            if (!"3C5082".equalsIgnoreCase(clearedSendHex)) {
+                return failCalibration(scale, "legacy 6/6: send.cleared colour mismatch: expected #3C5082, got #" + clearedSendHex);
+            }
+
+            java.util.Map<CalibrationMarker, AutoCalibrator.MarkerHit> hits = new java.util.LinkedHashMap<>();
+            java.util.Map<String, String> colors = new java.util.LinkedHashMap<>();
+            AutoCalibrator.MarkerHit inputHit = new AutoCalibrator.MarkerHit(inClrX, inClrY, clearedInputHex.toUpperCase(), false);
+            AutoCalibrator.MarkerHit sendHit = new AutoCalibrator.MarkerHit(sendClrX, sendClrY, clearedSendHex.toUpperCase(), true);
+            AutoCalibrator.MarkerHit copyHit = new AutoCalibrator.MarkerHit(copyX, copyY, copyHex.toUpperCase(), false);
+            AutoCalibrator.MarkerHit regenHit = new AutoCalibrator.MarkerHit(regenX, regenY, regenHex.toUpperCase(), false);
+            hits.put(CalibrationMarker.INPUT_FIELD, inputHit);
+            hits.put(CalibrationMarker.SEND, sendHit);
+            hits.put(CalibrationMarker.CODE_COPY, copyHit);
+            hits.put(CalibrationMarker.REGENERATE, regenHit);
+            colors.put(CalibrationMarker.INPUT_FIELD.id(), clearedInputHex.toUpperCase());
+            colors.put(CalibrationMarker.SEND.id(), clearedSendHex.toUpperCase());
+            colors.put(CalibrationMarker.CODE_COPY.id(), copyHex.toUpperCase());
+            colors.put(CalibrationMarker.REGENERATE.id(), regenHex.toUpperCase());
+            AutoCalibrator.CalibrationResult result = new AutoCalibrator.CalibrationResult(colors, hits, copyHit);
+            inputSimulator.setCalibration(result);
+            long totalMs = System.currentTimeMillis() - tStartAll;
+            appendSystem("Calibration completed (legacy mode, scale=" + scale + "%).");
+            AppLogger.info("runLegacyCalibrationSequence: ready, markers=4, total=" + totalMs + " ms");
             setStatus(StatusMarker.State.PAUSED);
             return true;
         }

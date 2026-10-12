@@ -131,13 +131,13 @@ class AutoCalibratorColorSearchTest {
 
     @Test
     void findCodeCopyReturnsHitWhenMatchInLowerArea() {
-        // CODE_COPY area (0.0, 0.15, 1.0, 0.85) on 500x500 -> x0=0, y0=75, x1=500, y1=425.
-        // On-grid pixel inside: (300, 155) -- 155-75=80 (multiple of step 4).
-        PixelReader r = sparse(new int[]{300}, new int[]{155}, new int[]{CODE_COPY_RGB});
+        // CODE_COPY area (0.65, 0.35, 1.0, 0.55) on 500x500 -> x0=325, y0=175, x1=500, y1=275.
+        // Pixel (400, 200) lies inside; colour C9CBD0 = (201,203,208) satisfies the dynamic light-gray matcher.
+        PixelReader r = sparse(new int[]{400}, new int[]{200}, new int[]{CODE_COPY_RGB});
         Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
         assertTrue(hit.isPresent(), "code_copy hit expected");
-        assertEquals(300, hit.get().x());
-        assertEquals(155, hit.get().y());
+        assertEquals(400, hit.get().x());
+        assertEquals(200, hit.get().y());
     }
 
     @Test
