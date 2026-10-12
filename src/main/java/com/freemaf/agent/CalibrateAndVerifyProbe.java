@@ -35,9 +35,16 @@ public final class CalibrateAndVerifyProbe implements SizingProbe {
             base = AutoCalibrator.calibrate(current, wm, reader);
         } catch (IOException e) {
             return new ProbeResult(false, null, "calibrate failed: " + e.getMessage());
+        } catch (RuntimeException e) {
+            return new ProbeResult(false, null, "calibrate runtime error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
-        scroller.scrollToBottom(current);
-        Optional<AutoCalibrator.MarkerHit> copy = AutoCalibrator.findCodeCopy(current, wm, reader);
+        try { scroller.scrollToBottom(current); }
+        catch (RuntimeException e) { AppLogger.warn("probe: scrollToBottom failed: " + e.getMessage()); }
+        Optional<AutoCalibrator.MarkerHit> copy;
+        try { copy = AutoCalibrator.findCodeCopy(current, wm, reader); }
+        catch (RuntimeException e) {
+            return new ProbeResult(false, base, "findCodeCopy runtime error: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
         AutoCalibrator.CalibrationResult full = copy.map(base::withCodeCopy).orElse(base);
         boolean success = full.allFoundAndVisible();
         if (success) {

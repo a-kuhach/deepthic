@@ -62,6 +62,10 @@ public final class AutoCalibrator {
         y1 = Math.min(wb, y1);
         if (x1 <= x0 || y1 <= y0) return null;
 
+        final int step = 4;
+        final long tStartNs = System.nanoTime();
+        int scanned = 0;
+
         long ax = 0L, ay = 0L;
         int ac = 0;
         String aHex = null;
@@ -69,8 +73,11 @@ public final class AutoCalibrator {
         int dc = 0;
         String dHex = null;
 
-        for (int y = y0; y < y1; y++) {
-            for (int x = x0; x < x1; x++) {
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: start area="
+                + (x1 - x0) + "x" + (y1 - y0) + " step=" + step);
+        for (int y = y0; y < y1; y += step) {
+            for (int x = x0; x < x1; x += step) {
+                scanned++;
                 int rgb = reader.readPixel(x, y);
                 String hex = ColorUtils.toHex(rgb);
                 if (matchesAny(hex, spec.activeColorsHex())) {
@@ -83,6 +90,9 @@ public final class AutoCalibrator {
             }
         }
 
+        long elapsedMs = (System.nanoTime() - tStartNs) / 1_000_000L;
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: scanned " + scanned
+                + " px (step=" + step + ") in " + elapsedMs + " ms; active=" + ac + " disabled=" + dc);
         if (ac > 0) return new MarkerHit((int) (ax / ac), (int) (ay / ac), aHex, false);
         if (dc > 0) return new MarkerHit((int) (dxc / dc), (int) (dyc / dc), dHex, true);
         return null;
@@ -208,6 +218,12 @@ public final class AutoCalibrator {
         if (reader == null) throw new IllegalArgumentException("reader is null");
         MarkerSpec spec = MarkerSpec.forType(CalibrationMarker.CODE_COPY);
         return Optional.ofNullable(search(window, spec, reader));
+    }
+
+    public static MarkerHit findInputField(WindowInfo window, PixelReader reader) {
+        if (window == null) throw new IllegalArgumentException("window is null");
+        if (reader == null) throw new IllegalArgumentException("reader is null");
+        return search(window, MarkerSpec.forType(CalibrationMarker.INPUT_FIELD), reader);
     }
 
     public record MarkerHit(int x, int y, String observedColorHex, boolean disabledObserved) { }

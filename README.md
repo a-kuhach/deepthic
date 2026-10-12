@@ -1,6 +1,6 @@
 # Free MAF Code
 
-**Version: beta v0.1.10**
+**Version: beta v0.2.0**
 
 A Windows automation bridge that drives a manually opened Chrome window with the
 DeepSeek Web chat and uses it as a remote LLM agent for your project.
@@ -21,7 +21,9 @@ WinAPI and OS-level virtual input (SendInput).
 
 ## Requirements
 
-- Windows 10 or 11, display scale 225%.
+- Windows 10 or 11, display scale 100-225% (tested on 125% and 225%).
+- Monitor working area at least 1920x1080.
+- DeepSeek page zoom in Chrome must be 100% at all times (not modified programmatically).
 - JDK 21 or newer (`java` in PATH).
 - Maven 3.8 or newer (`mvn` in PATH) for the initial build.
 - Google Chrome installed.
@@ -42,6 +44,18 @@ WinAPI and OS-level virtual input (SendInput).
    GUI. Subsequent runs reuse the compiled jar and start immediately.
 4. Chrome opens (or is focused) on the DeepSeek chat. Log in if needed.
 5. Click Start and wait for the automatic calibration to finish.
+
+## Calibration
+
+The framework calibrates automatically at startup:
+
+- detects the system scale (100-225%);
+- grows the Chrome window step by step from the minimum size (673x473) until all required markers are visible;
+- for each candidate size runs an in-window color-search (input field, DeepThink, Search, Send), scrolls the chat to the bottom, and verifies that the code-block Copy button is visible.
+
+Calibration succeeds only when all required markers are found AND visible (including the Copy button of the code block). The final CalibrationResult is handed to the input simulator and stays active for the rest of the session.
+
+If the elements cannot fit even at the maximum window size allowed by the workspace, the framework reports that it is incompatible with this PC (see Requirements) and stops. No automatic retries and no page-zoom changes are performed.
 
 ## UI overview
 

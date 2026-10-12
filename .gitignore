@@ -31,3 +31,8 @@ run_app.bat
 # Build outputs (defensive)
 *.jar
 *.class
+
+# A-runtime artifacts must NOT live in the A source repository.
+# WIP.md / MEMORY.md are created by the A-agent in target project C under agent/project/.
+/WIP.md
+/MEMORY.md

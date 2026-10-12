@@ -1050,73 +1050,148 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     }
 
     private boolean runCalibrationSequence() throws Exception {
-
-        appendSystem("Static calibration (input field, DeepThink/Search toggles)...");
-
-        AutoCalibrator.CalibrationResult staticResult = AutoCalibrator.calibrateStatic(config);
-
-        appendSystem("Calibration complete:" + System.lineSeparator() + staticResult.summary());
-
-        appendSystem("Calibrating SEND button (disabled state)...");
-
-        AutoCalibrator.CalibrationResult sendDisabled = AutoCalibrator.calibrateSendDisabled(config);
-
-        appendSystem("SEND disabled: " + sendDisabled.summary());
-
-        String calPrompt = config.get("calibration.prompt",
-
-                "Reply with exactly one fenced code block and no text outside it. The block must contain a single line: OK");
-
-        appendSystem("Sending calibration prompt: " + calPrompt);
-
-        deepSeekSession.ensureWindow();
-
-        inputSimulator.typeTextWithoutEnter(calPrompt);
-
-        Thread.sleep(500L);
-
-        appendSystem("Calibrating SEND button (active state)...");
-
-        AutoCalibrator.CalibrationResult sendActive = AutoCalibrator.calibrateSendActive(config);
-
-        appendSystem("SEND active: " + sendActive.summary());
-
-        inputSimulator.enter();
-
-        if (!showConfirmDialog(
-
-                "Wait until the agent answer is fully generated in the chat, then click OK."
-
-                        + System.lineSeparator()
-
-                        + "The app will then read the regenerate and copy button colors.",
-
-                "Waiting for generation")) {
-
-            appendSystem("Calibration cancelled by user.");
-
+        if (windowManager.hwnd() == null || !windowManager.isWindowValid()) {
+            appendSystem("No managed Chrome window for calibration.");
+            AppLogger.warn("runCalibrationSequence: no managed window");
             return false;
+        }
+        long hLong = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
+        WindowInfo window = WindowFinder.findByHwnd(hLong, config.getWindowTitle()).orElse(null);
+        if (window == null) {
+            window = ChromeLauncher.findDeepSeekWindow();
+        }
+        if (window == null) {
+            appendSystem("DeepSeek window not found before calibration.");
+            AppLogger.warn("runCalibrationSequence: DeepSeek window not found");
+            return false;
+        }
+        int scale = com.freemaf.agent.winapi.WinApiService.systemScalePercent();
+        AppLogger.info("runCalibrationSequence: window=" + window.left() + "," + window.top()
+                + " " + (window.right() - window.left()) + "x" + (window.bottom() - window.top())
+                + " scale=" + scale + "%");
 
+        if (!primeChatForCalibration(window, 120)) {
+            showIncompatiblePcDialog(new CompatibilityChecker.CompatibilityResult(
+                    CompatibilityChecker.CompatibilityResult.Status.INCOMPATIBLE_PC,
+                    "calibration prompt sent but Copy button of the code block was not detected within 120 s; "
+                    + " check DeepSeek page zoom (must be 100%) and chat visibility"),
+                    scale);
+            return false;
         }
 
-        windowManager.activate();
-
-        Thread.sleep(500L);
-
-        try { inputSimulator.scrollDown(5); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-
-        Thread.sleep(700L);
-
-        appendSystem("Dynamic calibration (regenerate, copy_last)...");
-
-        AutoCalibrator.CalibrationResult dynamicResult = AutoCalibrator.calibrateDynamic(config);
-
-        appendSystem("Calibration complete:" + System.lineSeparator() + dynamicResult.summary());
-
-        return true;
-
+        appendSystem("Running calibration orchestrator (scale=" + scale + "%)...");
+        AppLogger.info("runCalibrationSequence: calling CalibrationOrchestrator.run");
+        CalibrationOrchestrator.Outcome outcome;
+        try {
+            outcome = CalibrationOrchestrator.run(
+                    window, windowManager, pixelColorService::readPixel, new WinApiChatScroller(), config);
+        } catch (Throwable t) {
+            AppLogger.warn("runCalibrationSequence: CalibrationOrchestrator.run threw "
+                    + t.getClass().getSimpleName() + ": " + t.getMessage());
+            appendSystem("Calibration error - " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            return false;
+        }
+        AppLogger.info("runCalibrationSequence: orchestrator status=" + outcome.status()
+                + (outcome.compatibility() == null ? "" : " diag=" + outcome.compatibility().diagnostic()));
+        switch (outcome.status()) {
+            case READY -> {
+                inputSimulator.setCalibration(outcome.calibration());
+                appendSystem("Calibration ready: markers=" + outcome.calibration().hits().size()
+                        + " scale=" + scale + "%"
+                        + (outcome.calibration().allFoundAndVisible() ? " [all-found-and-visible]" : ""));
+                return true;
+            }
+            case INCOMPATIBLE_PC -> {
+                showIncompatiblePcDialog(outcome.compatibility(), scale);
+                return false;
+            }
+            case FAILED -> {
+                String diag = outcome.compatibility() == null ? "" : outcome.compatibility().diagnostic();
+                showIncompatiblePcDialog(new CompatibilityChecker.CompatibilityResult(
+                        CompatibilityChecker.CompatibilityResult.Status.INCOMPATIBLE_PC,
+                        "unexpected probe payload type; " + diag), scale);
+                return false;
+            }
+        }
+        return false;
     }
 
+    private boolean primeChatForCalibration(WindowInfo current, int timeoutSec) {
+        AppLogger.info("primeChat: searching INPUT_FIELD");
+        long tPreStart = System.currentTimeMillis();
+        AutoCalibrator.MarkerHit inputHit;
+        try {
+            inputHit = AutoCalibrator.findInputField(current, pixelColorService::readPixel);
+        } catch (Throwable t) {
+            AppLogger.warn("primeChat: findInputField threw " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            return false;
+        }
+        AppLogger.info("primeChat: findInputField done in " + (System.currentTimeMillis() - tPreStart) + " ms");
+        if (inputHit == null) {
+            AppLogger.warn("primeChat: INPUT_FIELD not found");
+            return false;
+        }
+        AppLogger.info("primeChat: input_field hit at " + inputHit.x() + "," + inputHit.y());
+        String calPrompt = config.get("calibration.prompt",
+                "Reply with exactly one fenced code block and no text outside it. The block must contain a single line: OK");
+        try {
+            windowManager.activate();
+            Thread.sleep(200L);
+            clipboardService.setText(calPrompt);
+            inputSimulator.click(inputHit.x(), inputHit.y());
+            inputSimulator.ctrlA();
+            inputSimulator.ctrlV();
+            inputSimulator.enter();
+            Thread.sleep(300L);
+            clipboardService.flushClipboard();
+            AppLogger.info("primeChat: calibration prompt sent");
+        } catch (Throwable t) {
+            AppLogger.warn("primeChat: send failed " + t.getClass().getSimpleName() + ": " + t.getMessage());
+            return false;
+        }
+        WinApiChatScroller scroller = new WinApiChatScroller();
+        long deadline = System.currentTimeMillis() + timeoutSec * 1000L;
+        int poll = 0;
+        while (System.currentTimeMillis() < deadline && !EmergencyStop.isStopped()) {
+            try { Thread.sleep(500L); }
+            catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+            poll++;
+            if (poll % 6 == 0) {
+                try { scroller.scrollToBottom(current); }
+                catch (Throwable ignored) { }
+            }
+            long tPoll = System.currentTimeMillis();
+            try {
+                java.util.Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(
+                        current, windowManager, pixelColorService::readPixel);
+                AppLogger.info("primeChat: poll#" + poll + " findCodeCopy in " + (System.currentTimeMillis() - tPoll) + " ms");
+                if (hit.isPresent()) {
+                    AppLogger.info("primeChat: code_copy visible after " + (poll / 2) + "s");
+                    return true;
+                }
+            } catch (Throwable t) {
+                AppLogger.warn("primeChat: findCodeCopy threw: " + t.getMessage());
+            }
+        }
+        AppLogger.warn("primeChat: code_copy not detected within " + timeoutSec + "s");
+        return false;
+    }
+
+    private void showIncompatiblePcDialog(CompatibilityChecker.CompatibilityResult result, int scalePercent) {
+        String diag = result == null ? "" : result.diagnostic();
+        String message = "Требуется минимум " + CompatibilityChecker.MIN_WORKSPACE_WIDTH
+                + "x" + CompatibilityChecker.MIN_WORKSPACE_HEIGHT + "." + System.lineSeparator()
+                + "Системный масштаб: " + scalePercent + "%." + System.lineSeparator()
+                + "Причина: " + diag;
+        try {
+            SwingUtilities.invokeAndWait(() -> JOptionPane.showMessageDialog(
+                    MainFrame.this, message, "Фреймворк несовместим с этим ПК", JOptionPane.ERROR_MESSAGE));
+        } catch (Exception e) {
+            AppLogger.warn("showIncompatiblePcDialog failed: " + e.getMessage());
+        }
+        appendSystem("Framework is incompatible with this PC: " + diag);
+        setStatus(StatusMarker.State.STOPPED);
+    }
     private boolean showConfirmDialog(String message, String title) throws Exception {
 
         final boolean[] done = {false};
