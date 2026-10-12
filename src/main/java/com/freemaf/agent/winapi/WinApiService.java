@@ -208,6 +208,7 @@ private WinApiService() {}
         Pointer MonitorFromWindow(Pointer hwnd, int dwFlags);
 
         boolean GetMonitorInfoW(Pointer hMonitor, MONITORINFO lpmi);
+        boolean SetCursorPos(int x, int y);
 
     }
 

@@ -100,4 +100,29 @@ class AutoCalibratorColorSearchTest {
         assertTrue(res.found(CalibrationMarker.SEARCH));
         assertTrue(res.found(CalibrationMarker.SEND));
     }
+
+    @Test
+    void findCodeCopyReturnsEmptyWhenNoMatch() {
+        PixelReader r = (x, y) -> BLACK;
+        Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
+        assertTrue(hit.isEmpty());
+    }
+
+    @Test
+    void findCodeCopyReturnsHitWhenMatchInLowerArea() {
+        // CODE_COPY area (0.0, 0.55, 1.0, 1.0) for 500x500 -> y in [275,500)
+        PixelReader r = sparse(new int[]{300}, new int[]{450}, new int[]{0xDCDFE5});
+        Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
+        assertTrue(hit.isPresent(), "code_copy hit expected");
+        assertEquals(300, hit.get().x());
+        assertEquals(450, hit.get().y());
+    }
+
+    @Test
+    void findCodeCopyIgnoresMatchesOutsideSearchArea() {
+        // y=100 is above 0.55*500=275, outside CODE_COPY area
+        PixelReader r = sparse(new int[]{300}, new int[]{100}, new int[]{0xDCDFE5});
+        Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(bigWindow(), null, r);
+        assertTrue(hit.isEmpty());
+    }
 }

@@ -50,6 +50,10 @@ public record MarkerSpec(CalibrationMarker type,
                     List.of("F5AC31"), List.of(),
                     new SearchArea(0.0, 0.25, 1.0, 0.85),
                     SelectionRule.FIRST_MATCH);
+            case CODE_COPY -> new MarkerSpec(type,
+                    List.of("DCDFE5"), List.of(),
+                    new SearchArea(0.0, 0.55, 1.0, 1.0),
+                    SelectionRule.FIRST_MATCH);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");
         };

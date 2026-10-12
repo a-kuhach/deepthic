@@ -7,7 +7,8 @@ public enum CalibrationMarker {
     SEND("send"),
     REGENERATE("regenerate"),
     COPY_LAST("copy_last"),
-    RETRY("retry");
+    RETRY("retry"),
+    CODE_COPY("code_copy");
 
     private final String id;
 

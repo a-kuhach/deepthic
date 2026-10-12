@@ -203,6 +203,13 @@ public final class AutoCalibrator {
         return new CalibrationResult(result);
     }
 
+    public static Optional<MarkerHit> findCodeCopy(WindowInfo window, WindowManager wm, PixelReader reader) {
+        if (window == null) throw new IllegalArgumentException("window is null");
+        if (reader == null) throw new IllegalArgumentException("reader is null");
+        MarkerSpec spec = MarkerSpec.forType(CalibrationMarker.CODE_COPY);
+        return Optional.ofNullable(search(window, spec, reader));
+    }
+
     public record MarkerHit(int x, int y, String observedColorHex, boolean disabledObserved) { }
 
     public static final class CalibrationResult {
@@ -216,14 +223,20 @@ public final class AutoCalibrator {
 
         private final Map<String, String> colors;
         private final Map<CalibrationMarker, MarkerHit> hits;
+        private final MarkerHit codeCopyHit;
 
         public CalibrationResult(Map<String, String> colors) {
-            this(colors, Map.of());
+            this(colors, Map.of(), null);
         }
 
         public CalibrationResult(Map<String, String> colors, Map<CalibrationMarker, MarkerHit> hits) {
+            this(colors, hits, null);
+        }
+
+        public CalibrationResult(Map<String, String> colors, Map<CalibrationMarker, MarkerHit> hits, MarkerHit codeCopyHit) {
             this.colors = colors == null ? Map.of() : Map.copyOf(colors);
             this.hits = hits == null ? Map.of() : Map.copyOf(hits);
+            this.codeCopyHit = codeCopyHit;
         }
 
         public Map<String, String> colors() { return colors; }
@@ -252,6 +265,20 @@ public final class AutoCalibrator {
                 if (!hits.containsKey(marker)) return false;
             }
             return true;
+        }
+
+        public MarkerHit codeCopyHit() { return codeCopyHit; }
+
+        public CalibrationResult withCodeCopy(MarkerHit hit) {
+            return new CalibrationResult(this.colors, this.hits, hit);
+        }
+
+        public boolean allFoundAndVisible() {
+            return allRequiredFound() && codeCopyHit != null;
+        }
+
+        public List<CalibrationMarker> invisibleMarkers() {
+            return List.of();
         }
 
         public String summary() {
