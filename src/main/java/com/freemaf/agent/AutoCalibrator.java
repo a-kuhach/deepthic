@@ -62,7 +62,7 @@ public final class AutoCalibrator {
         y1 = Math.min(wb, y1);
         if (x1 <= x0 || y1 <= y0) return null;
 
-        final int step = 4;
+        final int step = spec.step() > 0 ? spec.step() : 4;
         final int rw = x1 - x0;
         final int rh = y1 - y0;
         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: start area=" + rw + "x" + rh + " step=" + step);

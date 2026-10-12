@@ -7,7 +7,8 @@ public record MarkerSpec(CalibrationMarker type,
                          List<String> disabledColorsHex,
                          SearchArea area,
                          SelectionRule rule,
-                         int tolerance) {
+                         int tolerance,
+                         int step) {
 
     public enum SelectionRule { FIRST_MATCH, CENTER_MATCH, TOPMOST_LEFT }
 
@@ -27,15 +28,26 @@ public record MarkerSpec(CalibrationMarker type,
         if (area == null) throw new IllegalArgumentException("area is null");
         if (rule == null) throw new IllegalArgumentException("rule is null");
         if (tolerance < 0) throw new IllegalArgumentException("tolerance must be >= 0");
+        if (step <= 0) throw new IllegalArgumentException("step must be >= 1");
     }
 
-    /** Backward-compatible constructor: exact match (tolerance = 0). */
+    /** Backward-compatible: exact match (tolerance=0), default step=4. */
     public MarkerSpec(CalibrationMarker type,
                       List<String> activeColorsHex,
                       List<String> disabledColorsHex,
                       SearchArea area,
                       SelectionRule rule) {
-        this(type, activeColorsHex, disabledColorsHex, area, rule, 0);
+        this(type, activeColorsHex, disabledColorsHex, area, rule, 0, 4);
+    }
+
+    /** Backward-compatible: explicit tolerance, default step=4. */
+    public MarkerSpec(CalibrationMarker type,
+                      List<String> activeColorsHex,
+                      List<String> disabledColorsHex,
+                      SearchArea area,
+                      SelectionRule rule,
+                      int tolerance) {
+        this(type, activeColorsHex, disabledColorsHex, area, rule, tolerance, 4);
     }
 
     public static MarkerSpec forType(CalibrationMarker type) {
@@ -55,9 +67,10 @@ public record MarkerSpec(CalibrationMarker type,
                     SelectionRule.FIRST_MATCH);
             case CODE_COPY -> new MarkerSpec(type,
                     List.of("C9CBD0"), List.of(),
-                    new SearchArea(0.0, 0.15, 1.0, 0.85),
+                    new SearchArea(0.0, 0.30, 1.0, 0.55),
                     SelectionRule.FIRST_MATCH,
-                    12);
+                    0,
+                    1);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");
         };
