@@ -15,7 +15,7 @@ public final class AutoCalibrator {
     private AutoCalibrator() {}
 
     public static CalibrationResult calibrate(WindowInfo window, WindowManager wm) throws IOException {
-        return calibrate(window, wm, new PixelColorService()::readPixel);
+        return calibrate(window, wm, new PixelColorService());
     }
 
     public static CalibrationResult calibrate(WindowInfo window, WindowManager wm, PixelReader reader) throws IOException {
@@ -63,41 +63,110 @@ public final class AutoCalibrator {
         if (x1 <= x0 || y1 <= y0) return null;
 
         final int step = 4;
-        final long tStartNs = System.nanoTime();
-        int scanned = 0;
+        final int rw = x1 - x0;
+        final int rh = y1 - y0;
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: start area=" + rw + "x" + rh + " step=" + step);
+        long tStartNs = System.nanoTime();
 
+        int[] pixels;
+        try {
+            pixels = reader.readRegion(x0, y0, rw, rh);
+        } catch (RuntimeException e) {
+            AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: readRegion failed: " + e.getMessage());
+            return null;
+        }
+        long tRegionMs = (System.nanoTime() - tStartNs) / 1_000_000L;
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: readRegion done in " + tRegionMs
+                + " ms, pixels=" + (pixels == null ? "null" : pixels.length));
+        if (pixels == null || pixels.length < rw * rh) {
+            AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: readRegion returned short buffer");
+            return null;
+        }
+
+        int scanned = 0;
+        long tScanStart = System.nanoTime();
+
+        // TOPMOST_LEFT / FIRST_MATCH: return the first pixel hit in a top-down, left-right scan.
+        // No mass-centering, no full-region aggregation - early exit on match.
+        if (spec.rule() == MarkerSpec.SelectionRule.TOPMOST_LEFT
+                || spec.rule() == MarkerSpec.SelectionRule.FIRST_MATCH) {
+            for (int yy = 0; yy < rh; yy += step) {
+                int rowBase = yy * rw;
+                int screenY = y0 + yy;
+                for (int xx = 0; xx < rw; xx += step) {
+                    int rgb = pixels[rowBase + xx];
+                    if (rgb == -1) continue;
+                    scanned++;
+                    String hex = ColorUtils.toHex(rgb);
+                    if (matchesAny(hex, spec.activeColorsHex())) {
+                        long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
+                        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH ("
+                                + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
+                                + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
+                        return new MarkerHit(x0 + xx, screenY, hex.toUpperCase(), false);
+                    }
+                    if (matchesAny(hex, spec.disabledColorsHex())) {
+                        long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
+                        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH disabled ("
+                                + (x0 + xx) + "," + screenY + ") #" + hex.toUpperCase()
+                                + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
+                        return new MarkerHit(x0 + xx, screenY, hex.toUpperCase(), true);
+                    }
+                }
+            }
+            AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: NO MATCH (rule=" + spec.rule()
+                    + ", area=" + rw + "x" + rh + ", scanned=" + scanned
+                    + ", expectedActive=" + spec.activeColorsHex()
+                    + ", expectedDisabled=" + spec.disabledColorsHex() + ")");
+            return null;
+        }
+
+        // CENTER_MATCH: mass-centre of every matching pixel in the region.
         long ax = 0L, ay = 0L;
         int ac = 0;
         String aHex = null;
         long dxc = 0L, dyc = 0L;
         int dc = 0;
         String dHex = null;
+        java.util.Map<String, Integer> freq = new java.util.HashMap<>();
 
-        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: start area="
-                + (x1 - x0) + "x" + (y1 - y0) + " step=" + step);
-        for (int y = y0; y < y1; y += step) {
-            for (int x = x0; x < x1; x += step) {
+        for (int yy = 0; yy < rh; yy += step) {
+            int rowBase = yy * rw;
+            int screenY = y0 + yy;
+            for (int xx = 0; xx < rw; xx += step) {
+                int rgb = pixels[rowBase + xx];
+                if (rgb == -1) continue;
                 scanned++;
-                int rgb = reader.readPixel(x, y);
                 String hex = ColorUtils.toHex(rgb);
+                freq.merge(hex.toUpperCase(), 1, Integer::sum);
                 if (matchesAny(hex, spec.activeColorsHex())) {
-                    ax += x; ay += y; ac++;
+                    ax += (x0 + xx); ay += screenY; ac++;
                     if (aHex == null) aHex = hex.toUpperCase();
                 } else if (matchesAny(hex, spec.disabledColorsHex())) {
-                    dxc += x; dyc += y; dc++;
+                    dxc += (x0 + xx); dyc += screenY; dc++;
                     if (dHex == null) dHex = hex.toUpperCase();
                 }
             }
         }
 
-        long elapsedMs = (System.nanoTime() - tStartNs) / 1_000_000L;
-        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: scanned " + scanned
+        long elapsedMs = (System.nanoTime() - tScanStart) / 1_000_000L;
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: CENTER_MATCH scanned " + scanned
                 + " px (step=" + step + ") in " + elapsedMs + " ms; active=" + ac + " disabled=" + dc);
         if (ac > 0) return new MarkerHit((int) (ax / ac), (int) (ay / ac), aHex, false);
         if (dc > 0) return new MarkerHit((int) (dxc / dc), (int) (dyc / dc), dHex, true);
+        java.util.List<java.util.Map.Entry<String, Integer>> top = new java.util.ArrayList<>(freq.entrySet());
+        top.sort((e1, e2) -> Integer.compare(e2.getValue(), e1.getValue()));
+        StringBuilder tn = new StringBuilder();
+        for (int i = 0; i < Math.min(15, top.size()); i++) {
+            if (i > 0) tn.append(", ");
+            tn.append("#").append(top.get(i).getKey()).append(" x").append(top.get(i).getValue());
+        }
+        AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: NO MATCH. area="
+                + rw + "x" + rh + " unique=" + freq.size()
+                + " top15=[" + tn + "] expectedActive=" + spec.activeColorsHex()
+                + " expectedDisabled=" + spec.disabledColorsHex());
         return null;
     }
-
     private static boolean matchesAny(String hex, List<String> colors) {
         if (colors == null || colors.isEmpty()) return false;
         for (String c : colors) {
@@ -220,10 +289,65 @@ public final class AutoCalibrator {
         return Optional.ofNullable(search(window, spec, reader));
     }
 
+    private static final String REGENERATE_ANCHOR_HEX = "9A9FA4";
+
+    /**
+     * Locates the Regenerate icon in a single vertical column at absolute X = xR.
+     * Scans top-down between yTop = 0.40*H and yBottom = 0.95*H (absolute).
+     * FIRST_MATCH semantics; returns null if the anchor colour is absent.
+     * Colour #9A9FA4 was captured on the 731x473 DeepSeek window at scale 100%.
+     */
+    public static MarkerHit findRegenerate(WindowInfo window, int xR, PixelReader reader) {
+        if (window == null) throw new IllegalArgumentException("window is null");
+        if (reader == null) throw new IllegalArgumentException("reader is null");
+        if (xR <= 0) throw new IllegalArgumentException("xR must be > 0");
+        int h = window.bottom() - window.top();
+        int yStartAbs = window.top() + (int) Math.floor(0.40 * h);
+        int yEndAbs = window.top() + (int) Math.ceil(0.95 * h);
+        if (yEndAbs <= yStartAbs) return null;
+        AppLogger.info("AutoCalibrator.findRegenerate: xR=" + xR
+                + " y=[" + yStartAbs + ".." + yEndAbs + ") anchor=#" + REGENERATE_ANCHOR_HEX);
+        long t0 = System.nanoTime();
+        int scanned = 0;
+        for (int y = yStartAbs; y < yEndAbs; y++) {
+            int rgb;
+            try { rgb = reader.readPixel(xR, y); }
+            catch (RuntimeException e) {
+                AppLogger.warn("findRegenerate: readPixel failed at " + xR + "," + y + ": " + e.getMessage());
+                continue;
+            }
+            if (rgb == -1) continue;
+            scanned++;
+            String hex = ColorUtils.toHex(rgb);
+            if (REGENERATE_ANCHOR_HEX.equalsIgnoreCase(hex)) {
+                long ms = (System.nanoTime() - t0) / 1_000_000L;
+                AppLogger.info("AutoCalibrator.findRegenerate: FOUND (" + xR + "," + y + ") #" + hex
+                        + " in " + ms + " ms (scanned=" + scanned + ")");
+                return new MarkerHit(xR, y, hex.toUpperCase(), false);
+            }
+        }
+        long ms = (System.nanoTime() - t0) / 1_000_000L;
+        AppLogger.info("AutoCalibrator.findRegenerate: NOT FOUND xR=" + xR
+                + " scanned=" + scanned + " in " + ms + " ms");
+        return null;
+    }
+
+    public static MarkerHit findRetry(WindowInfo window, PixelReader reader) {
+        if (window == null) throw new IllegalArgumentException("window is null");
+        if (reader == null) throw new IllegalArgumentException("reader is null");
+        return search(window, MarkerSpec.forType(CalibrationMarker.RETRY), reader);
+    }
+
     public static MarkerHit findInputField(WindowInfo window, PixelReader reader) {
         if (window == null) throw new IllegalArgumentException("window is null");
         if (reader == null) throw new IllegalArgumentException("reader is null");
         return search(window, MarkerSpec.forType(CalibrationMarker.INPUT_FIELD), reader);
+    }
+
+    public static MarkerHit findSend(WindowInfo window, PixelReader reader) {
+        if (window == null) throw new IllegalArgumentException("window is null");
+        if (reader == null) throw new IllegalArgumentException("reader is null");
+        return search(window, MarkerSpec.forType(CalibrationMarker.SEND), reader);
     }
 
     public record MarkerHit(int x, int y, String observedColorHex, boolean disabledObserved) { }
@@ -232,8 +356,6 @@ public final class AutoCalibrator {
 
         public static final List<CalibrationMarker> REQUIRED_FOR_CALIBRATION = List.of(
                 CalibrationMarker.INPUT_FIELD,
-                CalibrationMarker.DEEPTHINK,
-                CalibrationMarker.SEARCH,
                 CalibrationMarker.SEND
         );
 

@@ -47,6 +47,10 @@ public final class WinApiService {
     public static final int SM_CYWORKAREA = 49;
     public static final int MONITOR_DEFAULTTONEAREST = 2;
 
+    public static final int SRCCOPY = 0x00CC0020;
+
+    public static final int DIB_RGB_COLORS = 0;
+
     public static final int SWP_NOZORDER = 0x0004;
 
     public static final int SWP_NOACTIVATE = 0x0010;
@@ -209,12 +213,28 @@ private WinApiService() {}
 
         boolean GetMonitorInfoW(Pointer hMonitor, MONITORINFO lpmi);
         boolean SetCursorPos(int x, int y);
+        boolean GetCursorPos(POINT lpPoint);
 
     }
 
     public interface Gdi32 extends StdCallLibrary {
 
         int GetPixel(Pointer hdc, int x, int y);
+
+        Pointer CreateCompatibleDC(Pointer hdc);
+
+        Pointer CreateCompatibleBitmap(Pointer hdc, int width, int height);
+
+        Pointer SelectObject(Pointer hdc, Pointer hObject);
+
+        boolean BitBlt(Pointer hdcDest, int x, int y, int w, int h, Pointer hdcSrc, int xSrc, int ySrc, int rop);
+
+        int GetDIBits(Pointer hdc, Pointer hBitmap, int start, int cLines, byte[] lpvBits,
+                      BITMAPINFO lpbmi, int usage);
+
+        boolean DeleteObject(Pointer hObject);
+
+        boolean DeleteDC(Pointer hdc);
 
     }
 
@@ -244,6 +264,36 @@ private WinApiService() {}
 
         @Override protected List<String> getFieldOrder() { return List.of("left","top","right","bottom"); }
 
+    }
+
+    public static class POINT extends Structure {
+        public int x;
+        public int y;
+        @Override protected List<String> getFieldOrder() { return List.of("x","y"); }
+    }
+
+    public static class BITMAPINFOHEADER extends Structure {
+        public int biSize;
+        public int biWidth;
+        public int biHeight;
+        public short biPlanes;
+        public short biBitCount;
+        public int biCompression;
+        public int biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public int biClrUsed;
+        public int biClrImportant;
+        @Override protected List<String> getFieldOrder() {
+            return List.of("biSize","biWidth","biHeight","biPlanes","biBitCount","biCompression",
+                    "biSizeImage","biXPelsPerMeter","biYPelsPerMeter","biClrUsed","biClrImportant");
+        }
+    }
+
+    public static class BITMAPINFO extends Structure {
+        public BITMAPINFOHEADER bmiHeader = new BITMAPINFOHEADER();
+        public int[] bmiColors = new int[1];
+        @Override protected List<String> getFieldOrder() { return List.of("bmiHeader","bmiColors"); }
     }
 
     public static class MONITORINFO extends Structure {

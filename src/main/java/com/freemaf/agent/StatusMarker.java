@@ -11,6 +11,8 @@ public class StatusMarker extends JLabel {
 
         WORKING("РАБОТАЕТ НАД ПРОЕКТОМ"),
 
+        CALIBRATION("КАЛИБРОВКА"),
+
         PAUSED("НА ПАУЗЕ"),
 
         STOPPED("ОСТАНОВЛЕН");

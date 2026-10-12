@@ -2,8 +2,6 @@ package com.freemaf.agent;
 
 public enum CalibrationMarker {
     INPUT_FIELD("input_field"),
-    DEEPTHINK("deepthink"),
-    SEARCH("search"),
     SEND("send"),
     REGENERATE("regenerate"),
     COPY_LAST("copy_last"),

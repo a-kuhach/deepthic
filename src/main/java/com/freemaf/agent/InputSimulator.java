@@ -75,23 +75,37 @@ public final class InputSimulator {
 
     public void moveMouseRaw(int x, int y) {
 
-        int sw = WinApiService.USER32.GetSystemMetrics(WinApiService.SM_CXSCREEN);
+        for (int attempt = 0; attempt < 3; attempt++) {
 
-        int sh = WinApiService.USER32.GetSystemMetrics(WinApiService.SM_CYSCREEN);
+            boolean ok = WinApiService.USER32.SetCursorPos(x, y);
 
-        int dx = Math.max(0, Math.min(65535, (int) ((long) x * 65535 / Math.max(1, sw - 1))));
+            if (!ok) {
 
-        int dy = Math.max(0, Math.min(65535, (int) ((long) y * 65535 / Math.max(1, sh - 1))));
+                AppLogger.warn("moveMouseRaw: SetCursorPos(" + x + "," + y + ") returned false, attempt " + (attempt + 1));
 
-        WinApiService.MOUSEINPUT mi = new WinApiService.MOUSEINPUT();
+            }
 
-        mi.dx = dx; mi.dy = dy; mi.mouseData = 0;
+            try { Thread.sleep(15L); }
 
-        mi.dwFlags = WinApiService.MOUSEEVENTF_MOVE | WinApiService.MOUSEEVENTF_ABSOLUTE;
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
 
-        mi.time = 0; mi.dwExtraInfo = null;
+            WinApiService.POINT p = new WinApiService.POINT();
 
-        sendMouse(mi);
+            if (WinApiService.USER32.GetCursorPos(p)) {
+
+                if (p.x == x && p.y == y) {
+
+                    return;
+
+                }
+
+                AppLogger.info("moveMouseRaw: target=(" + x + "," + y + ") actual=(" + p.x + "," + p.y + ") attempt=" + (attempt + 1));
+
+            }
+
+        }
+
+        AppLogger.warn("moveMouseRaw: cursor did not settle at (" + x + "," + y + ") after 3 attempts");
 
     }
 
@@ -171,6 +185,10 @@ public final class InputSimulator {
 
         sendMouse(down);
 
+        try { Thread.sleep(30L); }
+
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+
         WinApiService.MOUSEINPUT up = new WinApiService.MOUSEINPUT();
 
         up.dwFlags = WinApiService.MOUSEEVENTF_LEFTUP; up.dx = 0; up.dy = 0;
@@ -193,7 +211,13 @@ public final class InputSimulator {
 
         activateChrome();
 
+        AppLogger.info("InputSimulator.click: target=(" + x + "," + y + ")");
+
         moveMouse(x, y);
+
+        try { Thread.sleep(50L); }
+
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
 
         leftClick();
 
@@ -203,9 +227,25 @@ public final class InputSimulator {
 
         RateLimiter.pause();
 
-        for (int vk : vkCodes) sendKey((short) vk, false);
+        for (int vk : vkCodes) {
 
-        for (int i = vkCodes.length - 1; i >= 0; i--) sendKey((short) vkCodes[i], true);
+            sendKey((short) vk, false);
+
+            try { Thread.sleep(15L); }
+
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+
+        }
+
+        for (int i = vkCodes.length - 1; i >= 0; i--) {
+
+            sendKey((short) vkCodes[i], true);
+
+            try { Thread.sleep(15L); }
+
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+
+        }
 
     }
 

@@ -173,15 +173,13 @@ public final class DeepSeekSession {
 
                 debug("regenerate click " + regenCount + "/" + maxRegenAttempts);
 
-                int regX = config.getInt("marker.regenerate.x", 0);
-
-                int regY = config.getInt("marker.regenerate.y", 0);
+                AutoCalibrator.MarkerHit regenHit = inputSimulator.requireHit(CalibrationMarker.REGENERATE);
 
                 int regOffset = config.getInt("marker.regenerate.dx_offset", 103);
 
-                int clickX = regX + (regenOffsetActive ? regOffset : 0);
+                int clickX = regenHit.x() + (regenOffsetActive ? regOffset : 0);
 
-                inputSimulator.click(clickX, regY);
+                inputSimulator.click(clickX, regenHit.y());
 
                 regenOffsetActive = true;
 
@@ -284,29 +282,13 @@ public final class DeepSeekSession {
 
         Thread.sleep(1000L);
 
-        int regX = config.getInt("marker.regenerate.x", 0);
+        AutoCalibrator.MarkerHit regenHit = inputSimulator.requireHit(CalibrationMarker.REGENERATE);
 
-        int regY = config.getInt("marker.regenerate.y", 0);
+        int regX = regenHit.x();
 
-        if (regX <= 0 || regY <= 0) {
+        int regY = regenHit.y();
 
-            throw new IllegalStateException("Regenerate marker has zero coordinates. Run Calibration first.");
-
-        }
-
-        int regExpected = ColorUtils.parseHex(config.get("marker.regenerate.color", "000000"));
-
-        int retryX = config.getInt("marker.retry.x", -1);
-
-        int retryY = config.getInt("marker.retry.y", -1);
-
-        int retryExpected = -1;
-
-        if (retryX > 0 && retryY > 0) {
-
-            retryExpected = ColorUtils.parseHex(config.get("marker.retry.color", "000000"));
-
-        }
+        int regExpected = ColorUtils.parseHex(regenHit.observedColorHex());
 
         long timeout = config.getLong("timeout.generation_ms", AgentConstants.GENERATION_TIMEOUT_MS);
 
@@ -315,6 +297,8 @@ public final class DeepSeekSession {
         int retryCount = 0;
 
         int retryMaxAttempts = config.getInt("marker.retry.max_attempts", 10);
+
+        long nextRetryCheck = System.currentTimeMillis() + 5000L;
 
         while (!EmergencyStop.isStopped()) {
 
@@ -338,35 +322,51 @@ public final class DeepSeekSession {
 
             inputSimulator.scrollDown(3);
 
-            if (retryExpected >= 0) {
+            if (System.currentTimeMillis() >= nextRetryCheck) {
 
-                int retryActual = pixelColorService.readPixel(retryX, retryY);
+                nextRetryCheck = System.currentTimeMillis() + 5000L;
 
-                if (ColorUtils.matches(retryActual, retryExpected)) {
+                long hwndVal = com.sun.jna.Pointer.nativeValue(windowManager.hwnd());
 
-                    retryCount++;
+                WindowInfo win = WindowFinder.findByHwnd(hwndVal, config.getWindowTitle()).orElse(null);
 
-                    if (retryCount > retryMaxAttempts) {
+                if (win != null) {
 
-                        throw new IllegalStateException("Лимит кнопок перегрузки DeepSeek (marker.retry) исчерпан (" + retryMaxAttempts + ").");
+                    AutoCalibrator.MarkerHit retryHit;
+
+                    try (PixelColorService svc = new PixelColorService()) {
+
+                        retryHit = AutoCalibrator.findRetry(win, svc);
 
                     }
 
-                    long waitMs = computeRetryWaitMs(retryCount);
+                    if (retryHit != null) {
 
-                    debug("Retry button detected (n=" + retryCount + "), sleeping " + waitMs + " ms");
+                        retryCount++;
 
-                    sleepInterruptible(waitMs);
+                        if (retryCount > retryMaxAttempts) {
 
-                    if (EmergencyStop.isStopped()) throw new IllegalStateException("Ожидание прервано");
+                            throw new IllegalStateException("Лимит кнопок перегрузки DeepSeek (marker.retry) исчерпан (" + retryMaxAttempts + ").");
 
-                    inputSimulator.click(retryX, retryY);
+                        }
 
-                    deadline = System.currentTimeMillis() + timeout;
+                        long waitMs = computeRetryWaitMs(retryCount);
 
-                    Thread.sleep(1000L);
+                        debug("Retry button detected at " + retryHit.x() + "," + retryHit.y() + " (n=" + retryCount + "), sleeping " + waitMs + " ms");
 
-                    continue;
+                        sleepInterruptible(waitMs);
+
+                        if (EmergencyStop.isStopped()) throw new IllegalStateException("Ожидание прервано");
+
+                        inputSimulator.click(retryHit.x(), retryHit.y());
+
+                        deadline = System.currentTimeMillis() + timeout;
+
+                        Thread.sleep(1000L);
+
+                        continue;
+
+                    }
 
                 }
 
@@ -440,17 +440,13 @@ public final class DeepSeekSession {
 
         int maxAttempts = config.getInt("max_copy_retries", 3);
 
-        int copyX = config.getInt("marker.copy_last.x", 0);
+        AutoCalibrator.MarkerHit copyHit = inputSimulator.requireHit(CalibrationMarker.CODE_COPY);
 
-        int copyY = config.getInt("marker.copy_last.y", 0);
+        int copyX = copyHit.x();
 
-        if (copyX <= 0 || copyY <= 0) throw new IllegalStateException("Copy_last marker has zero coordinates.");
+        int copyY = copyHit.y();
 
-        int copyExpected = ColorUtils.parseHex(config.get("marker.copy_last.color", "000000"));
-
-        int regX = config.getInt("marker.regenerate.x", 0);
-
-        int regY = config.getInt("marker.regenerate.y", 0);
+        int copyExpected = ColorUtils.parseHex(copyHit.observedColorHex());
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
 
@@ -472,11 +468,13 @@ public final class DeepSeekSession {
 
                 debug("copy[" + attempt + "]: copy_last absent, clicking regenerate");
 
+                AutoCalibrator.MarkerHit regenHit = inputSimulator.requireHit(CalibrationMarker.REGENERATE);
+
                 int regOffset = config.getInt("marker.regenerate.dx_offset", 103);
 
-                int clickX = regX + (regenOffsetActive ? regOffset : 0);
+                int clickX = regenHit.x() + (regenOffsetActive ? regOffset : 0);
 
-                inputSimulator.click(clickX, regY);
+                inputSimulator.click(clickX, regenHit.y());
 
                 regenOffsetActive = true;
 

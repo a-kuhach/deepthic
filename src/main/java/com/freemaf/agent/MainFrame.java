@@ -928,7 +928,6 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             } else {
                 appendSystem("Calibration already done, skipping.");
             }
-            appendSystem("Waiting for a user message in the input field below.");
             this.currentLoop = loop;
             updateStartButton();
             if (config.getResumeAfterStop()) {
@@ -940,6 +939,8 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                     promptQueue.addUser(resumeMsg, java.util.List.of());
                     appendSystem("Resume-after-stop: queued continuation prompt.");
                 }
+            } else {
+                appendSystem("Waiting for a user message in the input field below.");
             }
             loop.run();
         } catch (InterruptedException e) {
@@ -1050,6 +1051,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     }
 
     private boolean runCalibrationSequence() throws Exception {
+        long tStartAll = System.currentTimeMillis();
         if (windowManager.hwnd() == null || !windowManager.isWindowValid()) {
             appendSystem("No managed Chrome window for calibration.");
             AppLogger.warn("runCalibrationSequence: no managed window");
@@ -1066,117 +1068,193 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             return false;
         }
         int scale = com.freemaf.agent.winapi.WinApiService.systemScalePercent();
+        boolean shiftActive = config.getShiftActiveForHwnd(hLong);
         AppLogger.info("runCalibrationSequence: window=" + window.left() + "," + window.top()
                 + " " + (window.right() - window.left()) + "x" + (window.bottom() - window.top())
-                + " scale=" + scale + "%");
+                + " scale=" + scale + "% shiftActive=" + shiftActive);
+        appendSystem("Running calibration (scale=" + scale + "%, shift=" + shiftActive + ")...");
+        setStatus(StatusMarker.State.CALIBRATION);
 
-        if (!primeChatForCalibration(window, 120)) {
-            showIncompatiblePcDialog(new CompatibilityChecker.CompatibilityResult(
-                    CompatibilityChecker.CompatibilityResult.Status.INCOMPATIBLE_PC,
-                    "calibration prompt sent but Copy button of the code block was not detected within 120 s; "
-                    + " check DeepSeek page zoom (must be 100%) and chat visibility"),
-                    scale);
-            return false;
-        }
+        try (PixelColorService svc = new PixelColorService()) {
+            // -------- Step 1: INPUT_FIELD (polling up to 10 s) --------
+            appendDebug("[Calib 1/6] searching input_field (up to 10 s)...");
+            long t1 = System.currentTimeMillis();
+            AutoCalibrator.MarkerHit inputHit = null;
+            long deadline1 = t1 + 10_000L;
+            int polls1 = 0;
+            while (System.currentTimeMillis() < deadline1 && !EmergencyStop.isStopped()) {
+                polls1++;
+                long tPollStart = System.currentTimeMillis();
+                inputHit = AutoCalibrator.findInputField(window, svc);
+                AppLogger.info("runCalibrationSequence: findInputField poll#" + polls1
+                        + " took=" + (System.currentTimeMillis() - tPollStart) + " ms result="
+                        + (inputHit == null ? "null" : inputHit.x() + "," + inputHit.y() + " #" + inputHit.observedColorHex()));
+                if (inputHit != null) break;
+                try { Thread.sleep(500L); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+            }
+            AppLogger.info("runCalibrationSequence: STEP1 INPUT_FIELD done total=" + (System.currentTimeMillis() - t1)
+                    + " ms polls=" + polls1 + " result=" + (inputHit == null ? "NOT FOUND" : "FOUND"));
+            if (inputHit == null) {
+                return failCalibration(scale, "STEP1: INPUT_FIELD not found within 10s");
+            }
+            appendDebug("[Calib 1/6] input_field found at " + inputHit.x() + "," + inputHit.y() + " #" + inputHit.observedColorHex());
 
-        appendSystem("Running calibration orchestrator (scale=" + scale + "%)...");
-        AppLogger.info("runCalibrationSequence: calling CalibrationOrchestrator.run");
-        CalibrationOrchestrator.Outcome outcome;
-        try {
-            outcome = CalibrationOrchestrator.run(
-                    window, windowManager, pixelColorService::readPixel, new WinApiChatScroller(), config);
-        } catch (Throwable t) {
-            AppLogger.warn("runCalibrationSequence: CalibrationOrchestrator.run threw "
-                    + t.getClass().getSimpleName() + ": " + t.getMessage());
-            appendSystem("Calibration error - " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            return false;
-        }
-        AppLogger.info("runCalibrationSequence: orchestrator status=" + outcome.status()
-                + (outcome.compatibility() == null ? "" : " diag=" + outcome.compatibility().diagnostic()));
-        switch (outcome.status()) {
-            case READY -> {
-                inputSimulator.setCalibration(outcome.calibration());
-                appendSystem("Calibration ready: markers=" + outcome.calibration().hits().size()
-                        + " scale=" + scale + "%"
-                        + (outcome.calibration().allFoundAndVisible() ? " [all-found-and-visible]" : ""));
-                return true;
+            // -------- Step 2: SEND (disabled) --------
+            appendDebug("[Calib 2/6] searching send (disabled)...");
+            long t2 = System.currentTimeMillis();
+            AutoCalibrator.MarkerHit sendDisabledHit = AutoCalibrator.findSend(window, svc);
+            AppLogger.info("runCalibrationSequence: STEP2 SEND(disabled) took=" + (System.currentTimeMillis() - t2)
+                    + " ms result=" + (sendDisabledHit == null ? "NOT FOUND"
+                            : sendDisabledHit.x() + "," + sendDisabledHit.y() + " #" + sendDisabledHit.observedColorHex()
+                                    + " disabled=" + sendDisabledHit.disabledObserved()));
+            if (sendDisabledHit == null) {
+                return failCalibration(scale, "STEP2: SEND not found in disabled state");
             }
-            case INCOMPATIBLE_PC -> {
-                showIncompatiblePcDialog(outcome.compatibility(), scale);
-                return false;
-            }
-            case FAILED -> {
-                String diag = outcome.compatibility() == null ? "" : outcome.compatibility().diagnostic();
-                showIncompatiblePcDialog(new CompatibilityChecker.CompatibilityResult(
-                        CompatibilityChecker.CompatibilityResult.Status.INCOMPATIBLE_PC,
-                        "unexpected probe payload type; " + diag), scale);
-                return false;
-            }
-        }
-        return false;
-    }
+            appendDebug("[Calib 2/6] send(disabled) at " + sendDisabledHit.x() + "," + sendDisabledHit.y());
 
-    private boolean primeChatForCalibration(WindowInfo current, int timeoutSec) {
-        AppLogger.info("primeChat: searching INPUT_FIELD");
-        long tPreStart = System.currentTimeMillis();
-        AutoCalibrator.MarkerHit inputHit;
-        try {
-            inputHit = AutoCalibrator.findInputField(current, pixelColorService::readPixel);
-        } catch (Throwable t) {
-            AppLogger.warn("primeChat: findInputField threw " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            return false;
-        }
-        AppLogger.info("primeChat: findInputField done in " + (System.currentTimeMillis() - tPreStart) + " ms");
-        if (inputHit == null) {
-            AppLogger.warn("primeChat: INPUT_FIELD not found");
-            return false;
-        }
-        AppLogger.info("primeChat: input_field hit at " + inputHit.x() + "," + inputHit.y());
-        String calPrompt = config.get("calibration.prompt",
-                "Reply with exactly one fenced code block and no text outside it. The block must contain a single line: OK");
-        try {
+            // -------- Step 3: insert calibration prompt without Enter --------
+            appendDebug("[Calib 3/6] inserting calibration prompt...");
+            String calPrompt = config.get("calibration.prompt",
+                    "Reply with exactly one fenced code block and no text outside it. The block must contain a single line: OK");
+            long t3 = System.currentTimeMillis();
             windowManager.activate();
             Thread.sleep(200L);
             clipboardService.setText(calPrompt);
+            AppLogger.info("runCalibrationSequence: STEP3 clicking input at " + inputHit.x() + "," + inputHit.y());
             inputSimulator.click(inputHit.x(), inputHit.y());
-            inputSimulator.ctrlA();
-            inputSimulator.ctrlV();
-            inputSimulator.enter();
             Thread.sleep(300L);
+            AppLogger.info("runCalibrationSequence: STEP3 sending Ctrl+A");
+            inputSimulator.ctrlA();
+            Thread.sleep(150L);
+            AppLogger.info("runCalibrationSequence: STEP3 sending Ctrl+V");
+            inputSimulator.ctrlV();
+            Thread.sleep(200L);
+            AppLogger.info("runCalibrationSequence: STEP3 prompt inserted in " + (System.currentTimeMillis() - t3) + " ms");
+
+            // -------- Step 4: SEND (active) up to 5 s --------
+            appendDebug("[Calib 4/6] waiting for send-active (up to 5 s)...");
+            long t4 = System.currentTimeMillis();
+            AutoCalibrator.MarkerHit sendActiveHit = null;
+            long deadline4 = t4 + 5_000L;
+            int polls4 = 0;
+            while (System.currentTimeMillis() < deadline4 && !EmergencyStop.isStopped()) {
+                polls4++;
+                long tp = System.currentTimeMillis();
+                AutoCalibrator.MarkerHit h = AutoCalibrator.findSend(window, svc);
+                AppLogger.info("runCalibrationSequence: findSend(afterText) poll#" + polls4
+                        + " took=" + (System.currentTimeMillis() - tp) + " ms result="
+                        + (h == null ? "null" : h.x() + "," + h.y() + " #" + h.observedColorHex() + " disabled=" + h.disabledObserved()));
+                if (h != null && !h.disabledObserved()) { sendActiveHit = h; break; }
+                try { Thread.sleep(250L); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+            }
+            AppLogger.info("runCalibrationSequence: STEP4 SEND(active) done total=" + (System.currentTimeMillis() - t4)
+                    + " ms polls=" + polls4 + " result=" + (sendActiveHit == null ? "NOT FOUND" : "FOUND"));
+            if (sendActiveHit == null) {
+                return failCalibration(scale, "STEP4: SEND did not switch to active within 5s after text insertion");
+            }
+            appendDebug("[Calib 4/6] send(active) at " + sendActiveHit.x() + "," + sendActiveHit.y() + " #" + sendActiveHit.observedColorHex());
+
+            // -------- Step 5: submit --------
+            appendDebug("[Calib 5/6] submitting prompt; then poll code_copy up to 20 s...");
             clipboardService.flushClipboard();
-            AppLogger.info("primeChat: calibration prompt sent");
-        } catch (Throwable t) {
-            AppLogger.warn("primeChat: send failed " + t.getClass().getSimpleName() + ": " + t.getMessage());
-            return false;
-        }
-        WinApiChatScroller scroller = new WinApiChatScroller();
-        long deadline = System.currentTimeMillis() + timeoutSec * 1000L;
-        int poll = 0;
-        while (System.currentTimeMillis() < deadline && !EmergencyStop.isStopped()) {
-            try { Thread.sleep(500L); }
-            catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
-            poll++;
-            if (poll % 6 == 0) {
-                try { scroller.scrollToBottom(current); }
-                catch (Throwable ignored) { }
-            }
-            long tPoll = System.currentTimeMillis();
-            try {
-                java.util.Optional<AutoCalibrator.MarkerHit> hit = AutoCalibrator.findCodeCopy(
-                        current, windowManager, pixelColorService::readPixel);
-                AppLogger.info("primeChat: poll#" + poll + " findCodeCopy in " + (System.currentTimeMillis() - tPoll) + " ms");
-                if (hit.isPresent()) {
-                    AppLogger.info("primeChat: code_copy visible after " + (poll / 2) + "s");
-                    return true;
+            Thread.sleep(80L);
+            inputSimulator.enter();
+            AppLogger.info("runCalibrationSequence: STEP5 submitted, awaiting render 1 s");
+            Thread.sleep(1000L);
+
+            // -------- Step 6: re-scan input/send AFTER shift cleared --------
+            AutoCalibrator.MarkerHit inputHit2 = AutoCalibrator.findInputField(window, svc);
+            AutoCalibrator.MarkerHit sendHit2  = AutoCalibrator.findSend(window, svc);
+            AppLogger.info("runCalibrationSequence: STEP6 re-scan after shift-clear input="
+                    + (inputHit2 == null ? "NOT FOUND" : inputHit2.x() + "," + inputHit2.y() + " #" + inputHit2.observedColorHex())
+                    + " send="
+                    + (sendHit2 == null ? "NOT FOUND" : sendHit2.x() + "," + sendHit2.y() + " #" + sendHit2.observedColorHex()
+                            + " disabled=" + sendHit2.disabledObserved()));
+
+            // -------- Step 7: CODE_COPY up to 20 s with scroll --------
+            long t7 = System.currentTimeMillis();
+            WinApiChatScroller scroller = new WinApiChatScroller();
+            AutoCalibrator.MarkerHit copyHit = null;
+            long deadline7 = t7 + 20_000L;
+            int scrolls = 0;
+            int polls7 = 0;
+            int prevCopyY = -1;
+            int copyStable = 0;
+            while (System.currentTimeMillis() < deadline7 && !EmergencyStop.isStopped()) {
+                polls7++;
+                try { scroller.scrollToBottom(window); scrolls++; } catch (Throwable ignored) { }
+                try { Thread.sleep(500L); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); return false; }
+                java.util.Optional<AutoCalibrator.MarkerHit> opt = AutoCalibrator.findCodeCopy(window, windowManager, svc);
+                if (opt.isPresent()) {
+                    AutoCalibrator.MarkerHit h = opt.get();
+                    if (h.y() == prevCopyY) { copyStable++; }
+                    else { copyStable = 0; prevCopyY = h.y(); }
+                    AppLogger.info("runCalibrationSequence: findCodeCopy poll#" + polls7
+                            + " scrolls=" + scrolls + " result=" + h.x() + "," + h.y() + " #" + h.observedColorHex()
+                            + " stable=" + copyStable);
+                    if (copyStable >= 2) { copyHit = h; break; }
+                } else {
+                    prevCopyY = -1; copyStable = 0;
+                    AppLogger.info("runCalibrationSequence: findCodeCopy poll#" + polls7 + " scrolls=" + scrolls + " result=empty");
                 }
-            } catch (Throwable t) {
-                AppLogger.warn("primeChat: findCodeCopy threw: " + t.getMessage());
             }
+            AppLogger.info("runCalibrationSequence: STEP7 CODE_COPY done total=" + (System.currentTimeMillis() - t7)
+                    + " ms polls=" + polls7 + " scrolls=" + scrolls
+                    + " result=" + (copyHit == null ? "NOT FOUND" : "FOUND"));
+            if (copyHit == null) {
+                return failCalibration(scale, "STEP7: code_copy not detected within 20 s after submit");
+            }
+            appendDebug("[Calib 5/6] code_copy at " + copyHit.x() + "," + copyHit.y() + " #" + copyHit.observedColorHex());
+
+            // -------- Step 8: REGENERATE at xR = xCopy - const --------
+            appendDebug("[Calib 6/6] searching regenerate (xR = code_copy.x - const)...");
+            int xOffset = config.getRegenerateXOffsetFromCodeCopy();
+            int xR = copyHit.x() - xOffset;
+            AppLogger.info("runCalibrationSequence: STEP8 xCopy=" + copyHit.x() + " xOffset=" + xOffset + " xR=" + xR);
+            long t8 = System.currentTimeMillis();
+            AutoCalibrator.MarkerHit regenHit = AutoCalibrator.findRegenerate(window, xR, svc);
+            AppLogger.info("runCalibrationSequence: STEP8 REGENERATE done total=" + (System.currentTimeMillis() - t8)
+                    + " ms result=" + (regenHit == null ? "NOT FOUND"
+                            : regenHit.x() + "," + regenHit.y() + " #" + regenHit.observedColorHex()));
+            if (regenHit == null) {
+                return failCalibration(scale, "STEP8: REGENERATE not found at xR=" + xR
+                        + " (xCopy=" + copyHit.x() + " - xOffset=" + xOffset + ")");
+            }
+            appendDebug("[Calib 6/6] regenerate at " + regenHit.x() + "," + regenHit.y() + " #" + regenHit.observedColorHex());
+
+            // -------- Step 8: assemble CalibrationResult using post-shift coordinates --------
+            AutoCalibrator.MarkerHit finalInput = inputHit2 != null ? inputHit2 : inputHit;
+            AutoCalibrator.MarkerHit finalSend  = sendHit2  != null ? sendHit2  : sendActiveHit;
+            java.util.Map<CalibrationMarker, AutoCalibrator.MarkerHit> hits = new java.util.LinkedHashMap<>();
+            java.util.Map<String, String> colors = new java.util.LinkedHashMap<>();
+            hits.put(CalibrationMarker.INPUT_FIELD, finalInput);
+            colors.put(CalibrationMarker.INPUT_FIELD.id(), finalInput.observedColorHex());
+            hits.put(CalibrationMarker.SEND, finalSend);
+            colors.put(CalibrationMarker.SEND.id(), finalSend.observedColorHex());
+            hits.put(CalibrationMarker.REGENERATE, regenHit);
+            colors.put(CalibrationMarker.REGENERATE.id(), regenHit.observedColorHex());
+            hits.put(CalibrationMarker.CODE_COPY, copyHit);
+            colors.put(CalibrationMarker.CODE_COPY.id(), copyHit.observedColorHex());
+            AutoCalibrator.CalibrationResult result = new AutoCalibrator.CalibrationResult(colors, hits, copyHit);
+            inputSimulator.setCalibration(result);
+            long totalMs = System.currentTimeMillis() - tStartAll;
+            appendSystem("Calibration completed (scale=" + scale + "%).");
+            AppLogger.info("runCalibrationSequence: calibration ready, markers=" + hits.size() + " total=" + totalMs + " ms");
+            setStatus(StatusMarker.State.PAUSED);
+            return true;
         }
-        AppLogger.warn("primeChat: code_copy not detected within " + timeoutSec + "s");
-        return false;
     }
 
+    private boolean failCalibration(int scale, String reason) {
+        AppLogger.warn("runCalibrationSequence: FAILED - " + reason);
+        appendSystem("Calibration FAILED: " + reason);
+        showIncompatiblePcDialog(new CompatibilityChecker.CompatibilityResult(
+                CompatibilityChecker.CompatibilityResult.Status.INCOMPATIBLE_PC, reason), scale);
+        return false;
+    }
     private void showIncompatiblePcDialog(CompatibilityChecker.CompatibilityResult result, int scalePercent) {
         String diag = result == null ? "" : result.diagnostic();
         String message = "Требуется минимум " + CompatibilityChecker.MIN_WORKSPACE_WIDTH
@@ -1245,7 +1323,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
 
             case STOPPED -> new Color(220, 50, 50);
 
-            case WORKING, PLANNING -> new Color(150, 255, 80);
+            case WORKING, PLANNING, CALIBRATION -> new Color(150, 255, 80);
 
             case PAUSED -> new Color(255, 165, 0);
 

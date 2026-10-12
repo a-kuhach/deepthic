@@ -31,17 +31,9 @@ public record MarkerSpec(CalibrationMarker type,
         if (type == null) throw new IllegalArgumentException("type is null");
         return switch (type) {
             case INPUT_FIELD -> new MarkerSpec(type,
-                    List.of("333335"), List.of(),
-                    new SearchArea(0.0, 0.60, 1.0, 1.0),
-                    SelectionRule.CENTER_MATCH);
-            case DEEPTHINK -> new MarkerSpec(type,
-                    List.of("6196F8"), List.of(),
-                    new SearchArea(0.0, 0.70, 0.55, 1.0),
-                    SelectionRule.CENTER_MATCH);
-            case SEARCH -> new MarkerSpec(type,
-                    List.of("5B82E6"), List.of(),
-                    new SearchArea(0.10, 0.70, 0.60, 1.0),
-                    SelectionRule.CENTER_MATCH);
+                    List.of("2C2C2E"), List.of(),
+                    new SearchArea(0.0, 0.60, 1.0, 0.78),
+                    SelectionRule.TOPMOST_LEFT);
             case SEND -> new MarkerSpec(type,
                     List.of("5686FE"), List.of("3C5082"),
                     new SearchArea(0.60, 0.55, 1.0, 1.0),
@@ -51,8 +43,8 @@ public record MarkerSpec(CalibrationMarker type,
                     new SearchArea(0.0, 0.25, 1.0, 0.85),
                     SelectionRule.FIRST_MATCH);
             case CODE_COPY -> new MarkerSpec(type,
-                    List.of("DCDFE5"), List.of(),
-                    new SearchArea(0.0, 0.55, 1.0, 1.0),
+                    List.of("C9CBD0"), List.of(),
+                    new SearchArea(0.0, 0.30, 1.0, 0.55),
                     SelectionRule.FIRST_MATCH);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");

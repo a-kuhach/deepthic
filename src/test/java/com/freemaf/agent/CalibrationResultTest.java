@@ -16,7 +16,7 @@ class CalibrationResultTest {
     void foundReturnsTrueOnlyForPopulatedHit() {
         Map<CalibrationMarker, AutoCalibrator.MarkerHit> hits = new LinkedHashMap<>();
         hits.put(CalibrationMarker.INPUT_FIELD,
-                new AutoCalibrator.MarkerHit(100, 200, "333335", false));
+                new AutoCalibrator.MarkerHit(100, 200, "2C2C2E", false));
         AutoCalibrator.CalibrationResult r = new AutoCalibrator.CalibrationResult(Map.of(), hits);
         assertTrue(r.found(CalibrationMarker.INPUT_FIELD));
         assertFalse(r.found(CalibrationMarker.SEND));
@@ -38,15 +38,14 @@ class CalibrationResultTest {
 
     @Test
     void missingReturnsAbsentRequiredMarkers() {
+        // REQUIRED = [INPUT_FIELD, SEND]. Populate only INPUT_FIELD -> SEND is missing.
         Map<CalibrationMarker, AutoCalibrator.MarkerHit> hits = new LinkedHashMap<>();
         hits.put(CalibrationMarker.INPUT_FIELD, new AutoCalibrator.MarkerHit(1, 1, "0", false));
-        hits.put(CalibrationMarker.SEARCH, new AutoCalibrator.MarkerHit(2, 2, "0", false));
         AutoCalibrator.CalibrationResult r = new AutoCalibrator.CalibrationResult(Map.of(), hits);
         List<CalibrationMarker> missing = r.missing();
-        assertTrue(missing.contains(CalibrationMarker.DEEPTHINK));
         assertTrue(missing.contains(CalibrationMarker.SEND));
         assertFalse(missing.contains(CalibrationMarker.INPUT_FIELD));
-        assertFalse(missing.contains(CalibrationMarker.SEARCH));
+        assertEquals(1, missing.size());
     }
 
     @Test
@@ -63,8 +62,8 @@ class CalibrationResultTest {
     @Test
     void legacyColorsConstructorStillWorks() {
         AutoCalibrator.CalibrationResult r =
-                new AutoCalibrator.CalibrationResult(Map.of("input_field", "333335"));
-        assertEquals("333335", r.colors().get("input_field"));
+                new AutoCalibrator.CalibrationResult(Map.of("input_field", "2C2C2E"));
+        assertEquals("2C2C2E", r.colors().get("input_field"));
         assertFalse(r.allRequiredFound());
         assertTrue(r.hits().isEmpty());
     }

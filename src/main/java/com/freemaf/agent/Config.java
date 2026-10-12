@@ -35,7 +35,7 @@ public final class Config {
 
         DEFAULTS.put("window.work.y", "50");
 
-        DEFAULTS.put("window.work.width", "673");
+        DEFAULTS.put("window.work.width", "731");
 
         DEFAULTS.put("window.work.height", "473");
 
@@ -62,6 +62,7 @@ public final class Config {
         DEFAULTS.put("marker.regenerate.dy", "258");
 
         DEFAULTS.put("marker.regenerate.dx_offset", "103");
+        DEFAULTS.put("marker.regenerate.x_offset_from_code_copy", "481");
 
         DEFAULTS.put("marker.copy_last.x", "0");
 
@@ -311,6 +312,22 @@ public final class Config {
             }
             props.setProperty("config.migrated.v4", "true");
             AppLogger.info("Config: schema migration v4 applied (" + reset + " calibration keys reset)");
+            changed = true;
+        }
+
+        // Schema migration v5 (S5): enforce minimum window width 731 px.
+        // 731 is required so that the input field stops growing horizontally on resize
+        // and the Regenerate button keeps a stable offset from the code-block Copy button.
+        // Do NOT lower a user-set larger width; only raise values below 731.
+        if (!"true".equalsIgnoreCase(props.getProperty("config.migrated.v5", "false"))) {
+            int ww = 0;
+            try { ww = Integer.parseInt(props.getProperty("window.work.width", "0").trim()); }
+            catch (NumberFormatException ignored) { }
+            if (ww < 731) {
+                props.setProperty("window.work.width", "731");
+            }
+            props.setProperty("config.migrated.v5", "true");
+            AppLogger.info("Config: schema migration v5 applied (window.work.width -> 731)");
             changed = true;
         }
 
@@ -770,6 +787,11 @@ public final class Config {
     public int getWindowSizeMaxWidth() {
         int value = getInt("window.size.max.width", 0);
         return value >= 0 ? value : 0;
+    }
+
+    public int getRegenerateXOffsetFromCodeCopy() {
+        int value = getInt("marker.regenerate.x_offset_from_code_copy", 481);
+        return value > 0 ? value : 481;
     }
 
     public void setWindowSizeMaxWidth(int width) {
