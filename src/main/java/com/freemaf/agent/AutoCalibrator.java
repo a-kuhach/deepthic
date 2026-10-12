@@ -311,7 +311,12 @@ public final class AutoCalibrator {
         if (window == null) throw new IllegalArgumentException("window is null");
         if (reader == null) throw new IllegalArgumentException("reader is null");
         MarkerSpec spec = MarkerSpec.forType(CalibrationMarker.CODE_COPY);
-        return Optional.ofNullable(search(window, spec, reader));
+        MarkerHit hit = search(window, spec, reader);
+        if (hit != null) {
+            AppLogger.info("findCodeCopy: hit " + hit.x() + "," + hit.y() + " #" + hit.observedColorHex()
+                    + " (anchor=#C9CBD0 tol=" + spec.tolerance() + ")");
+        }
+        return Optional.ofNullable(hit);
     }
 
     private static final String REGENERATE_ANCHOR_HEX = "9A9FA4";
