@@ -94,4 +94,9 @@
   <rule>Если хотя бы один скрипт превышает 30 минут — вердикт PLAN_REJECTED.</rule>
 </directive>
 <directive id="DIRECTIVE_FILE_PROTECTION" severity="CRITICAL">   <rule>During plan review, verify that the plan does NOT require the agent to write into agent/rules/*.md or agent/AGENT_INSTRUCTIONS.md.</rule>   <rule>If such a step is present, return a FAIL verdict and state that directive-file changes are performed manually by the user, not by the agent.</rule> </directive> 
+<directive id="AGENT_PAUSE_WITH_WORK_SCRIPT_AUDIT" severity="CRITICAL">
+  <rule>During plan review, an AGENT_PAUSE combined with a working script (for example "launch the app, then wait for the user to check it visually") is a valid pattern, not a defect. Do not reject a plan solely because a step both executes a script and pauses.</rule>
+  <rule>During execution review, an AGENT_PAUSE from the executor after a script that performed real work is valid: the framework returns the script output together with the user's next message. Do not reject solely because the loop paused with non-empty script output.</rule>
+  <rule>Do NOT assume AGENT_PAUSE means "waiting for the script to finish". Scripts run synchronously; that use of the marker is forbidden (see EXECUTOR.md AGENT_PAUSE_WITH_WORK_SCRIPT).</rule>
+</directive>
 </role>

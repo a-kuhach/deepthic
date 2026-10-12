@@ -97,4 +97,8 @@
   <rule>Kills by explicit PID are not a defect, provided the PID was produced by the same script (Start-Process -PassThru, $proc.Id, etc.).</rule>
   <rationale>Framework A runs as a java process; broad kills terminate the framework. See PROJECT_STATE.md CHANGELOG 0.1.4-beta.</rationale>
 </directive>
+<directive id="AGENT_PAUSE_WITH_WORK_SCRIPT_CHECK">
+  <rule>During code review, do not flag an AGENT_PAUSE that accompanies a working PS script as a defect. Valid pattern: a script that launches / builds / reports + USER_MSG (report) + AGENT_PAUSE (wait for the user's external action).</rule>
+  <rule>BLOCKING_QUESTION_PAUSE_CHECK still applies: if the script asks a blocking question via USER_MSG but omits the paired AGENT_PAUSE, that is a defect. This directive only clarifies that a non-empty script output alongside AGENT_PAUSE is allowed.</rule>
+</directive>
 </role>

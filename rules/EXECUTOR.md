@@ -172,6 +172,15 @@
   <rationale>Without the paired AGENT_PAUSE the automation loop keeps running and the executor re-emits the same question on the next iteration (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.3-beta).</rationale>
 </directive>
 
+<directive id="AGENT_PAUSE_WITH_WORK_SCRIPT" severity="CRITICAL">
+  <rule>AGENT_PAUSE waits for a user action or a user answer - it never means "wait for a script to finish". Scripts execute synchronously; their stdout/stderr/exit code are returned to you automatically, without any pause.</rule>
+  <rule>A pause MAY be combined with a working script when the user must perform an external action that the framework cannot observe (visual check of a launched application, manual confirmation, an out-of-band login, etc.). Typical valid pattern: USER_MSG reporting what was done and what to verify + AGENT_PAUSE with a short reason.</rule>
+  <rule>If a paused script produced non-marker stdout/stderr, the framework returns that output to you together with the user's next message. Marker lines (USER_MSG / AGENT_PAUSE / AGENT_STOP / AGENT_DONE) are stripped from the returned output - do not expect to see them echoed back.</rule>
+  <forbid>AGENT_PAUSE as a way to wait for a long-running script to finish. That is not what the marker is for; scripts are synchronous and a pause is unnecessary for this case.</forbid>
+  <forbid>AGENT_PAUSE without a preceding USER_MSG when the pause answers a blocking question (see BLOCKING_QUESTION_PAUSE).</forbid>
+  <rationale>Until this change the framework silently dropped the script output on a paused iteration; the executor then re-emitted the same script or asked the user to repeat what had just been done. Defect observed in project C, 2026-10-12.</rationale>
+</directive>
+
 <directive id="NO_BROAD_PROCESS_KILL" severity="CRITICAL">
   <rule>Forbid process termination by generic name or wildcard: Get-Process -Name java | Stop-Process, Get-Process -Name javaw | Stop-Process, Stop-Process -Name java, taskkill /IM java.exe, taskkill /IM javaw.exe, pkill -f java, and any equivalent pattern that terminates processes by name rather than by an explicit PID known to belong to a child process started by the same PS script.</rule>
   <rule>Allow process termination only when the exact PID was produced by the same PS script (for example, the PID returned by Start-Process -PassThru). Kill by explicit PID only: Stop-Process -Id $pid, taskkill /F /T /PID $pid.</rule>

@@ -62,6 +62,7 @@ public final class AutomationLoop implements Runnable {
 
     private volatile boolean awaitingMigrationConfirm = false;
     private volatile boolean warningInjected = false;
+    private volatile String pendingPauseOutput = null;
 
 
 
@@ -576,6 +577,13 @@ public final class AutomationLoop implements Runnable {
 
             List<File> incomingFiles = incoming.files();
 
+            String savedPause = pendingPauseOutput;
+            if (savedPause != null && !savedPause.isBlank()) {
+                AppLogger.info("prepending paused-script output (" + savedPause.length() + " chars) to the next prompt");
+                prompt = savedPause + System.lineSeparator() + System.lineSeparator() + prompt;
+                pendingPauseOutput = null;
+            }
+
 
 
             try {
@@ -833,6 +841,11 @@ public final class AutomationLoop implements Runnable {
 
 
                                 if (mp == MarkerProcessResult.PAUSE) {
+                    String filteredPause = filterPauseOutput(scriptLog);
+                    if (filteredPause != null && !filteredPause.isBlank()) {
+                        pendingPauseOutput = filteredPause;
+                        AppLogger.info("AGENT_PAUSE: saved filtered script output (" + filteredPause.length() + " chars) for next prompt");
+                    }
                     appendSystem("Agent paused: " + pauseMessage(events));
                     paused = true;
                     statusMarker.setState(StatusMarker.State.PAUSED);
@@ -1156,6 +1169,22 @@ public final class AutomationLoop implements Runnable {
     }
 
 
+
+    private static String filterPauseOutput(String log) {
+        if (log == null || log.isBlank()) return null;
+        StringBuilder sb = new StringBuilder();
+        for (String line : log.split("\\R")) {
+            String t = line.stripLeading();
+            if (t.startsWith("USER_MSG:") || t.startsWith("AGENT_PAUSE:")
+                    || t.startsWith("AGENT_STOP:") || t.startsWith("AGENT_DONE:")) {
+                continue;
+            }
+            if (sb.length() > 0) sb.append(System.lineSeparator());
+            sb.append(line);
+        }
+        String out = sb.toString().strip();
+        return out.isEmpty() ? null : out;
+    }
 
     private static String pauseMessage(List<MarkerEvent> events) {
 
