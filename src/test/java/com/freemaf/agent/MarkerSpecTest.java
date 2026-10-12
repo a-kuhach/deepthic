@@ -48,7 +48,10 @@ class MarkerSpecTest {
     void codeCopyAnchorExists() {
         MarkerSpec spec = MarkerSpec.forType(CalibrationMarker.CODE_COPY);
         assertNotNull(spec, "spec null for CODE_COPY");
-        assertFalse(spec.activeColorsHex().isEmpty(), "no active anchors for code_copy");
+        // Since S5, CODE_COPY uses dynamic light-gray matching (dynamicLightGray=true);
+        // the fixed anchor list is intentionally empty.
+        assertTrue(spec.dynamicLightGray() || !spec.activeColorsHex().isEmpty(),
+                "code_copy must have either explicit anchors or dynamicLightGray=true");
         MarkerSpec.SearchArea a = spec.area();
         assertTrue(a.leftRatio() >= 0.0 && a.leftRatio() <= 1.0);
         assertTrue(a.topRatio() >= 0.0 && a.topRatio() <= 1.0);

@@ -8,7 +8,8 @@ public record MarkerSpec(CalibrationMarker type,
                          SearchArea area,
                          SelectionRule rule,
                          int tolerance,
-                         int step) {
+                         int step,
+                         boolean dynamicLightGray) {
 
     public enum SelectionRule { FIRST_MATCH, CENTER_MATCH, TOPMOST_LEFT }
 
@@ -31,23 +32,21 @@ public record MarkerSpec(CalibrationMarker type,
         if (step <= 0) throw new IllegalArgumentException("step must be >= 1");
     }
 
-    /** Backward-compatible: exact match (tolerance=0), default step=4. */
     public MarkerSpec(CalibrationMarker type,
                       List<String> activeColorsHex,
                       List<String> disabledColorsHex,
                       SearchArea area,
                       SelectionRule rule) {
-        this(type, activeColorsHex, disabledColorsHex, area, rule, 0, 4);
+        this(type, activeColorsHex, disabledColorsHex, area, rule, 0, 4, false);
     }
 
-    /** Backward-compatible: explicit tolerance, default step=4. */
     public MarkerSpec(CalibrationMarker type,
                       List<String> activeColorsHex,
                       List<String> disabledColorsHex,
                       SearchArea area,
                       SelectionRule rule,
                       int tolerance) {
-        this(type, activeColorsHex, disabledColorsHex, area, rule, tolerance, 4);
+        this(type, activeColorsHex, disabledColorsHex, area, rule, tolerance, 4, false);
     }
 
     public static MarkerSpec forType(CalibrationMarker type) {
@@ -66,11 +65,12 @@ public record MarkerSpec(CalibrationMarker type,
                     new SearchArea(0.0, 0.25, 1.0, 0.85),
                     SelectionRule.FIRST_MATCH);
             case CODE_COPY -> new MarkerSpec(type,
-                    List.of("C9CBD0"), List.of(),
+                    List.of(), List.of(),
                     new SearchArea(0.0, 0.30, 1.0, 0.55),
                     SelectionRule.FIRST_MATCH,
                     0,
-                    1);
+                    1,
+                    true);
             case REGENERATE, COPY_LAST -> throw new IllegalArgumentException(
                     "No MarkerSpec anchors for " + type.id() + " in Stage S3");
         };

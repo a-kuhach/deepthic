@@ -103,14 +103,24 @@ public final class AutoCalibrator {
                     String hexU = hex.toUpperCase();
                     freqFm.merge(hexU, 1, Integer::sum);
                     if ("000000".equals(hexU)) blackCount++;
-                    if (matchesAny(hex, spec.activeColorsHex(), spec.tolerance())) {
+                    boolean activeMatch;
+                    boolean disabledMatch;
+                    if (spec.dynamicLightGray()) {
+                        activeMatch = isLightGrayIcon(hex);
+                        disabledMatch = false;
+                    } else {
+                        activeMatch = matchesAny(hex, spec.activeColorsHex(), spec.tolerance());
+                        disabledMatch = matchesAny(hex, spec.disabledColorsHex(), spec.tolerance());
+                    }
+                    if (activeMatch) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH ("
                                 + (x0 + xx) + "," + screenY + ") #" + hexU
-                                + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule() + ")");
+                                + " in " + ms + " ms (scanned=" + scanned + ", rule=" + spec.rule()
+                                + (spec.dynamicLightGray() ? ", dynamic" : "") + ")");
                         return new MarkerHit(x0 + xx, screenY, hexU, false);
                     }
-                    if (matchesAny(hex, spec.disabledColorsHex(), spec.tolerance())) {
+                    if (disabledMatch) {
                         long ms = (System.nanoTime() - tStartNs) / 1_000_000L;
                         AppLogger.info("AutoCalibrator.search[" + spec.type().id() + "]: FIRST_MATCH disabled ("
                                 + (x0 + xx) + "," + screenY + ") #" + hexU
@@ -185,6 +195,21 @@ public final class AutoCalibrator {
                 + " expectedDisabled=" + spec.disabledColorsHex());
         return null;
     }
+    private static boolean isLightGrayIcon(String hex) {
+        if (hex == null || hex.length() != 6) return false;
+        try {
+            int r = Integer.parseInt(hex.substring(0, 2), 16);
+            int g = Integer.parseInt(hex.substring(2, 4), 16);
+            int b = Integer.parseInt(hex.substring(4, 6), 16);
+            int mn = Math.min(r, Math.min(g, b));
+            int mx = Math.max(r, Math.max(g, b));
+            if (mn < 190 || mx > 215) return false;
+            return (mx - mn) <= 12;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private static boolean matchesAny(String hex, List<String> colors) {
         return matchesAny(hex, colors, 0);
     }
