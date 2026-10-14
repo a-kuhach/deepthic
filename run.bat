@@ -73,11 +73,65 @@ exit /b 1
 
 :prereq_ok
 
+rem ---- Update from origin/main (skipped if .git or git is unavailable) ----
+set "UPDATED=0"
+if not exist "%BUILD_DIR%\.git" goto :updates_done
+where git >nul 2>nul
+if errorlevel 1 goto :updates_done
+
+echo [Free MAF Code] Checking for updates from remote...
+pushd "%BUILD_DIR%"
+
+rem Only update when on the main branch; skip otherwise to avoid surprises.
+for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%B"
+if not "%BRANCH%"=="main" (
+    echo [Free MAF Code] Not on branch 'main' ^(%BRANCH%^); skipping update.
+    popd
+    goto :updates_done
+)
+
+git fetch --quiet origin
+if errorlevel 1 (
+    echo [Free MAF Code] git fetch failed; continuing with local code.
+    popd
+    goto :updates_done
+)
+
+set "BEHIND="
+for /f "delims=" %%N in ('git rev-list --count HEAD..origin/main 2^>nul') do set "BEHIND=%%N"
+if not defined BEHIND (
+    echo [Free MAF Code] Cannot determine remote main; skipping update.
+    popd
+    goto :updates_done
+)
+if "%BEHIND%"=="0" (
+    echo [Free MAF Code] Already up to date.
+    popd
+    goto :updates_done
+)
+
+echo [Free MAF Code] %BEHIND% new commit^(s^) in origin/main; pulling...
+git pull --ff-only origin main
+if errorlevel 1 (
+    echo [Free MAF Code] git pull failed; continuing with local code.
+    popd
+    goto :updates_done
+)
+set "UPDATED=1"
+echo [Free MAF Code] Update applied; rebuild required.
+popd
+
+:updates_done
+
+rem Force rebuild if we just pulled an update.
+if "%UPDATED%"=="1" goto :do_build_clean
+
 rem Verify existing JAR contains the main class; otherwise rebuild.
 if not exist "%JAR%" goto :do_build
 powershell.exe -NoProfile -Command "try { Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null; $z=[System.IO.Compression.ZipFile]::OpenRead('%JAR%'); $ok=$z.Entries | Where-Object { $_.FullName -eq 'com/freemaf/agent/Main.class' }; $z.Dispose(); if ($ok) { exit 0 } else { exit 1 } } catch { exit 1 }"
 if not errorlevel 1 goto :run
 echo [Free MAF Code] Existing JAR is stale or invalid; rebuilding...
+goto :do_build
 
 :do_build
 echo [Free MAF Code] Building framework, this may take a few minutes...
@@ -85,6 +139,16 @@ pushd "%BUILD_DIR%"
 call mvn -q -DskipTests package
 set "MVN_RC=%ERRORLEVEL%"
 popd
+goto :build_done
+
+:do_build_clean
+echo [Free MAF Code] Rebuilding after update...
+pushd "%BUILD_DIR%"
+call mvn -q -DskipTests clean package
+set "MVN_RC=%ERRORLEVEL%"
+popd
+
+:build_done
 if not "%MVN_RC%"=="0" (
     echo [Free MAF Code] Build failed with exit code %MVN_RC%.
     pause
