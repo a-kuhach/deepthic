@@ -1,6 +1,6 @@
 # Free MAF Code
 
-**Version: beta v0.2.5**
+**Version: beta v0.2.6**
 
 A Windows automation bridge that drives a manually opened Chrome window with the
 DeepSeek Web chat and uses it as a remote LLM agent for your project.

@@ -858,47 +858,44 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     }
 
     private void runCalibrationAction() {
-
         try {
-
-            WindowInfo window = ensureChromeWindow();
-
-            if (window == null) return;
-
+            if (currentLoop != null || startSequenceRunning) {
+                appendSystem("Stopping active session before calibration...");
+                stopAction();
+                Thread.sleep(500L);
+                EmergencyStop.reset();
+            }
+            java.util.List<com.sun.jna.Pointer> excludes = new java.util.ArrayList<>();
+            for (WindowInfo w : ChromeLauncher.findChromeWindows()) {
+                if (w.title().toLowerCase().contains("deepseek")) {
+                    excludes.add(w.hwnd());
+                }
+            }
+            AppLogger.info("runCalibrationAction: excluding " + excludes.size() + " existing DeepSeek window(s)");
+            appendSystem("Opening fresh Chrome window for calibration...");
+            WindowInfo window = ChromeLauncher.launchNewWindow(config, excludes);
+            if (window == null) {
+                setStatus(StatusMarker.State.STOPPED);
+                return;
+            }
             windowManager.select(window);
-
+            appendSystem("Calibration window: " + window.title());
             if (!setupWorkRect()) return;
-
             if (!runCalibrationSequence()) { setStatus(StatusMarker.State.STOPPED); return; }
-
             config.setCalibrated(true);
-
             config.save();
-
             appendSystem("Calibration saved to config.properties.");
-
             setStatus(StatusMarker.State.STOPPED);
-
         } catch (InterruptedException e) {
-
             Thread.currentThread().interrupt();
-
             appendSystem("Calibration interrupted.");
-
             setStatus(StatusMarker.State.STOPPED);
-
         } catch (Exception e) {
-
             appendSystem("Calibration error - " + e.getMessage());
-
             setStatus(StatusMarker.State.STOPPED);
-
         } finally {
-
             calibrationRunning = false;
-
         }
-
     }
     private void startSequence() {
         try {
@@ -977,19 +974,12 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     }
 
     private StatusMarker statusMarkerProxy() {
-
         return new StatusMarker() {
-
             @Override public void setState(State state) {
-
                 SwingUtilities.invokeLater(() -> MainFrame.this.setStatus(state));
-
             }
-
         };
-
     }
-
     private WindowInfo ensureChromeWindow() throws Exception {
 
         WindowInfo window = ChromeLauncher.findDeepSeekWindow();
