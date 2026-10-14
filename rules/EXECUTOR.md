@@ -172,6 +172,15 @@
   <rationale>Without the paired AGENT_PAUSE the automation loop keeps running and the executor re-emits the same question on the next iteration (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.3-beta).</rationale>
 </directive>
 
+<directive id="BLOCKING_QUESTION_MARKER_FORMAT" severity="CRITICAL">
+  <rule>Any question that requires a user answer before the loop may continue MUST be emitted as EXACTLY ONE pair of marker lines in the SAME PS script:</rule>
+  <example>Write-Output "USER_MSG: &lt;text of the question&gt;"</example>
+  <example>Write-Output "AGENT_PAUSE: &lt;short reason&gt;"</example>
+  <forbid>Emitting blocking questions as plain Write-Output lines without markers. Plain stdout without markers is shown only in the PS Console; it is NEVER forwarded to the Chat panel and does NOT pause the loop.</forbid>
+  <forbid>Multiple separate USER_MSG lines for one blocking question - consolidate the whole question into a single USER_MSG text, then one AGENT_PAUSE.</forbid>
+  <rule>If you emit questions without markers, the framework will send you a reminder instead of forwarding the questions to the user; the questions are lost.</rule>
+  <rationale>Defect observed in project C on 2026-10-15: the executor wrote questions as plain Write-Output, they never reached Chat, the loop never paused, and the user could not answer.</rationale>
+</directive>
 <directive id="AGENT_PAUSE_WITH_WORK_SCRIPT" severity="CRITICAL">
   <rule>AGENT_PAUSE waits for a user action or a user answer - it never means "wait for a script to finish". Scripts execute synchronously; their stdout/stderr/exit code are returned to you automatically, without any pause.</rule>
   <rule>A pause MAY be combined with a working script when the user must perform an external action that the framework cannot observe (visual check of a launched application, manual confirmation, an out-of-band login, etc.). Typical valid pattern: USER_MSG reporting what was done and what to verify + AGENT_PAUSE with a short reason.</rule>
