@@ -78,6 +78,15 @@ public final class DeepSeekSession {
         int wh = config.getInt("window.work.height", 473);
 
         windowManager.setRect(wx, wy, ww, wh);
+        WindowInfo refreshed = WindowFinder.findByHwnd(win.hwndValue(), config.getWindowTitle()).orElse(null);
+        if (refreshed != null) {
+            win = refreshed;
+            AppLogger.info("openNewWindow: window geometry refreshed to "
+                    + win.left() + "," + win.top() + " "
+                    + (win.right() - win.left()) + "x" + (win.bottom() - win.top()));
+        } else {
+            AppLogger.warn("openNewWindow: could not refresh window geometry, using stale rect");
+        }
 
         AppLogger.info("openNewWindow: waiting for INPUT_FIELD (5 attempts x 10 s)");
         boolean inputReady = false;
