@@ -105,6 +105,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
     private int fontLevel = 1;
 
     private volatile boolean startSequenceRunning;
+    private volatile Thread startSequenceThread;
+    private volatile long lastStopAtMs;
 
     private volatile boolean calibrationRunning;
 
@@ -724,6 +726,11 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         updateSendButtonState();
 
         if (currentState == StatusMarker.State.STOPPED) {
+            long sinceStop = System.currentTimeMillis() - lastStopAtMs;
+            if (lastStopAtMs > 0L && sinceStop < 3000L) {
+                appendSystem("Auto-start suppressed (STOP was " + sinceStop + " ms ago).");
+                return;
+            }
             config.setResumeAfterStop(false); // user gave fresh prompt
             appendSystem("Auto-start (STOPPED → Start).");
             startAction();
@@ -739,7 +746,9 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         startSequenceRunning = true;
         setStatus(StatusMarker.State.WORKING);
         updateStartButton();
-        new Thread(this::startSequence, "StartSequence").start();
+        Thread t = new Thread(this::startSequence, "StartSequence");
+        this.startSequenceThread = t;
+        t.start();
     }
 
     private void handleStartButtonClick() {
@@ -893,6 +902,11 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     }
     private void startSequence() {
         try {
+            if (Thread.currentThread().isInterrupted() || EmergencyStop.isStopped()) {
+                AppLogger.info("startSequence: aborted at entry");
+                setStatus(StatusMarker.State.STOPPED);
+                return;
+            }
             AutomationLoop loop = new AutomationLoop(chatConsole, psConsolePanel, statusMarkerProxy(), promptQueue,
                     deepSeekSession, powerShellExecutor, config, windowManager);
             SessionDetector.SessionDecision decision = loop.bootstrapSession();
@@ -1511,6 +1525,12 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
     private void stopAction() {
 
         EmergencyStop.stop();
+        lastStopAtMs = System.currentTimeMillis();
+        Thread t = startSequenceThread;
+        if (t != null && t.isAlive()) {
+            AppLogger.info("stopAction: interrupting StartSequence thread");
+            t.interrupt();
+        }
         if (currentLoop != null) {
             config.setResumeAfterStop(true);
         }

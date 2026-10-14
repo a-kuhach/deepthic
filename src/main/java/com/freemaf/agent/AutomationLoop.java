@@ -795,6 +795,20 @@ public final class AutomationLoop implements Runnable {
 
                 }
 
+                if ("ANALYST".equals(responseRole)
+                        && mp != MarkerProcessResult.HALT
+                        && mp != MarkerProcessResult.PAUSE) {
+                    StringBuilder anp = new StringBuilder();
+                    anp.append("### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
+                    anp.append("Твой ответ не содержал ни AGENT_DONE, ни AGENT_PAUSE.").append(System.lineSeparator());
+                    anp.append("Определись:").append(System.lineSeparator());
+                    anp.append("- Если анализ завершён, отправь: Write-Output \"AGENT_DONE: <итог>\".").append(System.lineSeparator());
+                    anp.append("- Если нужен ответ пользователя, отправь: Write-Output \"USER_MSG: <вопрос>\" затем Write-Output \"AGENT_PAUSE: ожидание ответа\".").append(System.lineSeparator());
+                    anp.append("Не продолжай работу без одного из этих маркеров.").append(System.lineSeparator());
+                    promptQueue.add(anp.toString());
+                    debug("routed ANALYST(no DONE/PAUSE) -> self with instruction");
+                    continue;
+                }
 
 
                 if (mp == MarkerProcessResult.HALT) {
