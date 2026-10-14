@@ -18,8 +18,6 @@ if not defined BUILD_DIR (
 )
 if not defined BUILD_DIR (
     echo [Free MAF Code] pom.xml not found near run.bat.
-    echo Checked: %RUN_DIR% and its parent.
-    echo pom.xml not found>>"%LOG%"
     pause
     exit /b 1
 )
@@ -73,30 +71,120 @@ exit /b 1
 
 :prereq_ok
 
-rem ---- Update from origin/main (skipped if .git or git is unavailable) ----
+rem ============================================================
+rem  Update section.
+rem  - If .git exists: git pull (dev checkout).
+rem  - Else (ZIP install): compare pom.xml version with remote and, if
+rem    different, download the fresh ZIP and replace A-side source files
+rem    while preserving runtime artifacts (config.properties, project/,
+rem    cache/, history/, util/, build/).
+rem ============================================================
 set "UPDATED=0"
-if not exist "%BUILD_DIR%\.git" goto :updates_done
+
+if exist "%BUILD_DIR%\.git" goto :git_update
+
+rem ---- ZIP-based update for dist installs ----
+if not exist "%BUILD_DIR%\pom.xml" goto :updates_done
+where curl.exe >nul 2>nul
+if errorlevel 1 (
+    echo [Free MAF Code] curl.exe not found; skipping auto-update.
+    goto :updates_done
+)
+
+echo [Free MAF Code] Checking for updates from GitHub...
+set "REMOTE_POM=%TEMP%\freemaf-remote-pom.xml"
+del "%REMOTE_POM%" >nul 2>nul
+curl.exe -s -L --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.com/rezdoom90/free-maf-code/main/pom.xml"
+if not exist "%REMOTE_POM%" goto :zip_update_skip
+
+set "LOCAL_VER="
+for /f "tokens=2 delims=<>" %%V in ('findstr /c:"<version>" "%BUILD_DIR%\pom.xml"') do (
+    if not defined LOCAL_VER set "LOCAL_VER=%%V"
+)
+set "REMOTE_VER="
+for /f "tokens=2 delims=<>" %%V in ('findstr /c:"<version>" "%REMOTE_POM%"') do (
+    if not defined REMOTE_VER set "REMOTE_VER=%%V"
+)
+del "%REMOTE_POM%" >nul 2>nul
+
+if not defined LOCAL_VER goto :zip_update_skip
+if not defined REMOTE_VER goto :zip_update_skip
+
+echo [Free MAF Code] Local version:  %LOCAL_VER%
+echo [Free MAF Code] Remote version: %REMOTE_VER%
+
+if "%LOCAL_VER%"=="%REMOTE_VER%" (
+    echo [Free MAF Code] Already up to date.
+    goto :updates_done
+)
+
+echo [Free MAF Code] Update available; downloading ZIP...
+set "ZIP=%TEMP%\freemaf-update.zip"
+set "EXTRACT_DIR=%TEMP%\freemaf-update"
+del "%ZIP%" >nul 2>nul
+if exist "%EXTRACT_DIR%" rmdir /S /Q "%EXTRACT_DIR%" >nul 2>nul
+
+curl.exe -s -L --max-time 120 -o "%ZIP%" "https://github.com/rezdoom90/free-maf-code/archive/refs/heads/main.zip"
+if not exist "%ZIP%" goto :zip_update_skip
+
+echo [Free MAF Code] Extracting...
+powershell.exe -NoProfile -Command "try { Expand-Archive -LiteralPath '%ZIP%' -DestinationPath '%EXTRACT_DIR%' -Force } catch { exit 1 }"
+if errorlevel 1 (
+    echo [Free MAF Code] Extraction failed; continuing with local code.
+    del "%ZIP%" >nul 2>nul
+    goto :updates_done
+)
+
+set "SRC=%EXTRACT_DIR%\free-maf-code-main"
+if not exist "%SRC%\" (
+    echo [Free MAF Code] Unexpected ZIP layout; continuing with local code.
+    rmdir /S /Q "%EXTRACT_DIR%" >nul 2>nul
+    del "%ZIP%" >nul 2>nul
+    goto :updates_done
+)
+
+echo [Free MAF Code] Applying update (preserving config.properties, project/, cache/, history/, util/, build/)...
+if exist "%BUILD_DIR%\src" rmdir /S /Q "%BUILD_DIR%\src"
+xcopy "%SRC%\src" "%BUILD_DIR%\src" /E /I /Q /Y >nul
+if exist "%BUILD_DIR%\rules" rmdir /S /Q "%BUILD_DIR%\rules"
+xcopy "%SRC%\rules" "%BUILD_DIR%\rules" /E /I /Q /Y >nul
+for %%F in (pom.xml ensure-prerequisites.ps1 README.md AGENT_INSTRUCTIONS.md LICENSE .gitignore .gitattributes winrect.ps1 code_mutation.ps1) do (
+    if exist "%SRC%\%%F" copy /Y "%SRC%\%%F" "%BUILD_DIR%\%%F" >nul
+)
+if exist "%SRC%\run.bat" (
+    copy /Y "%SRC%\run.bat" "%BUILD_DIR%\run.bat.new" >nul
+    move /Y "%BUILD_DIR%\run.bat.new" "%BUILD_DIR%\run.bat" >nul
+)
+
+rmdir /S /Q "%EXTRACT_DIR%" >nul 2>nul
+del "%ZIP%" >nul 2>nul
+
+set "UPDATED=1"
+echo [Free MAF Code] Update applied; rebuild required.
+goto :updates_done
+
+:zip_update_skip
+echo [Free MAF Code] Update check skipped (offline or bad response); using local code.
+goto :updates_done
+
+:git_update
 where git >nul 2>nul
 if errorlevel 1 goto :updates_done
 
-echo [Free MAF Code] Checking for updates from remote...
+echo [Free MAF Code] Checking for updates from remote (git)...
 pushd "%BUILD_DIR%"
-
-rem Only update when on the main branch; skip otherwise to avoid surprises.
 for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%B"
 if not "%BRANCH%"=="main" (
     echo [Free MAF Code] Not on branch 'main' ^(%BRANCH%^); skipping update.
     popd
     goto :updates_done
 )
-
 git fetch --quiet origin
 if errorlevel 1 (
     echo [Free MAF Code] git fetch failed; continuing with local code.
     popd
     goto :updates_done
 )
-
 set "BEHIND="
 for /f "delims=" %%N in ('git rev-list --count HEAD..origin/main 2^>nul') do set "BEHIND=%%N"
 if not defined BEHIND (
@@ -109,7 +197,6 @@ if "%BEHIND%"=="0" (
     popd
     goto :updates_done
 )
-
 echo [Free MAF Code] %BEHIND% new commit^(s^) in origin/main; pulling...
 git pull --ff-only origin main
 if errorlevel 1 (
@@ -120,13 +207,12 @@ if errorlevel 1 (
 set "UPDATED=1"
 echo [Free MAF Code] Update applied; rebuild required.
 popd
+goto :updates_done
 
 :updates_done
 
-rem Force rebuild if we just pulled an update.
 if "%UPDATED%"=="1" goto :do_build_clean
 
-rem Verify existing JAR contains the main class; otherwise rebuild.
 if not exist "%JAR%" goto :do_build
 powershell.exe -NoProfile -Command "try { Add-Type -AssemblyName System.IO.Compression.FileSystem | Out-Null; $z=[System.IO.Compression.ZipFile]::OpenRead('%JAR%'); $ok=$z.Entries | Where-Object { $_.FullName -eq 'com/freemaf/agent/Main.class' }; $z.Dispose(); if ($ok) { exit 0 } else { exit 1 } } catch { exit 1 }"
 if not errorlevel 1 goto :run
