@@ -113,9 +113,7 @@ public final class DeepSeekSession {
             ChromeLauncher.closeWindow(win);
             throw new IllegalStateException("Новый чат не удалось подготовить после 5 попыток");
         }
-        ChromeLauncher.closeWindow(win);
-
-        throw new IllegalStateException("Новый чат не удалось подготовить после 5 попыток");
+        return win;
 
     }
 

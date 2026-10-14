@@ -953,8 +953,10 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                     promptQueue.addUser(resumeMsg, java.util.List.of());
                     appendSystem("Resume-after-stop: queued continuation prompt.");
                 }
+                setStatus(StatusMarker.State.WORKING);
             } else {
                 appendSystem("Waiting for a user message in the input field below.");
+                setStatus(StatusMarker.State.PAUSED);
             }
             loop.run();
         } catch (InterruptedException e) {
