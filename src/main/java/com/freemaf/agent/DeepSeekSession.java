@@ -73,42 +73,37 @@ public final class DeepSeekSession {
 
         int wy = config.getInt("window.work.y", 50);
 
-        int ww = config.getInt("window.work.width", 673);
+        int ww = config.getInt("window.work.width", 731);
 
         int wh = config.getInt("window.work.height", 473);
 
         windowManager.setRect(wx, wy, ww, wh);
 
-        int regX = config.getInt("marker.regenerate.x", 0);
-
-        int regY = config.getInt("marker.regenerate.y", 0);
-
-        int regExpected = ColorUtils.parseHex(config.get("marker.regenerate.color", "000000"));
-
-        for (int attempt = 1; attempt <= 5; attempt++) {
-
+        AppLogger.info("openNewWindow: waiting for INPUT_FIELD (5 attempts x 10 s)");
+        boolean inputReady = false;
+        for (int attempt = 1; attempt <= 5 && !inputReady; attempt++) {
             long deadline = System.currentTimeMillis() + 10_000L;
-
             while (System.currentTimeMillis() < deadline) {
-
                 if (EmergencyStop.isStopped()) throw new IllegalStateException("Открытие нового окна прервано");
-
-                int actual = pixelColorService.readPixel(regX, regY);
-
-                if (!ColorUtils.matches(actual, regExpected)) return win;
-
+                AutoCalibrator.MarkerHit hit = AutoCalibrator.findInputField(win, pixelColorService);
+                if (hit != null) {
+                    AppLogger.info("openNewWindow: INPUT_FIELD found at " + hit.x() + "," + hit.y()
+                            + " #" + hit.observedColorHex() + " on attempt " + attempt);
+                    inputReady = true;
+                    break;
+                }
                 Thread.sleep(500L);
-
             }
-
-            AppLogger.info("New chat marker not detected, refreshing (attempt " + attempt + ")");
-
-            inputSimulator.refreshPage();
-
-            Thread.sleep(3000L);
-
+            if (!inputReady) {
+                AppLogger.info("openNewWindow: INPUT_FIELD not detected in 10 s, refreshing page (attempt " + attempt + ")");
+                inputSimulator.refreshPage();
+                Thread.sleep(3000L);
+            }
         }
-
+        if (!inputReady) {
+            ChromeLauncher.closeWindow(win);
+            throw new IllegalStateException("Новый чат не удалось подготовить после 5 попыток");
+        }
         ChromeLauncher.closeWindow(win);
 
         throw new IllegalStateException("Новый чат не удалось подготовить после 5 попыток");
