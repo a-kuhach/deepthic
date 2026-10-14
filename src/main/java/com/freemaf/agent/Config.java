@@ -42,7 +42,7 @@ DEFAULTS.put("config.migrated.v5", "false");
 
         // Calibration mode: "legacy" = hardcoded coordinates + read colours at those pixels;
         //                  "dynamic" = colour-search (kept for future work, disabled by default).
-        DEFAULTS.put("calibration.mode", "legacy");
+        DEFAULTS.put("calibration.mode", "dynamic");
 
         // Legacy calibration coordinates (absolute pixel positions inside a Chrome window at (50, 50), size 731x473).
         // The runtime adds (window.left()-50, window.top()-50) to each when the window is not at (50, 50).

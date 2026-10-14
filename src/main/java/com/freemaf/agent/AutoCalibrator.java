@@ -379,7 +379,7 @@ public final class AutoCalibrator {
         int yStartAbs = window.top() + (int) Math.floor(0.40 * h);
         int yEndAbs = window.top() + (int) Math.ceil(0.95 * h);
         if (yEndAbs <= yStartAbs) return null;
-        final int xBand = 5;
+        final int xBand = 8;
         int xStart = Math.max(1, xR - xBand);
         int xEnd = xR + xBand + 1;
         AppLogger.info("AutoCalibrator.findRegenerate: xR=" + xR
