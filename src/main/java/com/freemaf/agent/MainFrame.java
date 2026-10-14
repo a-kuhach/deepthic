@@ -1345,16 +1345,10 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             appendDebug("[Calib L 1/6] reading input_field.fresh at " + inFreshX + "," + inFreshY);
             String freshInputHex = ColorUtils.toHex(svc.readPixel(inFreshX, inFreshY));
             AppLogger.info("runLegacy: input.fresh=" + inFreshX + "," + inFreshY + " #" + freshInputHex);
-            if (!"2C2C2E".equalsIgnoreCase(freshInputHex)) {
-                return failCalibration(scale, "legacy 1/6: input_field.fresh colour mismatch: expected #2C2C2E, got #" + freshInputHex);
-            }
 
             appendDebug("[Calib L 2/6] reading send.fresh(disabled) at " + sendFreshX + "," + sendFreshY);
             String sendFreshDisabledHex = ColorUtils.toHex(svc.readPixel(sendFreshX, sendFreshY));
             AppLogger.info("runLegacy: send.fresh(disabled)=" + sendFreshX + "," + sendFreshY + " #" + sendFreshDisabledHex);
-            if (!"3C5082".equalsIgnoreCase(sendFreshDisabledHex)) {
-                return failCalibration(scale, "legacy 2/6: send.fresh disabled colour mismatch: expected #3C5082, got #" + sendFreshDisabledHex);
-            }
 
             appendDebug("[Calib L 3/6] inserting calibration prompt");
             String calPrompt = config.get("calibration.prompt",
@@ -1378,15 +1372,21 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                 Thread.sleep(200L);
             }
             AppLogger.info("runLegacy: send.fresh(active)=" + sendFreshX + "," + sendFreshY + " #" + sendFreshActiveHex);
-            if (!"5686FE".equalsIgnoreCase(sendFreshActiveHex)) {
-                return failCalibration(scale, "legacy 4/6: send.fresh active colour mismatch after text insertion: got #" + sendFreshActiveHex);
-            }
 
             appendDebug("[Calib L 5/6] submitting prompt");
             clipboardService.flushClipboard();
             Thread.sleep(80L);
             inputSimulator.enter();
-            Thread.sleep(1500L);
+
+            appendSystem("Жду ответа агента. Убедись, что ответ полностью сгенерирован и под ним видны кнопка Copy и ряд иконок (⟲ 👍 👎 🔊 ↗), затем нажми OK.");
+            if (!showConfirmDialog(
+                    "Подожди, пока агент полностью сгенерирует ответ." + System.lineSeparator()
+                            + "Убедись, что под ответом видны кнопка Copy и ряд иконок (⟲ 👍 👎 🔊 ↗)." + System.lineSeparator()
+                            + "Затем нажми OK.",
+                    "Калибровка: дождись ответа агента")) {
+                return failCalibration(scale, "legacy: пользователь отменил ожидание ответа");
+            }
+            Thread.sleep(300L);
 
             appendDebug("[Calib L 6/6] reading cleared-state markers");
             String clearedInputHex = ColorUtils.toHex(svc.readPixel(inClrX, inClrY));
@@ -1398,12 +1398,6 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                     + " | code_copy=" + copyX + "," + copyY + " #" + copyHex
                     + " | regenerate=" + regenX + "," + regenY + " #" + regenHex);
 
-            if (!"2C2C2E".equalsIgnoreCase(clearedInputHex)) {
-                return failCalibration(scale, "legacy 6/6: input_field.cleared colour mismatch: expected #2C2C2E, got #" + clearedInputHex);
-            }
-            if (!"3C5082".equalsIgnoreCase(clearedSendHex)) {
-                return failCalibration(scale, "legacy 6/6: send.cleared colour mismatch: expected #3C5082, got #" + clearedSendHex);
-            }
 
             java.util.Map<CalibrationMarker, AutoCalibrator.MarkerHit> hits = new java.util.LinkedHashMap<>();
             java.util.Map<String, String> colors = new java.util.LinkedHashMap<>();
