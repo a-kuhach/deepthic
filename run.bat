@@ -98,11 +98,11 @@ curl.exe -s -L --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.co
 if not exist "%REMOTE_POM%" goto :zip_update_skip
 
 set "LOCAL_VER="
-for /f "tokens=2 delims=<>" %%V in ('findstr /c:"<version>" "%BUILD_DIR%\pom.xml"') do (
+for /f "tokens=3 delims=<>" %%V in ('findstr /c:"<version>" "%BUILD_DIR%\pom.xml"') do (
     if not defined LOCAL_VER set "LOCAL_VER=%%V"
 )
 set "REMOTE_VER="
-for /f "tokens=2 delims=<>" %%V in ('findstr /c:"<version>" "%REMOTE_POM%"') do (
+for /f "tokens=3 delims=<>" %%V in ('findstr /c:"<version>" "%REMOTE_POM%"') do (
     if not defined REMOTE_VER set "REMOTE_VER=%%V"
 )
 del "%REMOTE_POM%" >nul 2>nul
