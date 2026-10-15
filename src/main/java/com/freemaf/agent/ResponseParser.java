@@ -118,6 +118,28 @@ public final class ResponseParser {
         return confirmCount == 1 && startCount == 0;
     }
 
+    /**
+     * True if the response contains an AGENT_SESSION_MIGRATE_CONFIRM marker,
+     * either as a bare line or wrapped in a Write-Output "..." / '...' statement.
+     */
+    public static boolean containsMigrationConfirm(String raw) {
+        if (raw == null || raw.isBlank()) return false;
+        for (String line : raw.split("\\R", -1)) {
+            String t = line.strip();
+            if (t.equals("AGENT_SESSION_MIGRATE_CONFIRM") || t.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")) return true;
+            String s2 = t;
+            if (s2.toLowerCase().startsWith("write-output")) {
+                s2 = s2.substring("write-output".length()).strip();
+            } else {
+                continue;
+            }
+            while (s2.startsWith("\"") || s2.startsWith("'")) s2 = s2.substring(1);
+            while (s2.endsWith("\"") || s2.endsWith("'")) s2 = s2.substring(0, s2.length() - 1);
+            s2 = s2.strip();
+            if (s2.equals("AGENT_SESSION_MIGRATE_CONFIRM") || s2.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")) return true;
+        }
+        return false;
+    }
     private static boolean containsRawMarkers(String text) {
 
         for (String line : text.split("\\R", -1)) {

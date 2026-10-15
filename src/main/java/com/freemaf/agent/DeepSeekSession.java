@@ -239,7 +239,8 @@ public final class DeepSeekSession {
 
         }
 
-        if (awaitingMigrationConfirm && ResponseParser.isValidMigrationConfirm(rawResponse)) {
+        if (awaitingMigrationConfirm && (ResponseParser.isValidMigrationConfirm(rawResponse)
+                || ResponseParser.containsMigrationConfirm(rawResponse))) {
             return AgentResponse.userChat(role, "AGENT_SESSION_MIGRATE_CONFIRM_ACK");
         }
         if (ResponseParser.isValidScript(rawResponse)) {

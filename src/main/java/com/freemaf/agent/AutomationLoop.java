@@ -758,6 +758,25 @@ public final class AutomationLoop implements Runnable {
 
 
 
+                // === awaitingMigrationConfirm takes absolute precedence ===
+                if (awaitingMigrationConfirm) {
+                    boolean confirmEvent2 = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_SESSION_MIGRATE_CONFIRM);
+                    if (confirmEvent2) {
+                        debug("AGENT_SESSION_MIGRATE_CONFIRM recognized in script output, performing migration");
+                        awaitingMigrationConfirm = false;
+                        warningInjected = false;
+                        performSessionMigration(null);
+                        continue;
+                    }
+                    debug("awaitingMigrationConfirm: response has no CONFIRM, re-requesting");
+                    StringBuilder nag = new StringBuilder();
+                    nag.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
+                    nag.append("Ты в состоянии ожидания подтверждения миграции сессии.").append(System.lineSeparator());
+                    nag.append("Ответь РОВНО ОДНОЙ строкой, БЕЗ PowerShell-скрипта, БЕЗ Write-Output, БЕЗ AGENT_PAUSE, БЕЗ USER_MSG:").append(System.lineSeparator());
+                    nag.append("AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>").append(System.lineSeparator());
+                    promptQueue.add(nag.toString());
+                    continue;
+                }
                 MarkerProcessResult mp = MarkerProcessor.process(events, chatConsole, statusMarker);
 
                 recognizeMigrationStart(events, responseRole);
