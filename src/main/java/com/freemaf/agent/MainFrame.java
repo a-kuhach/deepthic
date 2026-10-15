@@ -1534,6 +1534,12 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             t.interrupt();
         }
         if (currentLoop != null) {
+            if (!currentLoop.isReviewerActive()) {
+                config.setLastPhase("EXECUTOR");
+                config.setLastReviewerHwnd(0);
+                config.setLastReviewerTitle("");
+                AppLogger.info("stopAction: active role is EXECUTOR, clearing reviewer phase marker");
+            }
             config.setResumeAfterStop(true);
         }
 

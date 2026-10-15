@@ -223,6 +223,9 @@ public final class AutomationLoop implements Runnable {
 
 
 
+    public boolean isReviewerActive() {
+        return activeReviewerRole != null;
+    }
     public boolean isPaused() {
 
         return paused;
