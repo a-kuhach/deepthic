@@ -772,8 +772,9 @@ public final class AutomationLoop implements Runnable {
                     StringBuilder nag = new StringBuilder();
                     nag.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
                     nag.append("Ты в состоянии ожидания подтверждения миграции сессии.").append(System.lineSeparator());
-                    nag.append("Ответь РОВНО ОДНОЙ строкой, БЕЗ PowerShell-скрипта, БЕЗ Write-Output, БЕЗ AGENT_PAUSE, БЕЗ USER_MSG:").append(System.lineSeparator());
-                    nag.append("AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>").append(System.lineSeparator());
+                    nag.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
+                    nag.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());
+                    nag.append("Ничего до блока и после блока. Никаких USER_MSG и AGENT_PAUSE. Без fenced-блока ответ не копируется и не принимается.").append(System.lineSeparator());
                     promptQueue.add(nag.toString());
                     continue;
                 }
@@ -1165,7 +1166,7 @@ public final class AutomationLoop implements Runnable {
 
                 if (awaitingMigrationConfirm) {
                     followUp = followUp + System.lineSeparator() + System.lineSeparator()
-                            + "После проверки лога отправь только AGENT_SESSION_MIGRATE_CONFIRM: <сообщение> без скрипта.";
+                            + "После проверки лога отправь ровно ОДИН fenced PowerShell-блок, внутри ровно одна строка: Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\". Ничего до блока и после блока. Никаких USER_MSG и AGENT_PAUSE. Без fenced-блока ответ не копируется и не принимается.";
                 }
                 promptQueue.add(followUp);
 
@@ -1176,21 +1177,24 @@ public final class AutomationLoop implements Runnable {
 
 
             } catch (IllegalStateException e) {
-
                 if (EmergencyStop.isStopped()) {
-
                     statusMarker.setState(StatusMarker.State.STOPPED);
-
                     return;
-
                 }
-
+                if (awaitingMigrationConfirm) {
+                    debug("getValidResponse failed while awaiting CONFIRM: " + e.getMessage() + " - re-requesting");
+                    StringBuilder nag2 = new StringBuilder();
+                    nag2.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
+                    nag2.append("Ты в состоянии ожидания подтверждения миграции сессии.").append(System.lineSeparator());
+                    nag2.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
+                    nag2.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());
+                    nag2.append("Ничего до блока и после блока. Никаких USER_MSG и AGENT_PAUSE. Без fenced-блока ответ не копируется и не принимается.").append(System.lineSeparator());
+                    promptQueue.add(nag2.toString());
+                    continue;
+                }
                 chatConsole.appendSystem("Agent paused: " + e.getMessage());
-
                 statusMarker.setState(StatusMarker.State.PAUSED);
-
                 continue;
-
             } catch (InterruptedException e) {
 
                 Thread.currentThread().interrupt();
