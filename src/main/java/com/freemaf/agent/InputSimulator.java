@@ -121,7 +121,7 @@ public final class InputSimulator {
 
         int wy = config.getInt("window.work.y", 50);
 
-        int wh = config.getInt("window.work.height", 473);
+        int wh = config.getInt("window.work.height", 508);
 
         int cx = wx + 22;
 

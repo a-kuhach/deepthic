@@ -369,7 +369,7 @@ public final class AutoCalibrator {
      * Locates the Regenerate icon in a single vertical column at absolute X = xR.
      * Scans top-down between yTop = 0.40*H and yBottom = 0.95*H (absolute).
      * FIRST_MATCH semantics; returns null if the anchor colour is absent.
-     * Colour #9A9FA4 was captured on the 731x473 DeepSeek window at scale 100%.
+     * Colour #9A9FA4 was captured on the 731x508 DeepSeek window at scale 100%.
      */
     public static MarkerHit findRegenerate(WindowInfo window, int xR, PixelReader reader) {
         if (window == null) throw new IllegalArgumentException("window is null");

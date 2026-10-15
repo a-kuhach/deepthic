@@ -37,27 +37,28 @@ public final class Config {
 
         DEFAULTS.put("window.work.width", "731");
 
-        DEFAULTS.put("window.work.height", "473");
+        DEFAULTS.put("window.work.height", "508");
 DEFAULTS.put("config.migrated.v5", "false");
+        DEFAULTS.put("config.migrated.v6", "false");
 
         // Calibration mode: "legacy" = hardcoded coordinates + read colours at those pixels;
         //                  "dynamic" = colour-search (kept for future work, disabled by default).
         DEFAULTS.put("calibration.mode", "legacy");
 
-        // Legacy calibration coordinates (absolute pixel positions inside a Chrome window at (50, 50), size 731x473).
+        // Legacy calibration coordinates (absolute pixel positions inside a Chrome window at (50, 50), size 731x508).
         // The runtime adds (window.left()-50, window.top()-50) to each when the window is not at (50, 50).
-        DEFAULTS.put("legacy.input.fresh.x", "94");
-        DEFAULTS.put("legacy.input.fresh.y", "333");
-        DEFAULTS.put("legacy.input.cleared.x", "94");
-        DEFAULTS.put("legacy.input.cleared.y", "365");
-        DEFAULTS.put("legacy.send.fresh.x", "709");
-        DEFAULTS.put("legacy.send.fresh.y", "372");
-        DEFAULTS.put("legacy.send.cleared.x", "725");
-        DEFAULTS.put("legacy.send.cleared.y", "456");
-        DEFAULTS.put("legacy.code_copy.x", "605");
+        DEFAULTS.put("legacy.input.fresh.x", "97");
+        DEFAULTS.put("legacy.input.fresh.y", "304");
+        DEFAULTS.put("legacy.input.cleared.x", "97");
+        DEFAULTS.put("legacy.input.cleared.y", "406");
+        DEFAULTS.put("legacy.send.fresh.x", "717");
+        DEFAULTS.put("legacy.send.fresh.y", "390");
+        DEFAULTS.put("legacy.send.cleared.x", "717");
+        DEFAULTS.put("legacy.send.cleared.y", "492");
+        DEFAULTS.put("legacy.code_copy.x", "606");
         DEFAULTS.put("legacy.code_copy.y", "247");
         DEFAULTS.put("legacy.regenerate.x", "125");
-        DEFAULTS.put("legacy.regenerate.y", "308");
+        DEFAULTS.put("legacy.regenerate.y", "343");
 
         DEFAULTS.put("chrome.exe.path", "");
 
@@ -351,7 +352,26 @@ DEFAULTS.put("config.migrated.v5", "false");
             changed = true;
         }
 
-        java.util.List<String> obsolete = new java.util.ArrayList<>();
+                // Schema migration v6 (S5 fix 2026-10-15): enlarge window to 731x508 and refresh legacy coordinates.
+        if (!"true".equalsIgnoreCase(props.getProperty("config.migrated.v6", "false"))) {
+            props.setProperty("window.work.height", "508");
+            props.setProperty("legacy.input.fresh.x", "97");
+            props.setProperty("legacy.input.fresh.y", "304");
+            props.setProperty("legacy.input.cleared.x", "97");
+            props.setProperty("legacy.input.cleared.y", "406");
+            props.setProperty("legacy.send.fresh.x", "717");
+            props.setProperty("legacy.send.fresh.y", "390");
+            props.setProperty("legacy.send.cleared.x", "717");
+            props.setProperty("legacy.send.cleared.y", "492");
+            props.setProperty("legacy.code_copy.x", "606");
+            props.setProperty("legacy.code_copy.y", "247");
+            props.setProperty("legacy.regenerate.x", "125");
+            props.setProperty("legacy.regenerate.y", "343");
+            props.setProperty("config.migrated.v6", "true");
+            AppLogger.info("Config: schema migration v6 applied (window.work.height -> 508, legacy coords updated)");
+            changed = true;
+        }
+java.util.List<String> obsolete = new java.util.ArrayList<>();
         for (Object rawKey : props.keySet()) {
             String key = String.valueOf(rawKey);
             if (!DEFAULTS.containsKey(key)) obsolete.add(key);

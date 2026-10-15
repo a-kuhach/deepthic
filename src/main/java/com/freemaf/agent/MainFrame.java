@@ -1036,7 +1036,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
 
         int ww = config.getInt("window.work.width", 673);
 
-        int wh = config.getInt("window.work.height", 473);
+        int wh = config.getInt("window.work.height", 508);
 
         if (!windowManager.setRect(wx, wy, ww, wh)) {
 

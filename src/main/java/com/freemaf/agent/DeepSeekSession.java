@@ -75,7 +75,7 @@ public final class DeepSeekSession {
 
         int ww = config.getInt("window.work.width", 731);
 
-        int wh = config.getInt("window.work.height", 473);
+        int wh = config.getInt("window.work.height", 508);
 
         windowManager.setRect(wx, wy, ww, wh);
         WindowInfo refreshed = WindowFinder.findByHwnd(win.hwndValue(), config.getWindowTitle()).orElse(null);
