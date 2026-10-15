@@ -302,7 +302,26 @@ public final class AutomationLoop implements Runnable {
             this.excludes.add(w.hwnd());
             windowManager.select(w);
             windowManager.activate();
+            int wxm = config.getInt("window.work.x", 50);
+            int wym = config.getInt("window.work.y", 50);
+            int wwm = config.getInt("window.work.width", 731);
+            int whm = config.getInt("window.work.height", 508);
+            if (!windowManager.setRect(wxm, wym, wwm, whm)) {
+                AppLogger.warn("performSessionMigration: setRect failed for new window");
+            } else {
+                AppLogger.info("performSessionMigration: window rect set to " + wxm + "," + wym + " " + wwm + "x" + whm);
+            }
             Thread.sleep(200L);
+            WindowInfo refreshedM = WindowFinder.findByHwnd(w.hwndValue(), config.getWindowTitle()).orElse(null);
+            if (refreshedM != null) {
+                w = refreshedM;
+                this.executorHwnd = refreshedM.hwnd();
+                AppLogger.info("performSessionMigration: geometry refreshed to "
+                        + w.left() + "," + w.top() + " "
+                        + (w.right() - w.left()) + "x" + (w.bottom() - w.top()));
+            } else {
+                AppLogger.warn("performSessionMigration: could not refresh window geometry, using stale rect");
+            }
             config.setLastManagedHwnd(w.hwndValue());
             config.setLastManagedTitle(w.title());
             config.setLastPhase("EXECUTOR");
