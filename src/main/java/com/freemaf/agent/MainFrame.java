@@ -108,6 +108,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
     private volatile Thread startSequenceThread;
     private volatile long lastStopAtMs;
 
+    private volatile boolean userMessageQueuedForStart;
+
     private volatile boolean calibrationRunning;
 
     private volatile AutomationLoop currentLoop;
@@ -733,6 +735,7 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             }
             config.setResumeAfterStop(false); // user gave fresh prompt
             appendSystem("Auto-start (STOPPED → Start).");
+            userMessageQueuedForStart = true;
             startAction();
         } else if (currentState == StatusMarker.State.PAUSED && currentLoop != null) {
             appendSystem("Resuming paused loop to deliver user message.");
@@ -898,6 +901,8 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         }
     }
     private void startSequence() {
+        boolean userAlreadyQueued = userMessageQueuedForStart;
+        userMessageQueuedForStart = false;
         try {
             if (Thread.currentThread().isInterrupted() || EmergencyStop.isStopped()) {
                 AppLogger.info("startSequence: aborted at entry");
@@ -954,10 +959,14 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
             } else {
                 boolean hasPriorSession = decision.decision() != SessionDetector.Decision.OPEN_NEW_CHAT;
                 if (hasPriorSession && decision.decision() == SessionDetector.Decision.CONTINUE_OLD_SESSION) {
-                    String continueMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
-                            + "Пользователь нажал Play без нового сообщения. Если у тебя остался незакрытый вопрос к пользователю — задай его заново через USER_MSG + AGENT_PAUSE. Иначе продолжи работу с того места, где остановился, либо пришли краткий статус.";
-                    promptQueue.addUser(continueMsg, java.util.List.of());
-                    appendSystem("Continuing prior session without a user message.");
+                    if (userAlreadyQueued) {
+                        appendSystem("Continuing prior session with user-supplied message.");
+                    } else {
+                        String continueMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
+                                + "Пользователь нажал Play без нового сообщения. Если у тебя остался незакрытый вопрос к пользователю — задай его заново через USER_MSG + AGENT_PAUSE. Иначе продолжи работу с того места, где остановился, либо пришли краткий статус.";
+                        promptQueue.addUser(continueMsg, java.util.List.of());
+                        appendSystem("Continuing prior session without a user message.");
+                    }
                 } else if (hasPriorSession) {
                     appendSystem("Resuming prior session; starting loop.");
                 } else {
