@@ -9,11 +9,7 @@ public final class PromptBuilder {
 
             + "Первая строка ответа: [ROLE]. Первая строка внутри PS-блока: Write-Output \"ROLE: ТЕГ\"." + System.lineSeparator()
 
-            + "Ровно один fenced-блок PowerShell. После закрывающих тройных кавычек — ничего." + System.lineSeparator()
-
-            + "На первом шаге задачи (роль [ANALYST]) проверь git-репозиторий в CWD и задай пользователю вопрос про git init,"
-
-            + " если репозиторий отсутствует, вместе с остальными уточнениями." + System.lineSeparator();
+            + "Ровно один fenced-блок PowerShell. После закрывающих тройных кавычек — ничего." + System.lineSeparator();
 
     private PromptBuilder() {}
 

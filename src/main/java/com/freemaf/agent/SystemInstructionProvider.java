@@ -47,20 +47,6 @@ public final class SystemInstructionProvider {
 
                 1. [ANALYST]
 
-                   - Первым делом выполняет PS-скрипт, который проверяет git-репозиторий В ТЕКУЩЕЙ РАБОЧЕЙ ДИРЕКТОРИИ:
-
-                     * git rev-parse --show-toplevel — должен совпасть с CWD.
-
-                     * наличие каталога .git в CWD.
-
-                     * git config user.name и user.email в локальном и глобальном конфиге.
-
-                   - Если репозиторий в CWD не инициализирован — в список уточняющих вопросов к пользователю добавляет вопрос:
-
-                     «В рабочей директории нет git-репозитория. Инициализировать? Если да — под каким именем и email делать коммиты?»
-
-                   - Если репозиторий инициализирован, но git config user.name/user.email не задан — добавляет вопрос о значениях.
-
                    - Остальные уточняющие вопросы — по существу задачи.
 
                    - Завершает ответ: Write-Output "USER_MSG: <все вопросы>" + Write-Output "AGENT_PAUSE: ожидание ответов".
@@ -350,6 +336,22 @@ public final class SystemInstructionProvider {
 
     }
 
+    /**
+     * Injected only when the agent is expected to act as [ANALYST] on task start:
+     * fresh session start, recover-new-executor, session migration, resetExecutorContext.
+     * Not part of the general role rules and NOT appended to every followUp.
+     */
+    public static String getAnalystGitCheckPrompt() {
+        return "### ANALYST_GIT_CHECK" + System.lineSeparator()
+                + "На первом шаге задачи (роль [ANALYST]) проверь git-репозиторий в CWD:" + System.lineSeparator()
+                + "- git rev-parse --show-toplevel — должен совпасть с CWD." + System.lineSeparator()
+                + "- наличие каталога .git в CWD." + System.lineSeparator()
+                + "- git config user.name и user.email в локальном и глобальном конфиге." + System.lineSeparator()
+                + "Если репозиторий в CWD не инициализирован — в список уточняющих вопросов к пользователю добавь вопрос:" + System.lineSeparator()
+                + "«В рабочей директории нет git-репозитория. Инициализировать? Если да — под каким именем и email делать коммиты?»." + System.lineSeparator()
+                + "Если репозиторий инициализирован, но git config user.name/user.email не задан — добавь вопрос о значениях." + System.lineSeparator()
+                + "Остальные уточняющие вопросы — по существу задачи." + System.lineSeparator();
+    }
     public static String getFormatReminder() {
 
         return PromptBuilder.FORMAT_REMINDER;

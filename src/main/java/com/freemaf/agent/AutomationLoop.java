@@ -675,6 +675,10 @@ public final class AutomationLoop implements Runnable {
 
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator());
 
+                        wrapped.append(SystemInstructionProvider.getAnalystGitCheckPrompt());
+
+                        wrapped.append(System.lineSeparator()).append(System.lineSeparator());
+
                         executorContextRequired = false;
 
                     }
@@ -875,6 +879,8 @@ public final class AutomationLoop implements Runnable {
                         && mp != MarkerProcessResult.HALT
                         && mp != MarkerProcessResult.PAUSE) {
                     StringBuilder anp = new StringBuilder();
+                    anp.append(SystemInstructionProvider.getAnalystGitCheckPrompt());
+                    anp.append(System.lineSeparator());
                     anp.append("### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
                     anp.append("Твой ответ не содержал ни AGENT_DONE, ни AGENT_PAUSE.").append(System.lineSeparator());
                     anp.append("Определись:").append(System.lineSeparator());
