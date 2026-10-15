@@ -61,12 +61,28 @@ public final class MarkerParser {
 
         }
 
-        if (line.startsWith("AGENT_SESSION_MIGRATE_START:")) {
-            return Optional.of(new MarkerEvent(MarkerType.AGENT_SESSION_MIGRATE_START, afterPrefix(line, "AGENT_SESSION_MIGRATE_START:")));
+        if (line.startsWith("AGENT_SESSION_MIGRATE_START:") || line.equals("AGENT_SESSION_MIGRATE_START")) {
+
+            String startMsg = line.startsWith("AGENT_SESSION_MIGRATE_START:")
+
+                    ? afterPrefix(line, "AGENT_SESSION_MIGRATE_START:")
+
+                    : "";
+
+            return Optional.of(new MarkerEvent(MarkerType.AGENT_SESSION_MIGRATE_START, startMsg));
+
         }
 
-        if (line.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")) {
-            return Optional.of(new MarkerEvent(MarkerType.AGENT_SESSION_MIGRATE_CONFIRM, afterPrefix(line, "AGENT_SESSION_MIGRATE_CONFIRM:")));
+        if (line.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:") || line.equals("AGENT_SESSION_MIGRATE_CONFIRM")) {
+
+            String confirmMsg = line.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")
+
+                    ? afterPrefix(line, "AGENT_SESSION_MIGRATE_CONFIRM:")
+
+                    : "";
+
+            return Optional.of(new MarkerEvent(MarkerType.AGENT_SESSION_MIGRATE_CONFIRM, confirmMsg));
+
         }
 
         return Optional.empty();

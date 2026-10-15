@@ -112,8 +112,8 @@ public final class ResponseParser {
         int confirmCount = 0;
         for (String line : trimmed.split("\\R", -1)) {
             String t = line.strip();
-            if (t.startsWith("AGENT_SESSION_MIGRATE_START:")) startCount++;
-            if (t.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")) confirmCount++;
+            if (t.startsWith("AGENT_SESSION_MIGRATE_START:") || t.equals("AGENT_SESSION_MIGRATE_START")) startCount++;
+            if (t.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:") || t.equals("AGENT_SESSION_MIGRATE_CONFIRM")) confirmCount++;
         }
         return confirmCount == 1 && startCount == 0;
     }

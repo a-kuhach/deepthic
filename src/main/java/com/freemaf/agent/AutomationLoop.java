@@ -340,8 +340,9 @@ public final class AutomationLoop implements Runnable {
     String injectMigrationWarningIfNeeded(String prompt) {
         if (activeReviewerRole != null) return prompt;
         if (awaitingMigrationConfirm) return prompt;
-        if (config.getExecutorMessageCount() < 100) return prompt;
-        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с маркером AGENT_SESSION_MIGRATE_START, затем дождись лога и отправь только маркер AGENT_SESSION_MIGRATE_CONFIRM без скрипта.";
+        if (config.getExecutorMessageCount() < 100) return prompt;
+        if (warningInjected) return prompt;
+        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с одной строкой: Write-Output \"AGENT_SESSION_MIGRATE_START: <текст>\", затем дождись лога и отправь ТОЛЬКО строку маркера: AGENT_SESSION_MIGRATE_CONFIRM: <текст> без скрипта и без обёртки.";
         warningInjected = true;
         debug("injected migration warning (counter=" + config.getExecutorMessageCount() + ")");
         return warn + System.lineSeparator() + System.lineSeparator() + prompt;
@@ -760,6 +761,15 @@ public final class AutomationLoop implements Runnable {
                 MarkerProcessResult mp = MarkerProcessor.process(events, chatConsole, statusMarker);
 
                 recognizeMigrationStart(events, responseRole);
+
+                boolean confirmEvent = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_SESSION_MIGRATE_CONFIRM);
+                if (confirmEvent && config.getExecutorMessageCount() >= 100) {
+                    debug("AGENT_SESSION_MIGRATE_CONFIRM recognized in script output, performing migration");
+                    warningInjected = false;
+                    awaitingMigrationConfirm = false;
+                    performSessionMigration(null);
+                    continue;
+                }
 
 
 

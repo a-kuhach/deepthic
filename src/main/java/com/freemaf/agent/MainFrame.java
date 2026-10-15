@@ -952,8 +952,18 @@ javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
                 }
                 setStatus(StatusMarker.State.WORKING);
             } else {
-                appendSystem("Waiting for a user message in the input field below.");
-                setStatus(StatusMarker.State.PAUSED);
+                boolean hasPriorSession = decision.decision() != SessionDetector.Decision.OPEN_NEW_CHAT;
+                if (hasPriorSession && decision.decision() == SessionDetector.Decision.CONTINUE_OLD_SESSION) {
+                    String continueMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
+                            + "Пользователь нажал Play без нового сообщения. Если у тебя остался незакрытый вопрос к пользователю — задай его заново через USER_MSG + AGENT_PAUSE. Иначе продолжи работу с того места, где остановился, либо пришли краткий статус.";
+                    promptQueue.addUser(continueMsg, java.util.List.of());
+                    appendSystem("Continuing prior session without a user message.");
+                } else if (hasPriorSession) {
+                    appendSystem("Resuming prior session; starting loop.");
+                } else {
+                    appendSystem("Waiting for a user message in the input field below.");
+                }
+                setStatus(hasPriorSession ? StatusMarker.State.WORKING : StatusMarker.State.PAUSED);
             }
             loop.run();
         } catch (InterruptedException e) {
