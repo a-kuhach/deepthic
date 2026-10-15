@@ -131,9 +131,10 @@ public final class AutomationLoop implements Runnable {
                 if (!excludes.contains(executorHwnd)) excludes.add(executorHwnd);
 
                 windowManager.select(w);
-
+                w = applyWorkRectToNewWindow(w);
+                this.executorHwnd = w.hwnd();
+                if (!excludes.contains(this.executorHwnd)) excludes.add(this.executorHwnd);
                 windowManager.activate();
-
                 config.setLastManagedHwnd(w.hwndValue());
 
                 config.setLastManagedTitle(w.title());
@@ -191,9 +192,10 @@ public final class AutomationLoop implements Runnable {
                 if (!excludes.contains(executorHwnd)) excludes.add(executorHwnd);
 
                 windowManager.select(w);
-
+                w = applyWorkRectToNewWindow(w);
+                this.executorHwnd = w.hwnd();
+                if (!excludes.contains(this.executorHwnd)) excludes.add(this.executorHwnd);
                 windowManager.activate();
-
                 config.setLastManagedHwnd(w.hwndValue());
 
                 config.setLastManagedTitle(w.title());
@@ -389,7 +391,29 @@ public final class AutomationLoop implements Runnable {
     boolean isAwaitingMigrationConfirm() { return awaitingMigrationConfirm; }
 
     boolean isWarningInjected() { return warningInjected; }
-    private void persistExecutorState() {
+    private WindowInfo applyWorkRectToNewWindow(WindowInfo w) throws InterruptedException {
+        int wx = config.getInt("window.work.x", 50);
+        int wy = config.getInt("window.work.y", 50);
+        int ww = config.getInt("window.work.width", 731);
+        int wh = config.getInt("window.work.height", 508);
+        if (!windowManager.setRect(wx, wy, ww, wh)) {
+            AppLogger.warn("applyWorkRectToNewWindow: setRect failed for hwnd=" + w.hwndValue());
+        } else {
+            AppLogger.info("applyWorkRectToNewWindow: rect set to " + wx + "," + wy + " " + ww + "x" + wh);
+        }
+        Thread.sleep(200L);
+        WindowInfo refreshed = WindowFinder.findByHwnd(w.hwndValue(), config.getWindowTitle()).orElse(null);
+        if (refreshed != null) {
+            AppLogger.info("applyWorkRectToNewWindow: geometry refreshed to "
+                    + refreshed.left() + "," + refreshed.top() + " "
+                    + (refreshed.right() - refreshed.left()) + "x"
+                    + (refreshed.bottom() - refreshed.top()));
+            return refreshed;
+        }
+        AppLogger.warn("applyWorkRectToNewWindow: could not refresh geometry, using stale rect");
+        return w;
+    }
+    private void persistExecutorState() {
 
         if (executorHwnd == null) return;
 
