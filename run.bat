@@ -161,13 +161,19 @@ if exist "%BUILD_DIR%\src" rmdir /S /Q "%BUILD_DIR%\src"
 xcopy "%SRC%\src" "%BUILD_DIR%\src" /E /I /Q /Y >nul
 if exist "%BUILD_DIR%\rules" rmdir /S /Q "%BUILD_DIR%\rules"
 xcopy "%SRC%\rules" "%BUILD_DIR%\rules" /E /I /Q /Y >nul
-for %%F in (pom.xml ensure-prerequisites.ps1 README.md LICENSE .gitignore .gitattributes winrect.ps1 code_mutation.ps1) do (
-    if exist "%SRC%\%%F" copy /Y "%SRC%\%%F" "%BUILD_DIR%\%%F" >nul
-)
-if exist "%SRC%\run.bat" (
-    copy /Y "%SRC%\run.bat" "%BUILD_DIR%\run.bat.new" >nul
-    move /Y "%BUILD_DIR%\run.bat.new" "%BUILD_DIR%\run.bat" >nul
-)
+rem Explicit copies avoid "for %%F" — quoted loop variables proved fragile under the cmd parser
+rem when run.bat is rewritten mid-execution (observed on project C, 2026-10-16).
+if exist "%SRC%\pom.xml"                  copy /Y "%SRC%\pom.xml"                  "%BUILD_DIR%\pom.xml"                  >nul
+if exist "%SRC%\ensure-prerequisites.ps1" copy /Y "%SRC%\ensure-prerequisites.ps1" "%BUILD_DIR%\ensure-prerequisites.ps1" >nul
+if exist "%SRC%\README.md"                copy /Y "%SRC%\README.md"                "%BUILD_DIR%\README.md"                >nul
+if exist "%SRC%\LICENSE"                  copy /Y "%SRC%\LICENSE"                  "%BUILD_DIR%\LICENSE"                  >nul
+if exist "%SRC%\.gitignore"               copy /Y "%SRC%\.gitignore"               "%BUILD_DIR%\.gitignore"               >nul
+if exist "%SRC%\.gitattributes"           copy /Y "%SRC%\.gitattributes"           "%BUILD_DIR%\.gitattributes"           >nul
+if exist "%SRC%\winrect.ps1"              copy /Y "%SRC%\winrect.ps1"              "%BUILD_DIR%\winrect.ps1"              >nul
+if exist "%SRC%\code_mutation.ps1"        copy /Y "%SRC%\code_mutation.ps1"        "%BUILD_DIR%\code_mutation.ps1"        >nul
+rem run.bat is intentionally NOT self-updated: cmd re-reads .bat from disk by byte offset,
+rem so moving a new file over the running one mid-execution corrupts the parser state.
+rem If run.bat ever changes in the repo, replace it in the install manually.
 
 rmdir /S /Q "%EXTRACT_DIR%" >nul 2>nul
 del "%ZIP%" >nul 2>nul
