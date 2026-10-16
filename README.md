@@ -1,6 +1,6 @@
 # Deepthic
 
-**Version: beta v0.2.24**
+**Version: beta v0.2.25**
 
 A Windows automation bridge that drives a manually opened Chrome window with the
 DeepSeek Web chat and uses it as a remote LLM agent for your project.
@@ -61,7 +61,22 @@ If the elements cannot fit even at the maximum window size allowed by the worksp
 ## UI overview
 
 The application window is split into two panes (Chat on the left, PS Console on
-the right). The bottom bar contains the input area and the controls.
+the right). The bottom bar is organized as four stacked rows; each row stretches
+with the window height:
+
+1. Status row - a square indicator (top-left, colored by the current state:
+   red = Stopped, green = Working/Planning/Calibration, orange = Paused), the
+   state name centered over the row, and a row of seven buttons below the
+   indicator area: `a-`, `A+`, `Speed Mode: <current>`, Play/Stop (glyph with
+   `Shift+F12` underneath), `Restart Plan`, `Calibrate`, `Clear Chat`. All seven
+   buttons share the same height; thin dark dividers separate adjacent buttons.
+2. Attach row - attachment chips on the left (`name` + `x` remove button) and
+   the always-visible `Attach Files` button on the right, stretched to the row
+   height.
+3. Input row - the chat input `JTextArea` inside a vertical scroll pane. This
+   row absorbs the extra vertical space on window resize. Files can be
+   drag-and-dropped directly onto the input area.
+4. SEND row - a full-width `SEND` button with the `Enter` hint on the right.
 
 ### Speed Mode button
 
