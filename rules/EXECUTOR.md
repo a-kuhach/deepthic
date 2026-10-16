@@ -197,4 +197,17 @@
   <rule>If a running instance was not started by the current script, do not kill it. Ask the user to close it manually via USER_MSG + AGENT_PAUSE (see BLOCKING_QUESTION_PAUSE).</rule>
   <rationale>Framework A itself runs as a java process. A generic process kill (Get-Process -Name java | Stop-Process) terminates framework A along with the target application; the framework exits with code -1 (defect observed in project C, 2026-10-11; see PROJECT_STATE.md CHANGELOG 0.1.4-beta).</rationale>
 </directive>
+<directive id="USER_DIRECTIVE_RECORDING" severity="CRITICAL">
+  <rule>Every user instruction MUST be persisted to a file; nothing relevant may remain only in the dialogue context.</rule>
+  <route condition="current_task_preferences_or_corrections">WIP.md</route>
+  <route condition="fundamental_requirements_affecting_the_current_plan">PLAN.md</route>
+  <route condition="permanent_requirements_independent_of_current_plan">section "## EXECUTOR_DIRECTIVES" in MEMORY.md</route>
+  <rule>When unsure which category applies — ask the user.</rule>
+</directive>
+
+<directive id="TEST_RUN_UNRESTRICTED">
+  <rule>Test runs collecting markers, logs, screenshots, pixel probes and diagnostic dumps are allowed without further user approval.</rule>
+  <rule>Artifacts go to agent/project/artifacts/. Create the folder if absent.</rule>
+</directive>
+
 </role>
