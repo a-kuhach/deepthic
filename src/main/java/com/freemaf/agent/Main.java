@@ -39,7 +39,7 @@ public final class Main {
                     + "Закройте программу и запустите run.bat для восстановления.";
             try {
                 SwingUtilities.invokeAndWait(() -> javax.swing.JOptionPane.showMessageDialog(
-                        null, msg, "Free MAF Code", javax.swing.JOptionPane.ERROR_MESSAGE));
+                        null, msg, "Deepthic", javax.swing.JOptionPane.ERROR_MESSAGE));
             } catch (Exception e) {
                 AppLogger.warn("Startup validation dialog failed: " + e.getMessage());
             }

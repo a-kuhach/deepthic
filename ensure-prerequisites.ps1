@@ -1,5 +1,5 @@
 # ensure-prerequisites.ps1
-# Project A (Free MAF Code) dependency installer for a clean Windows.
+# Project A (Deepthic) dependency installer for a clean Windows.
 # Runs from project A root. Installs JDK 21 (Temurin), Git, Maven if missing.
 # Writes %TEMP%\freemaf-env.bat with PATH / JAVA_HOME / MAVEN_HOME so run.bat can pick them up.
 
@@ -20,7 +20,7 @@ function Test-Command([string]$name) { return [bool](Get-Command $name -ErrorAct
 
 function Ensure-Winget {
     if (Test-Command winget) { return $true }
-    Write-Host '[Free MAF Code] winget not found, attempting to install via PSGallery...'
+    Write-Host '[Deepthic] winget not found, attempting to install via PSGallery...'
     try {
         if (-not (Get-PackageProvider -Name NuGet -ErrorAction SilentlyContinue)) {
             Install-PackageProvider -Name NuGet -Force -Scope CurrentUser -ErrorAction Stop | Out-Null
@@ -44,16 +44,16 @@ function Ensure-Jdk {
         $first = (& java -version 2>&1 | Select-Object -First 1)
         if ("$first" -match 'version "(\d+)') {
             $major = [int]$Matches[1]
-            if ($major -ge 21) { Write-Host "[Free MAF Code] JDK $major found: $($java.Source)"; return $true }
+            if ($major -ge 21) { Write-Host "[Deepthic] JDK $major found: $($java.Source)"; return $true }
         }
     }
     if (Ensure-Winget) {
-        Write-Host '[Free MAF Code] Installing Temurin JDK 21 via winget...'
+        Write-Host '[Deepthic] Installing Temurin JDK 21 via winget...'
         & winget install --id EclipseAdoptium.Temurin.21.JDK --exact --silent --accept-package-agreements --accept-source-agreements
         Refresh-PathFromRegistry
-        if (Test-Command java) { Write-Host '[Free MAF Code] JDK installed via winget'; return $true }
+        if (Test-Command java) { Write-Host '[Deepthic] JDK installed via winget'; return $true }
     }
-    Write-Host '[Free MAF Code] Falling back to direct Temurin ZIP download...'
+    Write-Host '[Deepthic] Falling back to direct Temurin ZIP download...'
     try {
         $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Temurin-21'
         if (-not (Test-Path $installRoot)) { New-Item -ItemType Directory -Path $installRoot -Force | Out-Null }
@@ -76,7 +76,7 @@ function Ensure-Jdk {
             [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         }
         Refresh-PathFromRegistry
-        if (Test-Command java) { Write-Host '[Free MAF Code] JDK installed via ZIP'; return $true }
+        if (Test-Command java) { Write-Host '[Deepthic] JDK installed via ZIP'; return $true }
     } catch {
         Write-Warning "JDK ZIP fallback failed: $($_.Exception.Message)"
     }
@@ -85,19 +85,19 @@ function Ensure-Jdk {
 
 function Ensure-Git {
     Refresh-PathFromRegistry
-    if (Test-Command git) { Write-Host '[Free MAF Code] git found'; return $true }
+    if (Test-Command git) { Write-Host '[Deepthic] git found'; return $true }
     if (-not (Ensure-Winget)) { return $false }
-    Write-Host '[Free MAF Code] Installing Git via winget...'
+    Write-Host '[Deepthic] Installing Git via winget...'
     & winget install --id Git.Git --exact --silent --accept-package-agreements --accept-source-agreements
     Refresh-PathFromRegistry
-    if (Test-Command git) { Write-Host '[Free MAF Code] git installed'; return $true }
+    if (Test-Command git) { Write-Host '[Deepthic] git installed'; return $true }
     return $false
 }
 
 function Ensure-Maven {
     Refresh-PathFromRegistry
-    if (Test-Command mvn) { Write-Host '[Free MAF Code] Maven found'; return $true }
-    Write-Host '[Free MAF Code] Installing Maven 3.9.9 via ZIP...'
+    if (Test-Command mvn) { Write-Host '[Deepthic] Maven found'; return $true }
+    Write-Host '[Deepthic] Installing Maven 3.9.9 via ZIP...'
     try {
         $mavenVersion = '3.9.9'
         $installRoot = Join-Path $env:LOCALAPPDATA 'Programs\Maven'
@@ -119,7 +119,7 @@ function Ensure-Maven {
             [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
         }
         Refresh-PathFromRegistry
-        if (Test-Command mvn) { Write-Host '[Free MAF Code] Maven installed'; return $true }
+        if (Test-Command mvn) { Write-Host '[Deepthic] Maven installed'; return $true }
     } catch {
         Write-Warning "Maven ZIP install failed: $($_.Exception.Message)"
     }
@@ -129,7 +129,7 @@ function Ensure-Maven {
 
 # ---- Run ----
 
-Write-Host '[Free MAF Code] Checking prerequisites...'
+Write-Host '[Deepthic] Checking prerequisites...'
 
 $jdkOk   = Ensure-Jdk
 
@@ -139,11 +139,11 @@ $mavenOk = Ensure-Maven
 
 
 
-if (-not $jdkOk)   { Write-Host '[Free MAF Code] JDK is not available. Manual install: https://adoptium.net/temurin/releases/?version=21'; exit 1 }
+if (-not $jdkOk)   { Write-Host '[Deepthic] JDK is not available. Manual install: https://adoptium.net/temurin/releases/?version=21'; exit 1 }
 
-if (-not $mavenOk) { Write-Host '[Free MAF Code] Maven is not available.'; exit 1 }
+if (-not $mavenOk) { Write-Host '[Deepthic] Maven is not available.'; exit 1 }
 
-if (-not $gitOk)   { Write-Host '[Free MAF Code] Git is not available (recommended but not required).' }
+if (-not $gitOk)   { Write-Host '[Deepthic] Git is not available (recommended but not required).' }
 
 
 
@@ -187,11 +187,11 @@ $mavenSan = SanitizeForBat $mavenHome
 
 
 
-Write-Host ("[Free MAF Code] PATH length after sanitize: " + $pathSan.Length)
+Write-Host ("[Deepthic] PATH length after sanitize: " + $pathSan.Length)
 
-Write-Host ("[Free MAF Code] JAVA_HOME = " + $javaSan)
+Write-Host ("[Deepthic] JAVA_HOME = " + $javaSan)
 
-Write-Host ("[Free MAF Code] MAVEN_HOME = " + $mavenSan)
+Write-Host ("[Deepthic] MAVEN_HOME = " + $mavenSan)
 
 
 
@@ -217,6 +217,6 @@ $envLines = @(
 
 
 
-Write-Host "[Free MAF Code] Prerequisites OK. Env written to $envFile"
+Write-Host "[Deepthic] Prerequisites OK. Env written to $envFile"
 
 exit 0

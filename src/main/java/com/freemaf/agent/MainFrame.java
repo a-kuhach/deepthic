@@ -211,9 +211,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             if (name == null || name.isBlank()) name = "Project";
 
-            return name + " - Free MAF Code";
+            return name + " - Deepthic";
 
-        } catch (RuntimeException e) { return "Project - Free MAF Code"; }
+        } catch (RuntimeException e) { return "Project - Deepthic"; }
 
     }
 

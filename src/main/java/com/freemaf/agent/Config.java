@@ -462,7 +462,7 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
 
         try (Writer writer = Files.newBufferedWriter(FILE, StandardCharsets.UTF_8)) {
 
-            props.store(writer, "Free MAF Code config");
+            props.store(writer, "Deepthic config");
 
         }
 
