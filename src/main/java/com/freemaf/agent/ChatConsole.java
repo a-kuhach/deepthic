@@ -29,7 +29,12 @@ public final class ChatConsole extends JPanel {
 
     public static final Color SYSTEM_COLOR = new Color(120, 190, 255);
 
-    private final JTextPane textPane = new JTextPane();
+    private final JTextPane textPane = new JTextPane() {
+        @Override
+        public boolean getScrollableTracksViewportWidth() {
+            return true;
+        }
+    };
 
     private final StyledDocument doc;
 
@@ -47,7 +52,9 @@ public final class ChatConsole extends JPanel {
 
         this.doc = textPane.getStyledDocument();
 
-        JScrollPane sp = new JScrollPane(textPane);
+        JScrollPane sp = new JScrollPane(textPane,
+                JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED,
+                JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 
         sp.setBackground(DarkTheme.BG);
 
