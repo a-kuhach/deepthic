@@ -5,13 +5,13 @@ public enum SpeedMode {
 
     INSTANT("Instant", 0L, 0L),
 
-    FAST("Fast", 30_000L, 150_000L),
+    FAST("Fast", 20_000L, 60_000L),
 
-    NORMAL("Normal", 190_000L, 320_000L),
+    NORMAL("Normal", 30_000L, 100_000L),
 
-    SLOW("Slow", 350_000L, 600_000L),
+    SLOW("Slow", 120_000L, 180_000L),
 
-    VERY_SLOW("Very Slow", 600_000L, 1_100_000L);
+    VERY_SLOW("Very Slow", 300_000L, 400_000L);
 
     private final String label;
 

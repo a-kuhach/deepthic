@@ -1,6 +1,6 @@
 # Deepthic
 
-**Version: beta v0.2.26**
+**Version: beta v0.2.27**
 
 A Windows automation bridge that drives a manually opened Chrome window with the
 DeepSeek Web chat and uses it as a remote LLM agent for your project.
@@ -84,7 +84,7 @@ The old speed dropdown is replaced by a single toggle button labelled
 `Speed Mode: <current>`. Each click advances the mode in the order
 Instant -> Fast -> Normal -> Slow -> Very Slow -> Instant. The selection is
 persisted in `agent/config.properties` under the `speed.mode` key and is restored
-on the next launch. The delays applied by the agent are unchanged.
+on the next launch.
 
 ### Attach Files
 
