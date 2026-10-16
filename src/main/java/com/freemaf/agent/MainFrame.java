@@ -28,6 +28,8 @@ import java.awt.Insets;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,13 +39,13 @@ import java.util.List;
 public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private static final int[] FONT_SIZES = {10, 12, 18};
+    private static final int STATUS_RECT_WIDTH_PX = 170;
 
     private final ChatConsole chatConsole = new ChatConsole();
     private final ConsolePanel psConsolePanel = new ConsolePanel();
     private final JTextArea inputArea = new JTextArea(5, 40);
     private final java.util.List<java.io.File> attachedFiles = new java.util.ArrayList<>();
     private final JPanel attachmentsListPanel = new JPanel();
-    private final java.util.List<JButton> row1Buttons = new java.util.ArrayList<>();
 
     private javax.swing.JScrollPane attachmentsScroll;
     private javax.swing.JButton sendButton;
@@ -115,7 +117,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         add(buildBottomPanel(), BorderLayout.SOUTH);
         restoreChatHistory();
         applyWhiteText(getContentPane());
-        for (JButton b : row1Buttons) b.setBorderPainted(false);
+        installPressFeedbackRecursive(getContentPane());
         updateStatusIndicator();
         updateStartButton();
         new Thread(hotkeyListener, "GlobalHotkey").start();
@@ -145,6 +147,27 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         }
     }
 
+    private static void installPressFeedbackRecursive(java.awt.Container c) {
+        for (java.awt.Component comp : c.getComponents()) {
+            if (comp instanceof JButton btn) installPressFeedback(btn);
+            if (comp instanceof java.awt.Container) installPressFeedbackRecursive((java.awt.Container) comp);
+        }
+    }
+
+    private static void installPressFeedback(JButton b) {
+        b.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e) {
+                if (b.isEnabled()) b.setBackground(DarkTheme.BUTTON.darker());
+            }
+            @Override public void mouseReleased(MouseEvent e) {
+                b.setBackground(DarkTheme.BUTTON);
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                b.setBackground(DarkTheme.BUTTON);
+            }
+        });
+    }
+
     private JComponent createDivider() {
         JPanel divider = new JPanel();
         divider.setBackground(DarkTheme.DIVIDER);
@@ -155,7 +178,6 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private JButton createTwoLineButton(String topText, String bottomText) {
         JButton btn = new JButton("<html><center>" + topText + "<br>" + bottomText + "</center></html>");
-        btn.setBorderPainted(false);
         btn.setContentAreaFilled(true);
         return btn;
     }
@@ -173,27 +195,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         return center;
     }
 
-    /**
-     * Bottom panel - 4 rows (see PLAN.md / TASK.md).
-     *
-     * S2.5 action-listener inventory (each of these MUST remain wired after the rewrite):
-     *   startButton        -> handleStartButtonClick()
-     *   restartButton      -> restartAction()
-     *   calibrateButton    -> calibrationAction()
-     *   clearChatButton    -> clearChatAction()
-     *   fontDownButton     -> adjustFont(-1)
-     *   fontUpButton       -> adjustFont(+1)
-     *   speedButton        -> SpeedMode toggle
-     *   attachFilesButton  -> attachFilesAction()
-     *   sendButton         -> submitPrompt()
-     *   inputArea          -> Enter (submit) / Shift+Enter (insert-break)
-     *   inputArea document -> updateSendButtonState()
-     *   statusIndicator    -> updateStatusIndicator() via setStatus()
-     */
     private JPanel buildBottomPanel() {
         JPanel bottom = new JPanel(new GridBagLayout());
         bottom.setBackground(DarkTheme.BG);
-
         GridBagConstraints gbc = new GridBagConstraints();
         gbc.gridx = 0;
         gbc.weightx = 1.0;
@@ -203,15 +207,15 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         gbc.gridy = 1; bottom.add(buildRow2(), gbc);
         gbc.gridy = 2; bottom.add(buildRow3(), gbc);
         gbc.gridy = 3; bottom.add(buildRow4(), gbc);
-
         return bottom;
     }
 
-    /** Row 1 - status block (indicator top-left, label centered) + 7-button control row. */
+    /** Row 1 - status rectangle first (left), then 7 buttons, in a single horizontal line. */
     private JPanel buildRow1() {
         JPanel row1 = new JPanel(new GridBagLayout());
         row1.setBackground(DarkTheme.BG);
 
+        // Status rectangle: indicator top-left corner, state label centered inside.
         statusIndicator.setPreferredSize(new Dimension(AgentConstants.STATUS_INDICATOR_SIZE_PX, AgentConstants.STATUS_INDICATOR_SIZE_PX));
         statusIndicator.setMinimumSize(new Dimension(AgentConstants.STATUS_INDICATOR_SIZE_PX, AgentConstants.STATUS_INDICATOR_SIZE_PX));
         statusIndicator.setMaximumSize(new Dimension(AgentConstants.STATUS_INDICATOR_SIZE_PX, AgentConstants.STATUS_INDICATOR_SIZE_PX));
@@ -219,24 +223,21 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         statusIndicator.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
         statusLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        JPanel statusArea = new JPanel(new GridBagLayout());
-        statusArea.setBackground(DarkTheme.BG);
-        GridBagConstraints s1 = new GridBagConstraints();
-        s1.gridx = 0; s1.gridy = 0;
-        s1.anchor = GridBagConstraints.NORTHWEST;
-        s1.insets = new Insets(2, 4, 0, 0);
-        statusArea.add(statusIndicator, s1);
-        GridBagConstraints s2 = new GridBagConstraints();
-        s2.gridx = 0; s2.gridy = 0;
-        s2.weightx = 1.0; s2.weighty = 1.0;
-        s2.fill = GridBagConstraints.BOTH;
-        statusArea.add(statusLabel, s2);
-
-        GridBagConstraints gs = new GridBagConstraints();
-        gs.gridx = 0; gs.gridy = 0;
-        gs.weightx = 1.0; gs.weighty = 0.3;
-        gs.fill = GridBagConstraints.BOTH;
-        row1.add(statusArea, gs);
+        JPanel statusRect = new JPanel(new GridBagLayout());
+        statusRect.setBackground(DarkTheme.BG);
+        statusRect.setBorder(BorderFactory.createLineBorder(Color.DARK_GRAY));
+        GridBagConstraints si = new GridBagConstraints();
+        si.gridx = 0; si.gridy = 0;
+        si.anchor = GridBagConstraints.NORTHWEST;
+        si.insets = new Insets(2, 4, 0, 0);
+        statusRect.add(statusIndicator, si);
+        GridBagConstraints st = new GridBagConstraints();
+        st.gridx = 0; st.gridy = 0;
+        st.weightx = 1.0; st.weighty = 1.0;
+        st.fill = GridBagConstraints.BOTH;
+        statusRect.add(statusLabel, st);
+        statusRect.setPreferredSize(new Dimension(STATUS_RECT_WIDTH_PX, AgentConstants.ROW1_BUTTON_MIN_HEIGHT_PX));
+        statusRect.setMinimumSize(new Dimension(STATUS_RECT_WIDTH_PX, AgentConstants.ROW1_BUTTON_MIN_HEIGHT_PX));
 
         JButton fontDown = new JButton("a-");
         JButton fontUp = new JButton("A+");
@@ -249,39 +250,27 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         JButton[] buttons = {fontDown, fontUp, speedButton, startButton, restartButton, calibrationButton, clearChatButton};
         int btnHeight = AgentConstants.ROW1_BUTTON_MIN_HEIGHT_PX;
-        row1Buttons.clear();
         for (JButton b : buttons) {
             Dimension pref = b.getPreferredSize();
             b.setPreferredSize(new Dimension(pref.width, btnHeight));
             b.setMinimumSize(new Dimension(0, btnHeight));
-            row1Buttons.add(b);
         }
 
-        JPanel buttonsRow = new JPanel(new GridBagLayout());
-        buttonsRow.setBackground(DarkTheme.BG);
-        GridBagConstraints bg = new GridBagConstraints();
-        bg.gridy = 0;
-        bg.fill = GridBagConstraints.BOTH;
-        bg.weighty = 1.0;
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.gridy = 0;
+        gbc.fill = GridBagConstraints.BOTH;
+        gbc.weighty = 1.0;
         int col = 0;
-        for (int i = 0; i < buttons.length; i++) {
-            if (i > 0) {
-                bg.gridx = col++;
-                bg.weightx = 0;
-                bg.insets = new Insets(2, 0, 2, 0);
-                buttonsRow.add(createDivider(), bg);
-            }
-            bg.gridx = col++;
-            bg.weightx = 1.0;
-            bg.insets = new Insets(2, 2, 2, 2);
-            buttonsRow.add(buttons[i], bg);
-        }
 
-        GridBagConstraints gb = new GridBagConstraints();
-        gb.gridx = 0; gb.gridy = 1;
-        gb.weightx = 1.0; gb.weighty = 0.7;
-        gb.fill = GridBagConstraints.BOTH;
-        row1.add(buttonsRow, gb);
+        gbc.gridx = col++; gbc.weightx = 0; gbc.insets = new Insets(2, 2, 2, 2);
+        row1.add(statusRect, gbc);
+
+        for (JButton b : buttons) {
+            gbc.gridx = col++; gbc.weightx = 0; gbc.insets = new Insets(2, 0, 2, 0);
+            row1.add(createDivider(), gbc);
+            gbc.gridx = col++; gbc.weightx = 1.0; gbc.insets = new Insets(2, 2, 2, 2);
+            row1.add(b, gbc);
+        }
 
         startButton.addActionListener(e -> handleStartButtonClick());
         restartButton.addActionListener(e -> restartAction());
@@ -301,40 +290,31 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         return row1;
     }
 
-    /** Row 2 - attachment chips (left) + Attach Files button (right, always visible, full row height). */
     private JPanel buildRow2() {
         JPanel row2 = new JPanel(new BorderLayout());
         row2.setBackground(DarkTheme.BG);
-
         JButton attachFilesButton = new JButton("Attach Files");
         attachFilesButton.addActionListener(e -> attachFilesAction());
-
         attachmentsListPanel.setLayout(new BoxLayout(attachmentsListPanel, BoxLayout.Y_AXIS));
         attachmentsListPanel.setBackground(DarkTheme.BG);
-
         attachmentsScroll = new JScrollPane(attachmentsListPanel);
         attachmentsScroll.setBorder(null);
         attachmentsScroll.getViewport().setBackground(DarkTheme.BG);
         attachmentsScroll.setVisible(false);
-
         row2.add(attachmentsScroll, BorderLayout.CENTER);
         row2.add(attachFilesButton, BorderLayout.EAST);
-
         return row2;
     }
 
-    /** Row 3 - input area (JScrollPane with JTextArea); DnD handler only on inputArea. */
     private JPanel buildRow3() {
         JPanel row3 = new JPanel(new BorderLayout());
         row3.setBackground(DarkTheme.BG);
-
         inputArea.setLineWrap(true);
         inputArea.setWrapStyleWord(true);
         inputArea.setBackground(DarkTheme.FIELD);
         inputArea.setForeground(DarkTheme.FG);
         inputArea.setCaretColor(DarkTheme.FG);
         inputArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
-
         InputMap im = inputArea.getInputMap();
         ActionMap am = inputArea.getActionMap();
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0), "submit");
@@ -342,33 +322,28 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         am.put("submit", new AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { submitPrompt(); }
         });
-
         JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBackground(DarkTheme.BG);
         inputScroll.getViewport().setBackground(DarkTheme.FIELD);
-
         javax.swing.TransferHandler defaultTH = inputArea.getTransferHandler();
         javax.swing.TransferHandler attachHandler = buildAttachmentTransferHandler(defaultTH);
         inputArea.setTransferHandler(attachHandler);
-
         inputArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { updateSendButtonState(); }
             @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { updateSendButtonState(); }
             @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { updateSendButtonState(); }
         });
-
         row3.add(inputScroll, BorderLayout.CENTER);
         return row3;
     }
 
-    /** Row 4 - full-width SEND button with HTML text: SEND left, Enter hint right. */
+    /** Row 4 - full-width SEND button: SEND label followed by spaced "[Enter]" hint. */
     private JPanel buildRow4() {
         JPanel row4 = new JPanel(new BorderLayout());
         row4.setBackground(DarkTheme.BG);
-
-        sendButton = new JButton("<html><table width=100% cellpadding=0 cellspacing=0 border=0><tr><td align=left>SEND</td><td align=right><font color=silver>Enter</font></td></tr></table></html>");
+        sendButton = new JButton("<html>SEND&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<font color='#C0C0C0'>[Enter]</font></html>");
+        sendButton.setHorizontalAlignment(SwingConstants.CENTER);
         sendButton.addActionListener(e -> submitPrompt());
-
         row4.add(sendButton, BorderLayout.CENTER);
         return row4;
     }
@@ -1235,18 +1210,15 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
             }
             config.setResumeAfterStop(true);
         }
-
         Process currentScriptProcess = processManager.getCurrentScriptProcess();
         if (currentScriptProcess != null) {
             processManager.killProcessTree(currentScriptProcess);
         } else {
             processManager.killCurrentProcess();
         }
-
         setStatus(StatusMarker.State.STOPPED);
         startSequenceRunning = false;
         currentLoop = null;
-
         updateStartButton();
         chatConsole.appendSystem("Stopped by user");
     }
