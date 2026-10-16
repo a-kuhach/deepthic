@@ -30,6 +30,21 @@ public final class Main {
         Config config = new Config();
 
         DarkTheme.apply();
+
+        java.util.List<String> missingRules = SystemInstructionProvider.missingRequiredFiles();
+        if (!missingRules.isEmpty()) {
+            String msg = "Отсутствуют обязательные файлы фреймворка:" + System.lineSeparator()
+                    + String.join(System.lineSeparator(), missingRules) + System.lineSeparator()
+                    + System.lineSeparator()
+                    + "Закройте программу и запустите run.bat для восстановления.";
+            try {
+                SwingUtilities.invokeAndWait(() -> javax.swing.JOptionPane.showMessageDialog(
+                        null, msg, "Free MAF Code", javax.swing.JOptionPane.ERROR_MESSAGE));
+            } catch (Exception e) {
+                AppLogger.warn("Startup validation dialog failed: " + e.getMessage());
+            }
+            System.exit(1);
+        }
         int cleaned = ProcessRegistry.cleanupStale();
         if (cleaned > 0) AppLogger.info("ProcessRegistry: cleaned " + cleaned + " stale entries");
 

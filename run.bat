@@ -79,6 +79,16 @@ rem    different, download the fresh ZIP and replace A-side source files
 rem    while preserving runtime artifacts (config.properties, project/,
 rem    cache/, history/, util/, build/).
 rem ============================================================
+rem Preflight: force update if any required rule file is missing or empty.
+set "RULES_MISSING=0"
+for %%F in (MINIMAL_FORMAT.md EXECUTOR.md JUDGE.md CODE_REVIEWER.md) do (
+    if not exist "%BUILD_DIR%\rules\%%F" set "RULES_MISSING=1"
+)
+if "%RULES_MISSING%"=="1" (
+    echo [Free MAF Code] Required rule files missing; forcing update.
+    set "FORCE_UPDATE=1"
+)
+
 set "UPDATED=0"
 
 if exist "%BUILD_DIR%\.git" goto :git_update
@@ -114,8 +124,11 @@ echo [Free MAF Code] Local version:  %LOCAL_VER%
 echo [Free MAF Code] Remote version: %REMOTE_VER%
 
 if "%LOCAL_VER%"=="%REMOTE_VER%" (
-    echo [Free MAF Code] Already up to date.
-    goto :updates_done
+    if not defined FORCE_UPDATE (
+        echo [Free MAF Code] Already up to date.
+        goto :updates_done
+    )
+    echo [Free MAF Code] Forcing update to restore missing rules.
 )
 
 echo [Free MAF Code] Update available; downloading ZIP...
@@ -148,7 +161,7 @@ if exist "%BUILD_DIR%\src" rmdir /S /Q "%BUILD_DIR%\src"
 xcopy "%SRC%\src" "%BUILD_DIR%\src" /E /I /Q /Y >nul
 if exist "%BUILD_DIR%\rules" rmdir /S /Q "%BUILD_DIR%\rules"
 xcopy "%SRC%\rules" "%BUILD_DIR%\rules" /E /I /Q /Y >nul
-for %%F in (pom.xml ensure-prerequisites.ps1 README.md AGENT_INSTRUCTIONS.md LICENSE .gitignore .gitattributes winrect.ps1 code_mutation.ps1) do (
+for %%F in (pom.xml ensure-prerequisites.ps1 README.md LICENSE .gitignore .gitattributes winrect.ps1 code_mutation.ps1) do (
     if exist "%SRC%\%%F" copy /Y "%SRC%\%%F" "%BUILD_DIR%\%%F" >nul
 )
 if exist "%SRC%\run.bat" (

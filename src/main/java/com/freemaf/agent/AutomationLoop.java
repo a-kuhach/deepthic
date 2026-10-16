@@ -640,17 +640,14 @@ public final class AutomationLoop implements Runnable {
 
 
                 if (pendingReviewerRole != null) {
-
-                    openReviewerWindow(pendingReviewerRole);
-
-                    activeReviewerRole = pendingReviewerRole;
-
+                    String newRole = pendingReviewerRole;
+                    openReviewerWindow(newRole);
+                    activeReviewerRole = newRole;
                     pendingReviewerRole = null;
-
                     prompt = SystemInstructionProvider.getMinimalFormatRules()
-
+                            + System.lineSeparator() + System.lineSeparator()
+                            + SystemInstructionProvider.getReviewerRules(newRole)
                             + System.lineSeparator() + System.lineSeparator() + prompt;
-
                 } else if (activeReviewerRole == null) {
 
                     switchToExecutor();
@@ -665,6 +662,8 @@ public final class AutomationLoop implements Runnable {
 
                     if (activeReviewerRole == null && executorContextRequired) {
 
+                        wrapped.append(SystemInstructionProvider.getMinimalFormatRules());
+                        wrapped.append(System.lineSeparator()).append(System.lineSeparator());
                         wrapped.append(SystemInstructionProvider.getExecutorRules());
 
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator())
@@ -675,11 +674,7 @@ public final class AutomationLoop implements Runnable {
 
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator());
 
-                        wrapped.append(SystemInstructionProvider.getAnalystGitCheckPrompt());
-
-                        wrapped.append(System.lineSeparator()).append(System.lineSeparator());
-
-                        executorContextRequired = false;
+                                                executorContextRequired = false;
 
                     }
 
@@ -879,9 +874,7 @@ public final class AutomationLoop implements Runnable {
                         && mp != MarkerProcessResult.HALT
                         && mp != MarkerProcessResult.PAUSE) {
                     StringBuilder anp = new StringBuilder();
-                    anp.append(SystemInstructionProvider.getAnalystGitCheckPrompt());
-                    anp.append(System.lineSeparator());
-                    anp.append("### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
+                                        anp.append("### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
                     anp.append("Твой ответ не содержал ни AGENT_DONE, ни AGENT_PAUSE.").append(System.lineSeparator());
                     anp.append("Определись:").append(System.lineSeparator());
                     anp.append("- Если анализ завершён, отправь: Write-Output \"AGENT_DONE: <итог>\".").append(System.lineSeparator());
