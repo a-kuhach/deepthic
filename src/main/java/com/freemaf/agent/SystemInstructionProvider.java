@@ -374,6 +374,31 @@ public final class SystemInstructionProvider {
                 + "Если репозиторий инициализирован, но git config user.name/user.email не задан — добавь вопрос о значениях." + System.lineSeparator()
                 + "Остальные уточняющие вопросы — по существу задачи." + System.lineSeparator();
     }
+    /**
+     * Minimal rules for any reviewer window (JUDGE / CODE_REVIEWER): only what the
+     * framework cannot function without — the answer markup, the exact marker syntax,
+     * and the paired-USER_MSG+AGENT_PAUSE contract for blocking questions.
+     * The full role pipeline (getExecutorRules) is injected once per EXECUTOR session.
+     */
+    public static String getMinimalFormatRules() {
+        return "### MINIMAL_FORMAT_RULES" + System.lineSeparator()
+                + "Первая строка ответа: [ROLE]." + System.lineSeparator()
+                + "Со второй строки — ровно один fenced-блок PowerShell. Ничего до блока и после блока." + System.lineSeparator()
+                + "Первая строка внутри блока: Write-Output \"ROLE: <ТЕГ>\"." + System.lineSeparator()
+                + "Не используй USER_CHAT." + System.lineSeparator()
+                + System.lineSeparator()
+                + "Маркеры внутри PS-скрипта (Write-Output, точные строки без украшений):" + System.lineSeparator()
+                + "- Write-Output \"USER_MSG: <текст>\" — сообщение пользователю." + System.lineSeparator()
+                + "- Write-Output \"AGENT_PAUSE: <причина>\" — пауза до ответа пользователя." + System.lineSeparator()
+                + "- Write-Output \"AGENT_STOP: <причина>\" — остановка пайплайна." + System.lineSeparator()
+                + "- Write-Output \"AGENT_DONE: <итог>\" — завершение задачи (только ANALYST при передаче PLANNER)." + System.lineSeparator()
+                + System.lineSeparator()
+                + "Блокирующий вопрос = ровно пара строк в одном PS-скрипте:" + System.lineSeparator()
+                + "Write-Output \"USER_MSG: <текст вопроса>\"" + System.lineSeparator()
+                + "Write-Output \"AGENT_PAUSE: <короткая причина>\"" + System.lineSeparator()
+                + System.lineSeparator()
+                + "Простой текст без маркеров (например Write-Output \"1) ... ?\") в Chat пользователя не попадает — он виден только в PS Console.";
+    }
     public static String getFormatReminder() {
 
         return PromptBuilder.FORMAT_REMINDER;

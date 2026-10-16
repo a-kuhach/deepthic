@@ -647,7 +647,7 @@ public final class AutomationLoop implements Runnable {
 
                     pendingReviewerRole = null;
 
-                    prompt = SystemInstructionProvider.getExecutorRules()
+                    prompt = SystemInstructionProvider.getMinimalFormatRules()
 
                             + System.lineSeparator() + System.lineSeparator() + prompt;
 
