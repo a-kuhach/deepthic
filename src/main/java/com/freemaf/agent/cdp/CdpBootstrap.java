@@ -60,6 +60,10 @@ public final class CdpBootstrap {
     public int port() { return port; }
 
     public synchronized void start(boolean headless) throws IOException {
+        start(headless, false);
+    }
+
+    public synchronized void start(boolean headless, boolean ensureLogin) throws IOException {
         if (chromeProcess != null && chromeProcess.isAlive()) {
             return;
         }
@@ -71,6 +75,71 @@ public final class CdpBootstrap {
         }
         this.session = new CdpSession(port);
         this.loginHandler = new LoginFallbackHandler(port, PROFILE_PATH);
+        if (headless && ensureLogin) {
+            ensureLoggedInOrRelogin();
+        }
+    }
+
+    private synchronized void ensureLoggedInOrRelogin() throws IOException {
+        try {
+            CdpDeepSeek probe = new CdpDeepSeek(session, loginHandler);
+            probe.open();
+            boolean loggedIn = probe.checkLoggedIn();
+            try { probe.closeActiveTab(); } catch (Exception ignored) { }
+            if (loggedIn) {
+                AppLogger.info("CdpBootstrap: session valid, no relogin needed");
+                return;
+            }
+            AppLogger.info("CdpBootstrap: session missing, restarting headful Chrome for login (port " + port + ")");
+            stopChromeAndSession();
+            chromeProcess = ChromeProcessLauncher.start(false, port);
+            CdpHttpClient http = new CdpHttpClient(port);
+            if (!http.waitForPort(PORT_WAIT_MS)) {
+                throw new IOException("Headful Chrome did not open on port " + port);
+            }
+            session = new CdpSession(port);
+            CdpDeepSeek headfulProbe = new CdpDeepSeek(session, loginHandler);
+            headfulProbe.open();
+            long deadline = System.currentTimeMillis() + LOGIN_WAIT_MS;
+            long lastLog = System.currentTimeMillis();
+            boolean loggedInAfterWait = false;
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(5_000L);
+                if (headfulProbe.checkLoggedIn()) { loggedInAfterWait = true; break; }
+                long now = System.currentTimeMillis();
+                if (now - lastLog >= 30_000L) {
+                    AppLogger.info("CdpBootstrap: still waiting for login (port " + port + ")");
+                    lastLog = now;
+                }
+            }
+            stopChromeAndSession();
+            if (!loggedInAfterWait) {
+                throw new IOException("Login wait timed out after " + LOGIN_WAIT_MS + " ms");
+            }
+            AppLogger.info("CdpBootstrap: login restored, restarting headless Chrome (port " + port + ")");
+            chromeProcess = ChromeProcessLauncher.start(true, port);
+            http = new CdpHttpClient(port);
+            if (!http.waitForPort(PORT_WAIT_MS)) {
+                throw new IOException("Headless restart did not open port " + port);
+            }
+            session = new CdpSession(port);
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Login flow interrupted");
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IOException("Login flow failed: " + e.getMessage(), e);
+        }
+    }
+
+    private void stopChromeAndSession() {
+        try { if (session != null) session.close(); } catch (Exception ignored) { }
+        session = null;
+        try { if (chromeProcess != null) ChromeProcessLauncher.stop(chromeProcess); } catch (Exception ignored) { }
+        chromeProcess = null;
+        killOrphan(port);
+        try { Thread.sleep(500L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
     }
 
     public synchronized CdpDeepSeek openExecutor() throws Exception {
@@ -102,7 +171,6 @@ public final class CdpBootstrap {
     private CdpDeepSeek openRole() throws Exception {
         CdpDeepSeek ds = new CdpDeepSeek(session, loginHandler);
         ds.open();
-        ds.ensureSession(LOGIN_WAIT_MS);
         ds.waitForInput(INPUT_WAIT_MS);
         return ds;
     }

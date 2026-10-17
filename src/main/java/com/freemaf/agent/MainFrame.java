@@ -1310,7 +1310,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
             if (cdpBootstrap != null) {
                 AppLogger.info("startSequence: CDP mode, starting bootstrap");
                 try {
-                    cdpBootstrap.start(true);
+                    cdpBootstrap.start(true, true);
                     cdpBootstrap.openExecutor();
                 } catch (Exception cex) {
                     appendSystem("CDP bootstrap failed: " + cex.getMessage());
