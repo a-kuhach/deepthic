@@ -385,47 +385,32 @@ public final class CdpDeepSeek {
 
 
     public void sendMessage(String text) {
-
+        String preHref = evaluate("String(location.href)");
+        String preHasInput = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
+        AppLogger.info("CdpDeepSeek.sendMessage: preState href=" + preHref + " hasInput=" + preHasInput);
         String focusExpr =
-
                 "(function(){var el=document.querySelector(\""
-
                 + escapeJs(DeepSeekSelectors.INPUT)
-
                 + "\");if(el)el.focus();return '';})()";
-
         evaluate(focusExpr);
-
         sleep(300L);
-
-
-
         String safe = escapeJsSingleQuoted(text);
-
         String insertExpr = "document.execCommand('insertText', false, '" + safe + "')";
-
-        evaluate(insertExpr);
-
+        String insertResult = evaluate(insertExpr);
+        AppLogger.info("CdpDeepSeek.sendMessage: insertResult=" + insertResult + " textLen=" + text.length());
         sleep(500L);
-
-
-
         String enterExpr =
-
                 "(function(){var el=document.querySelector(\""
-
                 + escapeJs(DeepSeekSelectors.INPUT)
-
-                + "\");if(!el)return '';"
-
+                + "\");if(!el)return 'no-input';"
                 + "el.dispatchEvent(new KeyboardEvent('keydown',"
-
                 + "{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
-
-                + "return '';})()";
-
-        evaluate(enterExpr);
-
+                + "return 'dispatched';})()";
+        String enterResult = evaluate(enterExpr);
+        AppLogger.info("CdpDeepSeek.sendMessage: enterResult=" + enterResult);
+        sleep(500L);
+        String postText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+        AppLogger.info("CdpDeepSeek.sendMessage: postTextareaLen=" + postText.length());
     }
 
 
@@ -454,6 +439,7 @@ public final class CdpDeepSeek {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         int initialCount = countAssistantMessages();
+        long lastDiagMs = 0L;
 
         String last = "";
 
@@ -462,6 +448,25 @@ public final class CdpDeepSeek {
         while (System.currentTimeMillis() < deadline) {
 
             int curCount = countAssistantMessages();
+            long nowMs = System.currentTimeMillis();
+            if (nowMs - lastDiagMs >= 5000L) {
+                lastDiagMs = nowMs;
+                try {
+                    String dsMd = evaluate("String(document.querySelectorAll('div.ds-markdown').length)");
+                    String preC = evaluate("String(document.querySelectorAll('pre').length)");
+                    String btnC = evaluate("String(document.querySelectorAll('button[aria-label*=\"Copy\"], button[aria-label*=\"copy\"], button[aria-label*=\"Regenerate\"], button[aria-label*=\"regenerate\"], button[aria-label*=\"Edit\"], button[data-testid*=\"copy\"], button[data-testid*=\"regenerate\"]').length)");
+                    String vis = evaluate("String(document.visibilityState || 'unknown')");
+                    String hrf = evaluate("String(location.href)");
+                    String hasInp = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
+                    AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " initial=" + initialCount + " streaming=" + countStreaming() + " dsMd=" + dsMd + " pre=" + preC + " btns=" + btnC + " vis=" + vis + " hasInput=" + hasInp + " href=" + hrf + " lastLen=" + (last == null ? 0 : last.length()));
+                    if (last != null && last.length() > 0) {
+                        String preview = last.length() > 200 ? last.substring(0, 200) : last;
+                        AppLogger.info("CdpDeepSeek.waitForResponse lastRaw: " + preview.replace("\r", "\\r").replace("\n", "\\n"));
+                    }
+                } catch (Exception diagEx) {
+                    AppLogger.warn("CdpDeepSeek.waitForResponse diag error: " + diagEx.getMessage());
+                }
+            }
 
             if (curCount > initialCount) {
 
@@ -495,7 +500,9 @@ public final class CdpDeepSeek {
 
         }
 
-        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms");
+        String finalDsMd = evaluate("String(document.querySelectorAll('div.ds-markdown').length)");
+        String finalHasInput = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
+        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms [initial=" + initialCount + " cur=" + countAssistantMessages() + " streaming=" + countStreaming() + " dsMd=" + finalDsMd + " hasInput=" + finalHasInput + " lastLen=" + (last == null ? 0 : last.length()) + "]");
 
     }
 
