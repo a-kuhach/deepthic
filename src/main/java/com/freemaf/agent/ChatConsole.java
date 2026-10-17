@@ -89,13 +89,11 @@ public final class ChatConsole extends JPanel {
     }
 
     public void restoreEntry(ChatHistory.Entry entry) {
-
         Color color = colorForKind(entry.kind());
-
         String prefix = prefixForKind(entry.kind());
-
-        appendRaw(prefix + entry.text(), color);
-
+        String text = entry.text();
+        String line = text.startsWith(prefix) ? text : prefix + text;
+        appendRaw(line, color);
     }
 
     public void clear() { textPane.setText(""); }

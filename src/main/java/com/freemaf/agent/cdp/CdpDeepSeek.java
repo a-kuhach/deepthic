@@ -825,16 +825,26 @@ public final class CdpDeepSeek {
                         AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
                         if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
 
-            // FIX19: clickNearInput-first (React button click opens native chooser), then input.click, then legacy
-            String cnResult19 = clickNearInput();
-            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
-            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
-                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
-                AppLogger.info("FIX19: input.click() result = " + icResult19);
-                if (!"input-clicked".equals(icResult19)) {
-                    clickAttachButton();
-                }
-            }
+            // FIX19: clickNearInput-first (React button click opens native chooser), then input.click, then legacy
+
+            String cnResult19 = clickNearInput();
+
+            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
+
+            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
+
+                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+
+                AppLogger.info("FIX19: input.click() result = " + icResult19);
+
+                if (!"input-clicked".equals(icResult19)) {
+
+                    clickAttachButton();
+
+                }
+
+            }
+
                         }
                     }
                 }
@@ -1200,6 +1210,42 @@ public final class CdpDeepSeek {
 
     }
 
+    private void clickComposerButton() {
+        try {
+            String rectJson = evaluate("String((function(){var i=document.querySelector('input[type=file]');if(!i)return '';var p=i.parentElement;if(!p)return '';var btn=null;for(var k=0;k<p.children.length;k++){var c=p.children[k];if(c===i)continue;if(c.tagName==='BUTTON'||(c.getAttribute&&c.getAttribute('role')==='button')){btn=c;break;}}if(!btn)return '';var r=btn.getBoundingClientRect();if(r.width===0||r.height===0)return '';return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
+            if (rectJson != null && rectJson.contains("x")) {
+                com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
+                double cx = rj.path("x").asDouble();
+                double cy = rj.path("y").asDouble();
+                Map<String, Object> press = new HashMap<>();
+                press.put("type", "mousePressed");
+                press.put("x", cx); press.put("y", cy);
+                press.put("button", "left"); press.put("clickCount", 1);
+                activeTab.send("Input.dispatchMouseEvent", press);
+                sleep(50L);
+                Map<String, Object> release = new HashMap<>();
+                release.put("type", "mouseReleased");
+                release.put("x", cx); release.put("y", cy);
+                release.put("button", "left"); release.put("clickCount", 1);
+                activeTab.send("Input.dispatchMouseEvent", release);
+                AppLogger.info("FIX20: CDP mouse click on composer button at " + cx + "," + cy);
+                return;
+            }
+            AppLogger.info("FIX20: composer button rect not found");
+        } catch (Exception e) {
+            AppLogger.warn("FIX20: clickComposerButton mouse failed: " + e.getMessage());
+        }
+        String cnr = clickNearInput();
+        AppLogger.info("FIX20: clickNearInput() = " + cnr);
+        if ("not-found".equals(cnr) || "no-input".equals(cnr)) {
+            String icr = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+            AppLogger.info("FIX20: input.click() = " + icr);
+            if (!"input-clicked".equals(icr)) {
+                clickAttachButton();
+            }
+        }
+    }
+
 
 
 
@@ -1279,7 +1325,7 @@ public final class CdpDeepSeek {
 
 
 
-            clickAttachButton();
+            clickComposerButton();
 
 
 
