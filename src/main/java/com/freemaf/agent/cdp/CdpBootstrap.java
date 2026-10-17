@@ -24,7 +24,7 @@ public final class CdpBootstrap {
 
     public static final int DEFAULT_PORT = 9222;
     private static final long PORT_WAIT_MS  = 30_000L;
-    private static final long LOGIN_WAIT_MS = 5L * 60L * 1000L;
+    private static final long LOGIN_WAIT_MS = 2L * 60L * 1000L;
     private static final long INPUT_WAIT_MS = 10_000L;
     private static final String DEEPSEEK_HOST = "deepseek.com";
     private static final String LOCK_FILE = "agent/cache/cdp.lock";
@@ -214,8 +214,12 @@ public final class CdpBootstrap {
                     lastLog = now;
                 }
             }
-            stopChromeAndSession();
-            if (!loggedInAfterWait) throw new IOException("Login wait timed out after " + LOGIN_WAIT_MS + " ms");
+
+            stopChromeAndSession();
+            if (!loggedInAfterWait) {
+                emitStatus("Логин не выполнен за 2 минуты. Окно авторизации закрыто. Нажмите Play, чтобы попробовать снова.");
+                throw new IOException("Логин в DeepSeek не выполнен за 2 минуты. Окно авторизации закрыто. Нажмите Play для повторной попытки.");
+            }
             AppLogger.info("CdpBootstrap: login restored, restarting headless Chrome (port " + port + ")");
             emitStatus("Авторизация успешна!");
             PortOwner preHeadlessOwner = ChromeProcessLauncher.inspectPort(port);
