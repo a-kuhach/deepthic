@@ -75,7 +75,20 @@ class DeepSeekSessionCdpIntegrationTest {
     @Test
     void fullCycleReturnsPong() throws Exception {
         assumeTrue(sessionAvailable, "skipped: no DeepSeek session");
-        AgentResponse resp = session.getValidResponse(PROMPT);
+        assumeTrue(bootstrap.executor() != null, "executor not open");
+        // DeepSeek lazy-loads prior chat history on "/". Poll for up to 5s so that a non-empty
+        // history is detected before we send the prompt; otherwise the model answers in context of
+        // the previous conversation instead of PONG.
+        int priorAssistantCount = 0;
+        for (int i = 0; i < 10; i++) {
+            Thread.sleep(500L);
+            int c = bootstrap.executor().getAssistantMessageCount();
+            if (c > priorAssistantCount) priorAssistantCount = c;
+            if (c > 0) break;
+        }
+        assumeTrue(priorAssistantCount == 0,
+            "skipped: profile has " + priorAssistantCount + " prior assistant messages; test needs a fresh chat");
+AgentResponse resp = session.getValidResponse(PROMPT);
         assertTrue(resp != null, "AgentResponse is null");
         String content = resp.content() == null ? "" : resp.content();
         assertTrue(content.toUpperCase().contains("PONG"),

@@ -161,6 +161,11 @@ public final class CdpBootstrap {
             }
             AppLogger.info("CdpBootstrap: session missing, restarting headful Chrome for login (port " + port + ")");
             stopChromeAndSession();
+            PortOwner preHeadfulOwner = ChromeProcessLauncher.inspectPort(port);
+            AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: port owner before headful = " + preHeadfulOwner.kind() + " pid=" + preHeadfulOwner.pid());
+            int hfKilled = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);
+            if (hfKilled > 0) AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: extra kill before headful = " + hfKilled);
+            AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: starting headful Chrome (port " + port + ")");
             chromeProcess = ChromeProcessLauncher.start(false, port);
             CdpHttpClient http = new CdpHttpClient(port);
             if (!http.waitForPort(PORT_WAIT_MS)) throw new IOException("Headful Chrome did not open on port " + port);
@@ -172,16 +177,22 @@ public final class CdpBootstrap {
             boolean loggedInAfterWait = false;
             while (System.currentTimeMillis() < deadline) {
                 Thread.sleep(5_000L);
-                if (headfulProbe.checkLoggedIn()) { loggedInAfterWait = true; break; }
+                boolean stillOk = headfulProbe.checkLoggedIn();
+                if (stillOk) { loggedInAfterWait = true; break; }
                 long now = System.currentTimeMillis();
-                if (now - lastLog >= 30_000L) {
-                    AppLogger.info("CdpBootstrap: still waiting for login (port " + port + ")");
+                if (now - lastLog >= 5_000L) {
+                    AppLogger.info("CdpBootstrap: still waiting for login (port " + port + ") loggedIn=" + stillOk);
                     lastLog = now;
                 }
             }
             stopChromeAndSession();
             if (!loggedInAfterWait) throw new IOException("Login wait timed out after " + LOGIN_WAIT_MS + " ms");
             AppLogger.info("CdpBootstrap: login restored, restarting headless Chrome (port " + port + ")");
+            PortOwner preHeadlessOwner = ChromeProcessLauncher.inspectPort(port);
+            AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: port owner before headless restore = " + preHeadlessOwner.kind() + " pid=" + preHeadlessOwner.pid());
+            int hlKilled = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);
+            if (hlKilled > 0) AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: extra kill before headless restore = " + hlKilled);
+            AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: starting headless restore (port " + port + ")");
             chromeProcess = ChromeProcessLauncher.start(true, port);
             http = new CdpHttpClient(port);
             if (!http.waitForPort(PORT_WAIT_MS)) throw new IOException("Headless restart did not open port " + port);
@@ -199,9 +210,24 @@ public final class CdpBootstrap {
     private void stopChromeAndSession() {
         try { if (session != null) session.close(); } catch (Exception ignored) { }
         session = null;
+        long deadPid = 0L;
+        try { if (chromeProcess != null) deadPid = chromeProcess.pid(); } catch (Exception ignored) { }
         try { if (chromeProcess != null) ChromeProcessLauncher.stop(chromeProcess); } catch (Exception ignored) { }
         chromeProcess = null;
-        try { Thread.sleep(500L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+        int remaining = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);
+        if (remaining > 0) {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: killed " + remaining + " leftover chrome process(es) after stop (launcher pid=" + deadPid + ")");
+        } else {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: no leftover framework chrome (launcher pid=" + deadPid + ")");
+        }
+        Path lockPath = ChromeProcessLauncher.resolveProfilePath().resolve("SingletonLock");
+        if (Files.exists(lockPath)) {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock present before sleep; forcing delete");
+            try { Files.deleteIfExists(lockPath); } catch (Exception ex) { AppLogger.warn("stopChromeAndSession: SingletonLock delete failed: " + ex.getMessage()); }
+        } else {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock clean");
+        }
+        try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
     }
 
     public synchronized CdpDeepSeek openExecutor() throws Exception {

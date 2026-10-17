@@ -350,6 +350,8 @@ public final class CdpDeepSeek {
         }
     }
 
+    public int getAssistantMessageCount() {         return countAssistantMessages();     }
+
     private long countStreaming() {
 
         String expr = "String(document.querySelectorAll(\""
