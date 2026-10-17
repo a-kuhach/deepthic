@@ -224,9 +224,17 @@ public final class CdpDeepSeek {
 
             if (result == null) return "";
 
-            JsonNode value = result.get("value");
+            JsonNode value = resp.path("result").path("result").path("value");
 
-            return value == null || value.isNull() ? "" : value.asText();
+            if (value.isMissingNode()) {
+
+                // Backward-compat: accept the flat {result: {value: ...}} shape used by some test mocks. Real Chrome uses the nested shape above.
+
+                value = resp.path("result").path("value");
+
+            }
+
+            return value.isMissingNode() || value.isNull() ? "" : value.asText();
 
         } catch (Exception e) {
 
@@ -303,46 +311,41 @@ public final class CdpDeepSeek {
 
 
     public String waitForResponse(long timeoutMs) throws TimeoutException {
-
         long deadline = System.currentTimeMillis() + timeoutMs;
-
+        int initialCount = countAssistantMessages();
         String last = "";
-
         int stableCount = 0;
-
         while (System.currentTimeMillis() < deadline) {
-
-            String cur = readLastResponse();
-
-            if (cur != null && !cur.isEmpty()) {
-
-                boolean streaming = countStreaming() > 0L;
-
-                if (!streaming && cur.equals(last)) {
-
-                    stableCount++;
-
-                    if (stableCount >= STABLE_ITERATIONS) return cur;
-
-                } else {
-
-                    stableCount = 0;
-
+            int curCount = countAssistantMessages();
+            if (curCount > initialCount) {
+                String cur = readLastResponse();
+                if (cur != null && !cur.isEmpty()) {
+                    boolean streaming = countStreaming() > 0L;
+                    if (!streaming && cur.equals(last)) {
+                        stableCount++;
+                        if (stableCount >= STABLE_ITERATIONS) return cur;
+                    } else {
+                        stableCount = 0;
+                    }
+                    last = cur;
                 }
-
-                last = cur;
-
             }
-
             sleep(POLL_INTERVAL_MS);
-
         }
-
         throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms");
-
     }
 
-
+    private int countAssistantMessages() {
+        String expr = "String(document.querySelectorAll(\""
+                + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE)
+                + "\").length)";
+        String v = evaluate(expr);
+        try {
+            return Integer.parseInt(v);
+        } catch (Exception e) {
+            return 0;
+        }
+    }
 
     private long countStreaming() {
 
