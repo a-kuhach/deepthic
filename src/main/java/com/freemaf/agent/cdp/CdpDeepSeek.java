@@ -824,7 +824,17 @@ public final class CdpDeepSeek {
                         String cnResult = clickNearInput();
                         AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
                         if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
-                            clickAttachButton();
+
+            // FIX19: clickNearInput-first (React button click opens native chooser), then input.click, then legacy
+            String cnResult19 = clickNearInput();
+            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
+            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
+                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+                AppLogger.info("FIX19: input.click() result = " + icResult19);
+                if (!"input-clicked".equals(icResult19)) {
+                    clickAttachButton();
+                }
+            }
                         }
                     }
                 }
@@ -885,21 +895,36 @@ public final class CdpDeepSeek {
 
             AppLogger.info("FIX17-DIAG attachFile pre-set dump: " + preDump);
 
-            try {
-                String inputCtxDump = evaluate(
-                        "JSON.stringify((function(){"
-                        + "var i=document.querySelector('input[type=file]');if(!i)return null;"
-                        + "function d(e){return {tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),cls:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)};}"
-                        + "var p=i.parentElement;"
-                        + "var gp=p&&p.parentElement;"
-                        + "return {"
-                        + "parentHtml:p?(p.outerHTML||'').slice(0,600):'',"
-                        + "siblings:p?Array.from(p.children).map(d):[],"
-                        + "gpSiblings:gp?Array.from(gp.children).map(d):[]"
-                        + "};"
-                        + "})())");
-                AppLogger.info("FIX18-DIAG inputCtx: " + inputCtxDump);
-            } catch (Exception icx) { AppLogger.warn("FIX18-DIAG inputCtx error: " + icx.getMessage()); }
+            try {
+
+                String inputCtxDump = evaluate(
+
+                        "JSON.stringify((function(){"
+
+                        + "var i=document.querySelector('input[type=file]');if(!i)return null;"
+
+                        + "function d(e){return {tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),cls:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)};}"
+
+                        + "var p=i.parentElement;"
+
+                        + "var gp=p&&p.parentElement;"
+
+                        + "return {"
+
+                        + "parentHtml:p?(p.outerHTML||'').slice(0,600):'',"
+
+                        + "siblings:p?Array.from(p.children).map(d):[],"
+
+                        + "gpSiblings:gp?Array.from(gp.children).map(d):[]"
+
+                        + "};"
+
+                        + "})())");
+
+                AppLogger.info("FIX18-DIAG inputCtx: " + inputCtxDump);
+
+            } catch (Exception icx) { AppLogger.warn("FIX18-DIAG inputCtx error: " + icx.getMessage()); }
+
 
         } catch (Exception diagEx) { AppLogger.warn("FIX17-DIAG pre-set dump error: " + diagEx.getMessage()); }
 
@@ -1137,25 +1162,44 @@ public final class CdpDeepSeek {
 
     }
 
-
-    private String clickNearInput() {
-        String expr =
-                "(function(){"
-                + "var i=document.querySelector('input[type=file]');if(!i)return 'no-input';"
-                + "var p=i.parentElement;"
-                + "if(p){"
-                + "  var sib=Array.from(p.children).filter(function(e){return e!==i && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
-                + "  if(sib.length){sib[0].click();return 'clicked-parent-'+sib[0].tagName;}"
-                + "}"
-                + "var gp=p&&p.parentElement;"
-                + "if(gp){"
-                + "  var gsib=Array.from(gp.children).filter(function(e){return e!==p && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
-                + "  if(gsib.length){gsib[0].click();return 'clicked-grandparent-'+gsib[0].tagName;}"
-                + "}"
-                + "return 'not-found';"
-                + "})()";
-        return evaluate(expr);
-    }
+
+
+    private String clickNearInput() {
+
+        String expr =
+
+                "(function(){"
+
+                + "var i=document.querySelector('input[type=file]');if(!i)return 'no-input';"
+
+                + "var p=i.parentElement;"
+
+                + "if(p){"
+
+                + "  var sib=Array.from(p.children).filter(function(e){return e!==i && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
+
+                + "  if(sib.length){sib[0].click();return 'clicked-parent-'+sib[0].tagName+'.'+((sib[0].className||'').toString().slice(0,30));}"
+
+                + "}"
+
+                + "var gp=p&&p.parentElement;"
+
+                + "if(gp){"
+
+                + "  var gsib=Array.from(gp.children).filter(function(e){return e!==p && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
+
+                + "  if(gsib.length){gsib[0].click();return 'clicked-grandparent-'+gsib[0].tagName+'.'+((gsib[0].className||'').toString().slice(0,30));}"
+
+                + "}"
+
+                + "return 'not-found';"
+
+                + "})()";
+
+        return evaluate(expr);
+
+    }
+
 
 
 
