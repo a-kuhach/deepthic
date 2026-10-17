@@ -784,6 +784,23 @@ public final class CdpDeepSeek {
         long bytes = -1L;
         try { bytes = Files.size(path); } catch (Exception ignored) { }
 
+        // FIX28: composer blob-img baseline before attach
+
+        String baselineJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"total\":0,\"composer\":0}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}return JSON.stringify({total:total,composer:comp});})())");
+
+        AppLogger.info("FIX28: baseline blob-img = " + baselineJson);
+
+        int baselineComposer = 0;
+
+        try {
+
+            com.fasterxml.jackson.databind.JsonNode bj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(baselineJson);
+
+            baselineComposer = bj.path("composer").asInt(0);
+
+        } catch (Exception ignored) { }
+
+
         Integer rootNodeId = nodeIdOfDocument();
         if (rootNodeId == null) {
             throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
@@ -1023,7 +1040,7 @@ public final class CdpDeepSeek {
                     attachFileViaDataTransfer(path);
                     attachFileViaDragEvent(path);
                     attachFileViaPasteEvent(path);
-                    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
+                    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
                     AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
                     return;
                 }
@@ -1032,7 +1049,7 @@ public final class CdpDeepSeek {
                 attachFileViaDataTransfer(path);
                 attachFileViaDragEvent(path);
                 attachFileViaPasteEvent(path);
-                waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
+                waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
                 AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
                 return;
             }
@@ -1083,13 +1100,13 @@ public final class CdpDeepSeek {
             attachFileViaDataTransfer(path);
             attachFileViaDragEvent(path);
             attachFileViaPasteEvent(path);
-            waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
+            waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
             long elapsedDt = System.currentTimeMillis() - start;
             AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer)");
             return;
         }
 
-        waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
+        waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
         long elapsed = System.currentTimeMillis() - start;
         AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsed + "ms (dom)");
     }
@@ -1298,27 +1315,17 @@ public final class CdpDeepSeek {
 
 
 
+
+
     private void waitForAttachmentVisible(long timeoutMs) throws CdpAttachException {
-        long startMs = System.currentTimeMillis();
-        long deadline = startMs + timeoutMs;
+        // Simple length check (used by attachFileViaChooser fallback; keeps backward-compat with existing test).
+        long deadline = System.currentTimeMillis() + timeoutMs;
         String expr = "String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)";
-        long lastDiagMs = 0L;
         while (System.currentTimeMillis() < deadline) {
             String v = evaluate(expr);
             try {
-                if (v != null && Long.parseLong(v) > 0L) {
-                    AppLogger.info("FIX27: attachment appeared after " + (System.currentTimeMillis() - startMs) + "ms");
-                    return;
-                }
+                if (v != null && Long.parseLong(v) > 0L) return;
             } catch (NumberFormatException ignored) { }
-            long now = System.currentTimeMillis();
-            if (now - lastDiagMs >= 2000L) {
-                lastDiagMs = now;
-                try {
-                    String diag = evaluate("JSON.stringify({attachNodes:document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length,imgBlob:document.querySelectorAll('img[src^=\"blob:\"], img[src^=\"data:\"]').length,fileLike:Array.from(document.querySelectorAll('[class*=file],[class*=attach],[class*=upload],[class*=card],[class*=chip],[class*=preview],[class*=thumbnail]')).slice(0,5).map(function(e){return {tag:e.tagName,cls:(e.className||'').toString().slice(0,50),txt:(e.textContent||'').trim().slice(0,25)};})})");
-                    AppLogger.info("FIX27: waitForAttachment " + (now - startMs) + "ms diag = " + diag);
-                } catch (Exception ignoredDiag) { }
-            }
             sleep(ATTACH_POLL_MS);
         }
         throw new CdpAttachException("wait-upload",
@@ -1326,6 +1333,72 @@ public final class CdpDeepSeek {
     }
 
 
+
+    private void waitForAttachmentVisible(long timeoutMs, int baselineComposer) throws CdpAttachException {
+
+        long startMs = System.currentTimeMillis();
+
+        long deadline = startMs + timeoutMs;
+
+        long lastDiagMs = 0L;
+
+        long lastDumpMs = 0L;
+
+        while (System.currentTimeMillis() < deadline) {
+
+            String json = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"composerBlob\":-1,\"totalBlob\":-1,\"attachNodes\":-1}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}var an=document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length;return JSON.stringify({composerBlob:comp,totalBlob:total,attachNodes:an});})())");
+
+            int curComposer = -1;
+
+            try {
+
+                com.fasterxml.jackson.databind.JsonNode j = new com.fasterxml.jackson.databind.ObjectMapper().readTree(json);
+
+                curComposer = j.path("composerBlob").asInt(-1);
+
+            } catch (Exception ignored) { }
+
+            if (curComposer > baselineComposer) {
+
+                AppLogger.info("FIX28: attachment appeared after " + (System.currentTimeMillis() - startMs) + "ms (composerBlob=" + curComposer + " baseline=" + baselineComposer + ")");
+
+                return;
+
+            }
+
+            long now = System.currentTimeMillis();
+
+            if (now - lastDiagMs >= 2000L) {
+
+                lastDiagMs = now;
+
+                AppLogger.info("FIX28: waitForAttachment " + (now - startMs) + "ms json = " + json + " baseline=" + baselineComposer);
+
+            }
+
+            if (now - lastDumpMs >= 6000L) {
+
+                lastDumpMs = now;
+
+                try {
+
+                    String dump = evaluate("JSON.stringify(Array.from(document.querySelectorAll('img[src^=\"blob:\"]')).slice(0,10).map(function(e){var p=e.parentElement;return {cls:(e.className||'').toString().slice(0,40),alt:(e.alt||'').slice(0,20),nw:e.naturalWidth,nh:e.naturalHeight,parentTag:p?p.tagName:'?',parentCls:p?(p.className||'').toString().slice(0,40):'?'};}))");
+
+                    AppLogger.info("FIX28: blob-img dump = " + dump);
+
+                } catch (Exception ignoredDump) { }
+
+            }
+
+            sleep(ATTACH_POLL_MS);
+
+        }
+
+        throw new CdpAttachException("wait-upload",
+
+                "attachment did not appear in DOM within " + timeoutMs + " ms (baseline=" + baselineComposer + ")", null);
+
+    }
 
 
 
@@ -1479,38 +1552,70 @@ public final class CdpDeepSeek {
 
 
 
-    private void attachFileViaPasteEvent(Path path) {
-        try {
-            byte[] fileBytes = Files.readAllBytes(path);
-            String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
-            String fileName = path.getFileName().toString();
-            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
-            if (mimeType == null) mimeType = "application/octet-stream";
-            String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
-            String safeMime = mimeType.replace("'", "\\'");
-            StringBuilder js = new StringBuilder();
-            js.append("(function(){");
-            js.append("var t=document.querySelector('textarea[name=search]');if(!t)return 'no-textarea';");
-            js.append("try{");
-            js.append("var b64='").append(base64).append("';");
-            js.append("var bin=atob(b64);");
-            js.append("var bytes=new Uint8Array(bin.length);");
-            js.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
-            js.append("var file=new File([bytes],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
-            js.append("var dt=new DataTransfer();");
-            js.append("dt.items.add(file);");
-            js.append("var ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});");
-            js.append("t.dispatchEvent(ev);");
-            js.append("return 'paste-dispatched';");
-            js.append("}catch(e){return 'err-'+e.message;}");
-            js.append("})()");
-            String result = evaluate(js.toString());
-            AppLogger.info("FIX27: paste event result = " + result);
-        } catch (Exception e) {
-            AppLogger.warn("FIX27: paste event failed: " + e.getMessage());
-        }
-    }
-
+    private void attachFileViaPasteEvent(Path path) {
+
+        try {
+
+            byte[] fileBytes = Files.readAllBytes(path);
+
+            String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
+
+            String fileName = path.getFileName().toString();
+
+            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
+
+            if (mimeType == null) mimeType = "application/octet-stream";
+
+            String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
+
+            String safeMime = mimeType.replace("'", "\\'");
+
+            StringBuilder js = new StringBuilder();
+
+            js.append("(function(){");
+
+            js.append("var t=document.querySelector('textarea[name=search]');if(!t)return 'no-textarea';");
+
+            js.append("try{");
+
+            js.append("var b64='").append(base64).append("';");
+
+            js.append("var bin=atob(b64);");
+
+            js.append("var bytes=new Uint8Array(bin.length);");
+
+            js.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
+
+            js.append("var file=new File([bytes],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
+
+            js.append("var dt=new DataTransfer();");
+
+            js.append("dt.items.add(file);");
+
+            js.append("var ev=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});");
+
+            js.append("t.dispatchEvent(ev);");
+
+            js.append("return 'paste-dispatched';");
+
+            js.append("}catch(e){return 'err-'+e.message;}");
+
+            js.append("})()");
+
+            String result = evaluate(js.toString());
+
+            AppLogger.info("FIX27: paste event result = " + result);
+
+        } catch (Exception e) {
+
+            AppLogger.warn("FIX27: paste event failed: " + e.getMessage());
+
+        }
+
+    }
+
+
+
     private boolean attachFileViaDataTransfer(Path path) {
 
         try {
