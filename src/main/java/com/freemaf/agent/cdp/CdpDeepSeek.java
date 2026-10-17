@@ -805,6 +805,14 @@ public final class CdpDeepSeek {
 
         }
 
+        String inputCount = evaluate("String(document.querySelectorAll('input[type=file]').length)");
+        String firstFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
+        String attachNodes = evaluate("String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)");
+        AppLogger.info("CdpDeepSeek.attachFile diag: inputFiles=" + inputCount + " firstFiles=" + firstFiles + " attachNodes=" + attachNodes);
+        if (firstFiles != null && !firstFiles.isEmpty() && !"-1".equals(firstFiles) && !"0".equals(firstFiles)) {
+            evaluate("(function(){var i=document.querySelector('input[type=file]');if(i){i.dispatchEvent(new Event('change',{bubbles:true}));}return '' ;})()");
+            AppLogger.info("CdpDeepSeek.attachFile: dispatched change event on input[type=file]");
+        }
         waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
 
         long elapsed = System.currentTimeMillis() - start;
