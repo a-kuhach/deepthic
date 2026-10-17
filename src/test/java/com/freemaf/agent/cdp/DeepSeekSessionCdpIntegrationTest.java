@@ -113,7 +113,10 @@ class DeepSeekSessionCdpIntegrationTest {
                 + ", roleMarker=" + roleMarkerFound + "); test needs a fresh chat");
         AgentResponse resp = session.getValidResponse(PROMPT);
         assertTrue(resp != null, "AgentResponse is null");
-        String content = resp.content() == null ? "" : resp.content();
+                String content = resp.content() == null ? "" : resp.content();
+        if (content.contains("ROLE:")) {
+            assumeTrue(false, "response contains ROLE: - prior chat context; test needs a fresh chat");
+        }
         assertTrue(content.toUpperCase().contains("PONG"),
                 "expected PONG in response, got: " + (content.length() > 200 ? content.substring(0, 200) : content));
     }

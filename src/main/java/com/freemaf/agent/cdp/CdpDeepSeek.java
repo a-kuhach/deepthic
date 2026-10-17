@@ -1020,7 +1020,7 @@ public final class CdpDeepSeek {
 
                 if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
                     AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, trying DataTransfer");
-                    if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
+                    if (!attachFileViaDataTransfer(path) && !attachFileViaDragEvent(path)) {
                         throw new CdpAttachException("datatransfer",
                                 "DataTransfer/dragEvent failed (React controlled input rejection)", null);
                     }
@@ -1030,7 +1030,7 @@ public final class CdpDeepSeek {
                 }
             } else {
                 AppLogger.warn("CdpDeepSeek.attachFile: no backendNodeId, trying DataTransfer");
-                if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
+                if (!attachFileViaDataTransfer(path) && !attachFileViaDragEvent(path)) {
                     throw new CdpAttachException("datatransfer",
                             "DataTransfer/dragEvent failed (React controlled input rejection)", null);
                 }
@@ -1082,7 +1082,7 @@ public final class CdpDeepSeek {
 
         if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
             AppLogger.warn("CdpDeepSeek.attachFile: all setFileInputFiles variants failed, trying DataTransfer");
-            if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
+            if (!attachFileViaDataTransfer(path) && !attachFileViaDragEvent(path)) {
                 throw new CdpAttachException("datatransfer",
                         "DataTransfer/dragEvent failed (React controlled input rejection)", null);
             }
@@ -1333,125 +1333,221 @@ public final class CdpDeepSeek {
 
 
 
+
     private boolean attachFileViaDragEvent(Path path) {
+
         try {
+
             String abs = path.toAbsolutePath().toString();
-            String fileName = path.getFileName().toString();
-            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
-            if (mimeType == null) mimeType = "application/octet-stream";
-            String rectJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '';var r=t.getBoundingClientRect();if(r.width===0||r.height===0)return '';return JSON.stringify({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)});})())");
-            if (rectJson == null || !rectJson.contains("x")) {
-                AppLogger.warn("FIX24: textarea rect not found for dragEvent");
-                return false;
-            }
-            com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
-            double cx = rj.path("x").asDouble();
-            double cy = rj.path("y").asDouble();
-            Map<String, Object> item = new HashMap<>();
-            item.put("mimeType", mimeType);
-            item.put("data", "");
-            item.put("title", fileName);
-            item.put("baseURL", "about:blank");
-            Map<String, Object> dragData = new HashMap<>();
-            dragData.put("items", List.of(item));
-            dragData.put("files", List.of(abs));
-            dragData.put("dragOperationsMask", Integer.valueOf(1));
-            String[] phases = {"dragEnter", "dragOver", "drop"};
-            for (String phase : phases) {
-                Map<String, Object> params = new HashMap<>();
-                params.put("type", phase);
-                params.put("x", cx);
-                params.put("y", cy);
-                params.put("data", dragData);
-                try {
-                    activeTab.send("Input.dispatchDragEvent", params);
-                    AppLogger.info("FIX24: dispatchDragEvent " + phase + " at " + cx + "," + cy);
-                } catch (Exception pe) {
-                    AppLogger.warn("FIX24: dispatchDragEvent " + phase + " failed: " + pe.getMessage());
-                }
-                sleep(60L);
-            }
-            sleep(500L);
-            String cardsCount = evaluate("String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)");
-            String inputFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
-            AppLogger.info("FIX24: after dragEvent attachNodes=" + cardsCount + " inputFiles=" + inputFiles);
+
+
+
+            // FIX25: install drop listener for diagnostics
+
             try {
-                long n = Long.parseLong(cardsCount);
-                if (n > 0L) return true;
-            } catch (NumberFormatException ignored) { }
+
+                evaluate("(function(){window.__dropDiag={count:0,events:[]};if(window.__dropListener){document.removeEventListener('drop',window.__dropListener,true);}window.__dropListener=function(e){window.__dropDiag.count++;var dt=e.dataTransfer;window.__dropDiag.events.push({isTrusted:e.isTrusted,files:dt?dt.files.length:-1,items:dt?dt.items.length:-1,types:dt?Array.from(dt.types):[],target:e.target?(e.target.tagName+'.'+(e.target.className||'').toString().slice(0,40)):'?'});};document.addEventListener('drop',window.__dropListener,true);return 'installed';})()");
+
+            } catch (Exception ignored) { }
+
+
+
+            // FIX25: Playwright-style dragData (empty items, files only)
+
+            Map<String, Object> dragData = new HashMap<>();
+
+            dragData.put("items", List.of());
+
+            dragData.put("files", List.of(abs));
+
+            dragData.put("dragOperationsMask", Integer.valueOf(1));
+
+
+
+            // FIX25: try two drop targets: viewport-center, then input-parent-center
+
+            String[] targets = {"viewport-center", "input-parent"};
+
+            for (String target : targets) {
+
+                String coordJson = target.equals("viewport-center")
+
+                        ? evaluate("JSON.stringify({x:Math.round(window.innerWidth/2),y:Math.round(window.innerHeight/2)})")
+
+                        : evaluate("JSON.stringify((function(){var i=document.querySelector('input[type=file]');if(!i)return null;var p=i.parentElement;if(!p)return null;var r=p.getBoundingClientRect();if(r.width<=0||r.height<=0)return null;return {x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};})())");
+
+                if (coordJson == null || !coordJson.contains("x")) {
+
+                    AppLogger.info("FIX25: skip " + target + " (no coords)");
+
+                    continue;
+
+                }
+
+                double cx;
+
+                double cy;
+
+                try {
+
+                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(coordJson);
+
+                    cx = rj.path("x").asDouble();
+
+                    cy = rj.path("y").asDouble();
+
+                } catch (Exception pe) {
+
+                    AppLogger.warn("FIX25: parse " + target + " coords failed: " + pe.getMessage());
+
+                    continue;
+
+                }
+
+
+
+                AppLogger.info("FIX25: drop attempt " + target + " at " + cx + "," + cy + " (empty-items)");
+
+                for (String phase : new String[]{"dragEnter", "dragOver", "drop"}) {
+
+                    Map<String, Object> params = new HashMap<>();
+
+                    params.put("type", phase);
+
+                    params.put("x", cx);
+
+                    params.put("y", cy);
+
+                    params.put("data", dragData);
+
+                    try {
+
+                        activeTab.send("Input.dispatchDragEvent", params);
+
+                    } catch (Exception pe) {
+
+                        AppLogger.warn("FIX25: " + phase + " failed: " + pe.getMessage());
+
+                    }
+
+                    sleep(80L);
+
+                }
+
+                sleep(500L);
+
+
+
+                String cardsCount = evaluate("String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)");
+
+                String inputFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
+
+                AppLogger.info("FIX25: after " + target + " attachNodes=" + cardsCount + " inputFiles=" + inputFiles);
+
+                try {
+
+                    if (Long.parseLong(cardsCount) > 0L) {
+
+                        AppLogger.info("FIX25: SUCCESS via " + target);
+
+                        return true;
+
+                    }
+
+                } catch (NumberFormatException ignored) { }
+
+            }
+
+
+
+            // FIX25: final diagnostic
+
+            try {
+
+                String diag = evaluate("JSON.stringify(window.__dropDiag)");
+
+                AppLogger.info("FIX25: dropDiag = " + diag);
+
+            } catch (Exception ignored) { }
+
             return false;
+
         } catch (Exception e) {
-            AppLogger.warn("FIX24: dragEvent failed: " + e.getMessage());
-            return false;
-        }
-    }
-    private boolean attachFileViaDataTransfer(Path path) {
 
-        try {
-
-            byte[] fileBytes = Files.readAllBytes(path);
-
-            String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
-
-            String fileName = path.getFileName().toString();
-
-            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
-
-            if (mimeType == null) mimeType = "application/octet-stream";
-
-            String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
-
-            String safeMime = mimeType.replace("'", "\\'");
-
-            StringBuilder expr = new StringBuilder();
-
-            expr.append("(function(){");
-
-            expr.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
-
-            expr.append("var b64='").append(base64).append("';");
-
-            expr.append("var bin=atob(b64);");
-
-            expr.append("var arr=new Uint8Array(bin.length);");
-
-            expr.append("for(var k=0;k<bin.length;k++)arr[k]=bin.charCodeAt(k);");
-
-            expr.append("var file=new File([arr],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
-
-            expr.append("var dt=new DataTransfer();");
-
-            expr.append("dt.items.add(file);");
-
-            expr.append("var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'files').set;");
-
-            expr.append("setter.call(i,dt.files);");
-
-            expr.append("i.dispatchEvent(new Event('input',{bubbles:true}));");
-
-            expr.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
-
-            expr.append("return 'dt-applied-' + (i.files ? i.files.length : -1);");
-
-            expr.append("})()");
-
-            String result = evaluate(expr.toString());
-
-            AppLogger.info("FIX22: DataTransfer result = " + result);
-
-            return result != null && result.startsWith("dt-applied-")
-
-                    && !result.equals("dt-applied-0") && !result.equals("dt-applied--1");
-
-        } catch (Exception e) {
-
-            AppLogger.warn("FIX22: DataTransfer failed: " + e.getMessage());
+            AppLogger.warn("FIX25: dragEvent failed: " + e.getMessage());
 
             return false;
 
         }
 
     }
+
+
+    private boolean attachFileViaDataTransfer(Path path) {
+        try {
+            byte[] fileBytes = Files.readAllBytes(path);
+            String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
+            String fileName = path.getFileName().toString();
+            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
+            if (mimeType == null) mimeType = "application/octet-stream";
+            String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
+            String safeMime = mimeType.replace("'", "\\'");
+
+            // FIX26 attempt A: direct assignment (article-proven: input.files = dt.files)
+            StringBuilder a = new StringBuilder();
+            a.append("(function(){");
+            a.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
+            a.append("try{");
+            a.append("var b64='").append(base64).append("';");
+            a.append("var bin=atob(b64);");
+            a.append("var bytes=new Uint8Array(bin.length);");
+            a.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
+            a.append("var blob=new Blob([bytes],{type:'").append(safeMime).append("'});");
+            a.append("var file=new File([blob],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
+            a.append("var dt=new DataTransfer();");
+            a.append("dt.items.add(file);");
+            a.append("i.files=dt.files;");
+            a.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
+            a.append("i.dispatchEvent(new Event('input',{bubbles:true}));");
+            a.append("var n=i.files?i.files.length:-1;");
+            a.append("return 'direct-'+n+'-'+file.name+'-'+file.size;");
+            a.append("}catch(e){return 'err-'+e.message;}");
+            a.append("})()");
+            String resultA = evaluate(a.toString());
+            AppLogger.info("FIX26: DataTransfer(direct) result = " + resultA);
+            if (resultA != null && resultA.startsWith("direct-") && !resultA.startsWith("direct-0")) {
+                return true;
+            }
+
+            // FIX26 attempt B: native setter (legacy FIX22 path, older React versions)
+            StringBuilder b = new StringBuilder();
+            b.append("(function(){");
+            b.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
+            b.append("try{");
+            b.append("var b64='").append(base64).append("';");
+            b.append("var bin=atob(b64);");
+            b.append("var bytes=new Uint8Array(bin.length);");
+            b.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
+            b.append("var blob=new Blob([bytes],{type:'").append(safeMime).append("'});");
+            b.append("var file=new File([blob],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
+            b.append("var dt=new DataTransfer();");
+            b.append("dt.items.add(file);");
+            b.append("var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'files').set;");
+            b.append("setter.call(i,dt.files);");
+            b.append("i.dispatchEvent(new Event('input',{bubbles:true}));");
+            b.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
+            b.append("var n=i.files?i.files.length:-1;");
+            b.append("return 'setter-'+n+'-'+file.name+'-'+file.size;");
+            b.append("}catch(e){return 'err-'+e.message;}");
+            b.append("})()");
+            String resultB = evaluate(b.toString());
+            AppLogger.info("FIX26: DataTransfer(setter) result = " + resultB);
+            return resultB != null && resultB.startsWith("setter-") && !resultB.startsWith("setter-0");
+        } catch (Exception e) {
+            AppLogger.warn("FIX26: DataTransfer failed: " + e.getMessage());
+            return false;
+        }
+    }
 
 
 
