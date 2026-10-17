@@ -1020,9 +1020,9 @@ public final class CdpDeepSeek {
 
                 if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
                     AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, trying DataTransfer");
-                    if (!attachFileViaDataTransfer(path)) {
+                    if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
                         throw new CdpAttachException("datatransfer",
-                                "DataTransfer set input.files failed (React controlled input rejection)", null);
+                                "DataTransfer/dragEvent failed (React controlled input rejection)", null);
                     }
                     waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
                     AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
@@ -1030,9 +1030,9 @@ public final class CdpDeepSeek {
                 }
             } else {
                 AppLogger.warn("CdpDeepSeek.attachFile: no backendNodeId, trying DataTransfer");
-                if (!attachFileViaDataTransfer(path)) {
+                if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
                     throw new CdpAttachException("datatransfer",
-                            "DataTransfer set input.files failed (React controlled input rejection)", null);
+                            "DataTransfer/dragEvent failed (React controlled input rejection)", null);
                 }
                 waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
                 AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
@@ -1082,9 +1082,9 @@ public final class CdpDeepSeek {
 
         if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
             AppLogger.warn("CdpDeepSeek.attachFile: all setFileInputFiles variants failed, trying DataTransfer");
-            if (!attachFileViaDataTransfer(path)) {
+            if (!attachFileViaDragEvent(path) && !attachFileViaDataTransfer(path)) {
                 throw new CdpAttachException("datatransfer",
-                        "DataTransfer set input.files failed (React controlled input rejection)", null);
+                        "DataTransfer/dragEvent failed (React controlled input rejection)", null);
             }
             waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
             long elapsedDt = System.currentTimeMillis() - start;
@@ -1333,6 +1333,58 @@ public final class CdpDeepSeek {
 
 
 
+    private boolean attachFileViaDragEvent(Path path) {
+        try {
+            String abs = path.toAbsolutePath().toString();
+            String fileName = path.getFileName().toString();
+            String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
+            if (mimeType == null) mimeType = "application/octet-stream";
+            String rectJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '';var r=t.getBoundingClientRect();if(r.width===0||r.height===0)return '';return JSON.stringify({x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)});})())");
+            if (rectJson == null || !rectJson.contains("x")) {
+                AppLogger.warn("FIX24: textarea rect not found for dragEvent");
+                return false;
+            }
+            com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
+            double cx = rj.path("x").asDouble();
+            double cy = rj.path("y").asDouble();
+            Map<String, Object> item = new HashMap<>();
+            item.put("mimeType", mimeType);
+            item.put("data", "");
+            item.put("title", fileName);
+            item.put("baseURL", "about:blank");
+            Map<String, Object> dragData = new HashMap<>();
+            dragData.put("items", List.of(item));
+            dragData.put("files", List.of(abs));
+            dragData.put("dragOperationsMask", Integer.valueOf(1));
+            String[] phases = {"dragEnter", "dragOver", "drop"};
+            for (String phase : phases) {
+                Map<String, Object> params = new HashMap<>();
+                params.put("type", phase);
+                params.put("x", cx);
+                params.put("y", cy);
+                params.put("data", dragData);
+                try {
+                    activeTab.send("Input.dispatchDragEvent", params);
+                    AppLogger.info("FIX24: dispatchDragEvent " + phase + " at " + cx + "," + cy);
+                } catch (Exception pe) {
+                    AppLogger.warn("FIX24: dispatchDragEvent " + phase + " failed: " + pe.getMessage());
+                }
+                sleep(60L);
+            }
+            sleep(500L);
+            String cardsCount = evaluate("String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)");
+            String inputFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
+            AppLogger.info("FIX24: after dragEvent attachNodes=" + cardsCount + " inputFiles=" + inputFiles);
+            try {
+                long n = Long.parseLong(cardsCount);
+                if (n > 0L) return true;
+            } catch (NumberFormatException ignored) { }
+            return false;
+        } catch (Exception e) {
+            AppLogger.warn("FIX24: dragEvent failed: " + e.getMessage());
+            return false;
+        }
+    }
     private boolean attachFileViaDataTransfer(Path path) {
 
         try {
