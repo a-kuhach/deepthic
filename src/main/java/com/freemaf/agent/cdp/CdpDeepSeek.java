@@ -162,22 +162,38 @@ public final class CdpDeepSeek {
         int postCount = countAnyMessages();
         AppLogger.info("CdpDeepSeek.open: post-click URL=" + postUrl + " count=" + postCount);
 
-        // FIX17-DIAG: action-bar dump
-        try {
-            if (postCount > 0) {
-                String abDump = evaluate(
-                        "JSON.stringify({"
-                        + "actionBars:Array.from(document.querySelectorAll('div.ds-flex')).map(function(e){return {"
-                        + "className:(e.className||'').toString().slice(0,100),"
-                        + "innerButtons:Array.from(e.querySelectorAll('button, [role=button], [class*=icon]')).map(function(b){return {"
-                        + "tag:b.tagName,aria:(b.getAttribute('aria-label')||''),testid:(b.getAttribute('data-testid')||''),className:(b.className||'').toString().slice(0,60)"
-                        + "};}),"
-                        + "text:(e.textContent||'').trim().slice(0,60)"
-                        + "};})"
-                        + "})");
-                AppLogger.info("FIX17-DIAG open action-bar dump: " + abDump);
-            }
-        } catch (Exception abEx) { AppLogger.warn("FIX17-DIAG action-bar dump error: " + abEx.getMessage()); }
+        // FIX17-DIAG: action-bar dump
+
+        try {
+
+            if (postCount > 0) {
+
+                String abDump = evaluate(
+
+                        "JSON.stringify({"
+
+                        + "actionBars:Array.from(document.querySelectorAll('div.ds-flex')).map(function(e){return {"
+
+                        + "className:(e.className||'').toString().slice(0,100),"
+
+                        + "innerButtons:Array.from(e.querySelectorAll('button, [role=button], [class*=icon]')).map(function(b){return {"
+
+                        + "tag:b.tagName,aria:(b.getAttribute('aria-label')||''),testid:(b.getAttribute('data-testid')||''),className:(b.className||'').toString().slice(0,60)"
+
+                        + "};}),"
+
+                        + "text:(e.textContent||'').trim().slice(0,60)"
+
+                        + "};})"
+
+                        + "})");
+
+                AppLogger.info("FIX17-DIAG open action-bar dump: " + abDump);
+
+            }
+
+        } catch (Exception abEx) { AppLogger.warn("FIX17-DIAG action-bar dump error: " + abEx.getMessage()); }
+
     }
 
 
@@ -801,7 +817,16 @@ public final class CdpDeepSeek {
                     AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
                 } else {
                     AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
-                    clickAttachButton();
+                    // FIX18: input.click() first, then clickNearInput(), then legacy clickAttachButton()
+                    String fix18Result = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+                    AppLogger.info("FIX18: input.click() result = " + fix18Result);
+                    if (!"input-clicked".equals(fix18Result)) {
+                        String cnResult = clickNearInput();
+                        AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
+                        if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
+                            clickAttachButton();
+                        }
+                    }
                 }
             } catch (Exception mce) {
                 AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
@@ -822,26 +847,62 @@ public final class CdpDeepSeek {
         // Diagnostic: input attributes
         try {
 
-        // FIX17-DIAG: attachFile pre-set dump
-        try {
-            String preDump = evaluate(
-                    "JSON.stringify({"
-                    + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
-                    + "accept:(e.accept||''),multiple:e.multiple,disabled:e.disabled,hidden:e.hidden,"
-                    + "id:(e.id||''),name:(e.name||''),className:(e.className||''),"
-                    + "parentTag:e.parentElement?e.parentElement.tagName:null,"
-                    + "parentClass:e.parentElement?(e.parentElement.className||''):null,"
-                    + "grandParentTag:e.parentElement&&e.parentElement.parentElement?e.parentElement.parentElement.tagName:null,"
-                    + "grandParentClass:e.parentElement&&e.parentElement.parentElement?(e.parentElement.parentElement.className||''):null"
-                    + "};}),"
-                    + "paperclipCandidates:Array.from(document.querySelectorAll('[class*=paperclip], [class*=attach], button[aria-label*=attach i], button[aria-label*=file i], [data-testid*=attach], [data-testid*=file]')).map(function(e){return {"
-                    + "tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),"
-                    + "className:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)"
-                    + "};}),"
-                    + "textareaParent:(function(){var t=document.querySelector('textarea[name=search]');if(!t)return null;var p=t;for(var i=0;i<5&&p;i++){p=p.parentElement;if(p&&p.querySelector('button, [role=button]')){return {tag:p.tagName,className:(p.className||'').toString()};}}return null;})()"
-                    + "})");
-            AppLogger.info("FIX17-DIAG attachFile pre-set dump: " + preDump);
-        } catch (Exception diagEx) { AppLogger.warn("FIX17-DIAG pre-set dump error: " + diagEx.getMessage()); }
+        // FIX17-DIAG: attachFile pre-set dump
+
+        try {
+
+            String preDump = evaluate(
+
+                    "JSON.stringify({"
+
+                    + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
+
+                    + "accept:(e.accept||''),multiple:e.multiple,disabled:e.disabled,hidden:e.hidden,"
+
+                    + "id:(e.id||''),name:(e.name||''),className:(e.className||''),"
+
+                    + "parentTag:e.parentElement?e.parentElement.tagName:null,"
+
+                    + "parentClass:e.parentElement?(e.parentElement.className||''):null,"
+
+                    + "grandParentTag:e.parentElement&&e.parentElement.parentElement?e.parentElement.parentElement.tagName:null,"
+
+                    + "grandParentClass:e.parentElement&&e.parentElement.parentElement?(e.parentElement.parentElement.className||''):null"
+
+                    + "};}),"
+
+                    + "paperclipCandidates:Array.from(document.querySelectorAll('[class*=paperclip], [class*=attach], button[aria-label*=attach i], button[aria-label*=file i], [data-testid*=attach], [data-testid*=file]')).map(function(e){return {"
+
+                    + "tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),"
+
+                    + "className:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)"
+
+                    + "};}),"
+
+                    + "textareaParent:(function(){var t=document.querySelector('textarea[name=search]');if(!t)return null;var p=t;for(var i=0;i<5&&p;i++){p=p.parentElement;if(p&&p.querySelector('button, [role=button]')){return {tag:p.tagName,className:(p.className||'').toString()};}}return null;})()"
+
+                    + "})");
+
+            AppLogger.info("FIX17-DIAG attachFile pre-set dump: " + preDump);
+
+            try {
+                String inputCtxDump = evaluate(
+                        "JSON.stringify((function(){"
+                        + "var i=document.querySelector('input[type=file]');if(!i)return null;"
+                        + "function d(e){return {tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),cls:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)};}"
+                        + "var p=i.parentElement;"
+                        + "var gp=p&&p.parentElement;"
+                        + "return {"
+                        + "parentHtml:p?(p.outerHTML||'').slice(0,600):'',"
+                        + "siblings:p?Array.from(p.children).map(d):[],"
+                        + "gpSiblings:gp?Array.from(gp.children).map(d):[]"
+                        + "};"
+                        + "})())");
+                AppLogger.info("FIX18-DIAG inputCtx: " + inputCtxDump);
+            } catch (Exception icx) { AppLogger.warn("FIX18-DIAG inputCtx error: " + icx.getMessage()); }
+
+        } catch (Exception diagEx) { AppLogger.warn("FIX17-DIAG pre-set dump error: " + diagEx.getMessage()); }
+
             String inputAttrs = evaluate("String((function(){var i=document.querySelector('input[type=file]');if(!i)return 'none';return 'accept='+(i.accept||'')+' multiple='+i.multiple+' disabled='+i.disabled+' hidden='+i.hidden+' offsetParent='+(i.offsetParent?'yes':'no');})())");
             AppLogger.info("CdpDeepSeek.attachFile: inputAttrs " + inputAttrs);
         } catch (Exception ignored) { }
@@ -892,21 +953,36 @@ public final class CdpDeepSeek {
                 String firstFiles2 = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
                 AppLogger.info("CdpDeepSeek.attachFile: after backendNodeId firstFiles=" + firstFiles2);
 
-            if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
-                try {
-                    String postDump = evaluate(
-                            "JSON.stringify({"
-                            + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
-                            + "accept:(e.accept||'').slice(0,50),multiple:e.multiple,filesLen:(e.files?e.files.length:-1),"
-                            + "id:(e.id||''),name:(e.name||''),className:(e.className||'')"
-                            + "};}),"
-                            + "fileCards:Array.from(document.querySelectorAll('[class*=file-card], [class*=file-preview], [class*=attachment], [class*=upload], [class*=file-item], [class*=ds-file]')).map(function(e){return {"
-                            + "tag:e.tagName,className:(e.className||'').toString().slice(0,100),text:(e.textContent||'').trim().slice(0,40)"
-                            + "};})"
-                            + "})");
-                    AppLogger.info("FIX17-DIAG attachFile post-set dump: " + postDump);
-                } catch (Exception diagEx2) { AppLogger.warn("FIX17-DIAG post-set dump error: " + diagEx2.getMessage()); }
-            }
+            if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
+
+                try {
+
+                    String postDump = evaluate(
+
+                            "JSON.stringify({"
+
+                            + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
+
+                            + "accept:(e.accept||'').slice(0,50),multiple:e.multiple,filesLen:(e.files?e.files.length:-1),"
+
+                            + "id:(e.id||''),name:(e.name||''),className:(e.className||'')"
+
+                            + "};}),"
+
+                            + "fileCards:Array.from(document.querySelectorAll('[class*=file-card], [class*=file-preview], [class*=attachment], [class*=upload], [class*=file-item], [class*=ds-file]')).map(function(e){return {"
+
+                            + "tag:e.tagName,className:(e.className||'').toString().slice(0,100),text:(e.textContent||'').trim().slice(0,40)"
+
+                            + "};})"
+
+                            + "})");
+
+                    AppLogger.info("FIX17-DIAG attachFile post-set dump: " + postDump);
+
+                } catch (Exception diagEx2) { AppLogger.warn("FIX17-DIAG post-set dump error: " + diagEx2.getMessage()); }
+
+            }
+
                 if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
                     AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, falling back to chooser");
                     attachFileViaChooser(abs, bytes, start);
@@ -1060,6 +1136,26 @@ public final class CdpDeepSeek {
         evaluate(expr);
 
     }
+
+
+    private String clickNearInput() {
+        String expr =
+                "(function(){"
+                + "var i=document.querySelector('input[type=file]');if(!i)return 'no-input';"
+                + "var p=i.parentElement;"
+                + "if(p){"
+                + "  var sib=Array.from(p.children).filter(function(e){return e!==i && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
+                + "  if(sib.length){sib[0].click();return 'clicked-parent-'+sib[0].tagName;}"
+                + "}"
+                + "var gp=p&&p.parentElement;"
+                + "if(gp){"
+                + "  var gsib=Array.from(gp.children).filter(function(e){return e!==p && (e.tagName==='BUTTON'||e.getAttribute('role')==='button'||(e.tagName||'').toUpperCase()==='SVG');});"
+                + "  if(gsib.length){gsib[0].click();return 'clicked-grandparent-'+gsib[0].tagName;}"
+                + "}"
+                + "return 'not-found';"
+                + "})()";
+        return evaluate(expr);
+    }
 
 
 
