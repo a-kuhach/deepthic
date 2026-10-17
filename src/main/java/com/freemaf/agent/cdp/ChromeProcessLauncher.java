@@ -24,12 +24,16 @@ public final class ChromeProcessLauncher {
 
 
     // FIX36: reliable test-mode detection via Surefire system property.
+    // FIX38: check env var first (more reliable than surefire system properties).
     private static boolean isTestMode() {
-        return "true".equalsIgnoreCase(System.getProperty("deepthic.test", "false"));
+        if ("true".equalsIgnoreCase(System.getenv("DEEPTHIC_TEST"))) return true;
+        if ("true".equalsIgnoreCase(System.getProperty("deepthic.test", "false"))) return true;
+        return false;
     }
 
     public static Process start(boolean headless, int port) throws IOException {
         Path profilePath = resolveProfilePath();
+        AppLogger.info("ChromeProcessLauncher.start: headless=" + headless + ", isTestMode=" + isTestMode() + ", deepthic.test=" + System.getProperty("deepthic.test", "not-set"));
         Files.createDirectories(profilePath);
         List<String> args = new ArrayList<>();
         args.add(resolveChromePath());
@@ -71,8 +75,16 @@ public final class ChromeProcessLauncher {
             headless = true;
             AppLogger.info("FIX36: test mode, forcing headless");
         }
-        if (headless) args.add("--headless=new");
+        // FIX38: Chrome 129+ creates a native Chrome_WidgetWin_1 window even with --headless=new.
+        // It is composited onto the desktop (blank rectangle). Off-screen position hides it.
+        // window-size=1920x1080 (not 1x1) so DeepSeek renders and responds.
+        if (headless) {
+            args.add("--window-position=-32000,-32000");
+            args.add("--window-size=1920,1080");
+            args.add("--headless=new");
+        }
         ProcessBuilder pb = new ProcessBuilder(args);
+        AppLogger.info("FIX38: chrome cmd = " + String.join(" ", args));
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
         Process p = pb.start();
