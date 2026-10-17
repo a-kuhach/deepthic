@@ -208,6 +208,8 @@ DEFAULTS.put("config.migrated.v5", "false");
         DEFAULTS.put("window.size.max.height", "0");
         DEFAULTS.put("cdp.enabled", "true");
         DEFAULTS.put("config.migrated.v7", "false");
+        DEFAULTS.put("cdp.executor.tabId", "");
+        DEFAULTS.put("cdp.reviewer.tabId", "");
 
     }
 
@@ -872,6 +874,11 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
     public boolean isCdpEnabled() {
         return getBoolean("cdp.enabled", false);
     }
+
+    public String getCdpExecutorTabId() { return get("cdp.executor.tabId", ""); }
+    public void setCdpExecutorTabId(String tabId) { props.setProperty("cdp.executor.tabId", tabId == null ? "" : tabId); persist(); }
+    public String getCdpReviewerTabId() { return get("cdp.reviewer.tabId", ""); }
+    public void setCdpReviewerTabId(String tabId) { props.setProperty("cdp.reviewer.tabId", tabId == null ? "" : tabId); persist(); }
 
     public void setWindowSizeMaxHeight(int height) {
         if (height < 0) {

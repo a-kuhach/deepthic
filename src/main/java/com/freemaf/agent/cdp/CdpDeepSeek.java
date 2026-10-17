@@ -76,6 +76,14 @@ public final class CdpDeepSeek {
 
 
 
+    public CdpDeepSeek(CdpSession session, LoginFallbackHandler loginHandler, CdpTabInfo existingTab) throws java.io.IOException {
+        this(session, loginHandler);
+        if (existingTab == null) throw new IllegalArgumentException("existingTab is null");
+        this.activeTabInfo = existingTab;
+        this.activeTab = session.attach(existingTab);
+        session.activateTab(existingTab);
+    }
+
     public void open() throws Exception {
 
         activeTabInfo = session.newTab();
@@ -293,22 +301,17 @@ public final class CdpDeepSeek {
 
 
     public String readLastResponse() {
-
         String expr =
-
                 "(function(){var m=document.querySelectorAll(\""
-
                 + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE)
-
-                + "\");return m.length?m[m.length-1].innerText:'';})()";
-
+                + "\");if(!m.length)return '';"
+                + "var last=m[m.length-1];"
+                + "var pre=last.querySelector('pre');"
+                + "if(pre)return pre.innerText;"
+                + "return last.innerText;})()";
         String v = evaluate(expr);
-
         return v == null ? "" : v;
-
     }
-
-
 
     public String waitForResponse(long timeoutMs) throws TimeoutException {
         long deadline = System.currentTimeMillis() + timeoutMs;

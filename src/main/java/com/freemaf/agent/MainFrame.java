@@ -1309,9 +1309,37 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             if (cdpBootstrap != null) {
                 AppLogger.info("startSequence: CDP mode, starting bootstrap");
-                try {
-                    cdpBootstrap.start(true, true);
+                                try {
+                    cdpBootstrap.start(true, true, true);
                     cdpBootstrap.openExecutor();
+                } catch (com.freemaf.agent.cdp.ChromeProcessLauncher.PortBusyException pbe) {
+                    final boolean[] restart = {false};
+                    try {
+                        SwingUtilities.invokeAndWait(() -> {
+                            int r = JOptionPane.showConfirmDialog(MainFrame.this,
+                                    "Порт 9222 занят Chrome (PID " + pbe.pid() + ").\n" +
+                                    "Перезапустить сторонний Chrome?",
+                                    "Порт 9222 занят", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                            restart[0] = (r == JOptionPane.YES_OPTION);
+                        });
+                    } catch (Exception ex) {
+                        AppLogger.warn("port busy dialog failed: " + ex.getMessage());
+                    }
+                    if (!restart[0]) {
+                        appendSystem("Порт 9222 занят; запуск отменён.");
+                        setStatus(StatusMarker.State.STOPPED);
+                        return;
+                    }
+                    try {
+                        com.freemaf.agent.cdp.ChromeProcessLauncher.killPidTree(pbe.pid());
+                        Thread.sleep(500L);
+                        cdpBootstrap.start(true, true, true);
+                        cdpBootstrap.openExecutor();
+                    } catch (Exception retryEx) {
+                        appendSystem("Порт 9222 всё ещё занят: " + retryEx.getMessage());
+                        setStatus(StatusMarker.State.STOPPED);
+                        return;
+                    }
                 } catch (Exception cex) {
                     appendSystem("CDP bootstrap failed: " + cex.getMessage());
                     setStatus(StatusMarker.State.STOPPED);
