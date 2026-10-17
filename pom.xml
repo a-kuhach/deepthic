@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.freemaf.agent</groupId>
     <artifactId>app</artifactId>
-    <version>0.3.35-beta</version>
+    <version>0.3.36-beta</version>
     <packaging>jar</packaging>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -94,6 +94,10 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
                 <configuration>
+
+            <systemPropertyVariables>
+                <deepthic.test>true</deepthic.test>
+            </systemPropertyVariables>
                     <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
                 </configuration>
             </plugin>

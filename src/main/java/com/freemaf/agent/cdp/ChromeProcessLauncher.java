@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import com.freemaf.agent.AppLogger;
 
 public final class ChromeProcessLauncher {
 
@@ -21,6 +22,12 @@ public final class ChromeProcessLauncher {
         return Path.of(PROFILE_DIR).toAbsolutePath().normalize();
     }
 
+
+    // FIX36: reliable test-mode detection via Surefire system property.
+    private static boolean isTestMode() {
+        return "true".equalsIgnoreCase(System.getProperty("deepthic.test", "false"));
+    }
+
     public static Process start(boolean headless, int port) throws IOException {
         Path profilePath = resolveProfilePath();
         Files.createDirectories(profilePath);
@@ -30,12 +37,18 @@ public final class ChromeProcessLauncher {
         args.add("--remote-allow-origins=*");
         args.add("--user-data-dir=" + profilePath);
 
-        // FIX31: headful needs a visible window with a tab; --no-startup-window leaves a blank window.
-        if (headless) {
-            args.add("--no-startup-window");
-        } else {
-            args.add("--new-window");
-        }
+        // FIX31: headful needs a visible window with a tab; --no-startup-window leaves a blank window.
+
+        if (headless) {
+
+            args.add("--no-startup-window");
+
+        } else {
+
+            args.add("--new-window");
+
+        }
+
         args.add("--no-first-run");
         args.add("--no-default-browser-check");
         args.add("--disable-sync");
@@ -45,15 +58,34 @@ public final class ChromeProcessLauncher {
         args.add("--hide-crash-restore-bubble");
         args.add("--disable-session-crashed-bubble");
 
-        // FIX30: HeadlessChrome UA is flagged by CloudFront WAF (issue #459, browser-probe "stealth-ua").
-        // Keep --headless=new (no visible window) but override UA + disable AutomationControlled.
-        args.add("--disable-blink-features=AutomationControlled");
-        args.add("--user-agent=" + buildBrowserUserAgent());
-        if (headless) args.add("--headless=new");
+        // FIX30: HeadlessChrome UA is flagged by CloudFront WAF (issue #459, browser-probe "stealth-ua").
+
+        // Keep --headless=new (no visible window) but override UA + disable AutomationControlled.
+
+        args.add("--disable-blink-features=AutomationControlled");
+
+        args.add("--user-agent=" + buildBrowserUserAgent());
+
+        // FIX36: never open a headed window in tests (Surefire).
+        if (!headless && isTestMode()) {
+            headless = true;
+            AppLogger.info("FIX36: test mode, forcing headless");
+        }
+        if (headless) args.add("--headless=new");
         ProcessBuilder pb = new ProcessBuilder(args);
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
-        return pb.start();
+        Process p = pb.start();
+        // FIX36: belt-and-suspenders shutdown hook — kill Chrome when JVM exits.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                if (p.isAlive()) {
+                    p.destroy();
+                    if (!p.waitFor(3, TimeUnit.SECONDS)) p.destroyForcibly();
+                }
+            } catch (Exception ignored) { }
+        }, "chrome-shutdown-" + port));
+        return p;
     }
 
     public static void stop(Process p) {
@@ -72,34 +104,62 @@ public final class ChromeProcessLauncher {
     }
 
 
-    private static volatile String cachedVersion = null;
-
-    /** FIX30: returns Chrome major version (e.g. "131") from `chrome.exe --version`; falls back to "131". */
-    public static String resolveChromeVersion() {
-        if (cachedVersion != null) return cachedVersion;
-        try {
-            Process p = new ProcessBuilder(resolveChromePath(), "--version")
-                    .redirectErrorStream(true).start();
-            String line = "";
-            try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                line = br.readLine();
-            }
-            try { p.waitFor(3, TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-            if (line != null) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("Chrome/(\\d+)\\.").matcher(line);
-                if (m.find()) { cachedVersion = m.group(1); return cachedVersion; }
-            }
-        } catch (Exception ignored) { }
-        cachedVersion = "131";
-        return cachedVersion;
-    }
-
-    /** FIX30: build a real-looking Chrome User-Agent (no "HeadlessChrome"). */
-    public static String buildBrowserUserAgent() {
-        String v = resolveChromeVersion();
-        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + v + ".0.0.0 Safari/537.36";
-    }
-    public static String resolveChromePath() {
+    private static volatile String cachedVersion = null;
+
+
+
+    /** FIX30: returns Chrome major version (e.g. "131") from `chrome.exe --version`; falls back to "131". */
+
+    public static String resolveChromeVersion() {
+
+        if (cachedVersion != null) return cachedVersion;
+
+        try {
+
+            Process p = new ProcessBuilder(resolveChromePath(), "--version")
+
+                    .redirectErrorStream(true).start();
+
+            String line = "";
+
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+
+                line = br.readLine();
+
+            }
+
+            try { p.waitFor(3, TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+
+            if (line != null) {
+
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("Chrome/(\\d+)\\.").matcher(line);
+
+                if (m.find()) { cachedVersion = m.group(1); return cachedVersion; }
+
+            }
+
+        } catch (Exception ignored) { }
+
+        cachedVersion = "131";
+
+        return cachedVersion;
+
+    }
+
+
+
+    /** FIX30: build a real-looking Chrome User-Agent (no "HeadlessChrome"). */
+
+    public static String buildBrowserUserAgent() {
+
+        String v = resolveChromeVersion();
+
+        return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/" + v + ".0.0.0 Safari/537.36";
+
+    }
+
+
+    public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
         String[] candidates = {
                 "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
