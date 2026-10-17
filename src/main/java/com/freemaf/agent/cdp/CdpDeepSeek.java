@@ -91,6 +91,24 @@ public final class CdpDeepSeek {
         } catch (Exception e) {
             AppLogger.warn("Emulation.setFocusEmulationEnabled failed (adopt): " + e.getMessage());
         }
+
+
+        try {
+            String stealthSource =
+                    "(function(){"
+                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
+                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
+                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
+                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
+                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
+                    + "})()";
+            Map<String, Object> stealthParams = new HashMap<>();
+            stealthParams.put("source", stealthSource);
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
+            AppLogger.info("FIX30: stealth script installed (adopt)");
+        } catch (Exception sx) {
+            AppLogger.warn("FIX30: stealth script install failed (adopt): " + sx.getMessage());
+        }
     }
 
 
@@ -119,6 +137,25 @@ public final class CdpDeepSeek {
             AppLogger.warn("Page.enable failed: " + e.getMessage());
 
         }
+
+        // FIX30: stealth script via Page.addScriptToEvaluateOnNewDocument
+        try {
+            String stealthSource =
+                    "(function(){"
+                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
+                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
+                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
+                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
+                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
+                    + "try{var origQuery=navigator.permissions&&navigator.permissions.query;if(origQuery){navigator.permissions.query=function(p){if(p&&p.name==='notifications'){return Promise.resolve({state:'denied',onchange:null});}return origQuery.call(navigator.permissions,p);};}}catch(e){}"
+                    + "})()";
+            Map<String, Object> stealthParams = new HashMap<>();
+            stealthParams.put("source", stealthSource);
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
+            AppLogger.info("FIX30: stealth script installed via Page.addScriptToEvaluateOnNewDocument");
+        } catch (Exception sx) {
+            AppLogger.warn("FIX30: stealth script install failed: " + sx.getMessage());
+        }
 
         try {
             Map<String, Object> focus = new HashMap<>();
@@ -429,24 +466,42 @@ public final class CdpDeepSeek {
         String bodyLen = evaluate("String((document.body && document.body.innerText || '').length)");
         String diag = "url=" + url + " title=" + title + " readyState=" + rs + " hasMarkdown=" + hasMd + " bodyLen=" + bodyLen;
 
-        // FIX29: CloudFront/WAF block detection (title=ERROR: The request could not be satisfied, small bodyLen)
-        String bodySnippet = evaluate("String(((document.body && document.body.innerText) || '').slice(0, 200))");
-        boolean cfBlocked = title != null
-                && (title.contains("request could not be satisfied") || title.startsWith("ERROR"))
-                && url != null && !url.contains("/sign_in") && !url.contains("/signin")
-                && bodyLen != null && Long.parseLong(bodyLen) < 1500L;
-        if (cfBlocked) {
-            String msg = "CloudFront/WAF блокирует доступ к chat.deepseek.com (title=\"" + title + "\", bodyLen=" + bodyLen + "). "
-                    + "Причины: (1) IP/страна заблокированы CloudFront — включите/смените VPN (не RU, не датацентр); "
-                    + "(2) rate-limit по IP после серии запросов — подождите 15-30 мин; "
-                    + "(3) Chrome Secure DNS (DoH) конфликтует — chrome://settings/security → Use secure DNS → выключить или 'With your current service provider'; "
-                    + "(4) профиль cdp-profile повреждён — удалите agent/cache/cdp-profile (потеряется логин). "
-                    + "Body: " + bodySnippet;
-            AppLogger.warn("CdpDeepSeek.waitForInput: FIX29 CloudFront blocked — " + msg);
-            throw new IllegalStateException(msg);
-        }
-        AppLogger.warn("CdpDeepSeek.waitForInput TIMEOUT after " + timeoutMs + "ms: " + diag);
-        throw new TimeoutException("input not found within " + timeoutMs + " ms [" + diag + "]");
+        // FIX29: CloudFront/WAF block detection (title=ERROR: The request could not be satisfied, small bodyLen)
+
+        String bodySnippet = evaluate("String(((document.body && document.body.innerText) || '').slice(0, 200))");
+
+        boolean cfBlocked = title != null
+
+                && (title.contains("request could not be satisfied") || title.startsWith("ERROR"))
+
+                && url != null && !url.contains("/sign_in") && !url.contains("/signin")
+
+                && bodyLen != null && Long.parseLong(bodyLen) < 1500L;
+
+        if (cfBlocked) {
+
+            String msg = "CloudFront/WAF блокирует доступ к chat.deepseek.com (title=\"" + title + "\", bodyLen=" + bodyLen + "). "
+
+                    + "Причины: (1) IP/страна заблокированы CloudFront — включите/смените VPN (не RU, не датацентр); "
+
+                    + "(2) rate-limit по IP после серии запросов — подождите 15-30 мин; "
+
+                    + "(3) Chrome Secure DNS (DoH) конфликтует — chrome://settings/security → Use secure DNS → выключить или 'With your current service provider'; "
+
+                    + "(4) профиль cdp-profile повреждён — удалите agent/cache/cdp-profile (потеряется логин). "
+
+                    + "Body: " + bodySnippet;
+
+            AppLogger.warn("CdpDeepSeek.waitForInput: FIX29 CloudFront blocked — " + msg);
+
+            throw new IllegalStateException(msg);
+
+        }
+
+        AppLogger.warn("CdpDeepSeek.waitForInput TIMEOUT after " + timeoutMs + "ms: " + diag);
+
+        throw new TimeoutException("input not found within " + timeoutMs + " ms [" + diag + "]");
+
     }
 
     public String evaluate(String expression) {
