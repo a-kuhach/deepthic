@@ -50,7 +50,17 @@ public final class CdpBootstrap {
         if (port <= 0) throw new IllegalArgumentException("port must be > 0");
         this.config = config;
         this.port = port;
-        Runtime.getRuntime().addShutdownHook(new Thread(this::releaseLock, "cdp-lock-release"));
+        // FIX34: shutdown hook kills Chrome (prevents orphan processes on JVM exit).
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                Process p = this.chromeProcess;
+                if (p != null && p.isAlive()) {
+                    try { ChromeProcessLauncher.stop(p); } catch (Exception ignored) { }
+                }
+                try { ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L); } catch (Exception ignored) { }
+            } catch (Exception ignored) { }
+            releaseLock();
+        }, "cdp-shutdown"));
     }
 
     public void setStatusSink(java.util.function.Consumer<String> sink) { this.statusSink = sink; }
@@ -126,7 +136,7 @@ public final class CdpBootstrap {
         if (!http.waitForPort(PORT_WAIT_MS)) throw new IOException("CDP port " + port + " did not open within " + PORT_WAIT_MS + " ms");
         this.session = new CdpSession(port);
         this.loginHandler = new LoginFallbackHandler(port, profile.toString());
-        if (headless && ensureLogin) ensureLoggedInOrRelogin();
+        if (headless && ensureLogin && !isTestMode()) ensureLoggedInOrRelogin();
     }
 
     private CdpTabInfo findTabOnPort(String execId, String revId) {
@@ -577,6 +587,20 @@ public final class CdpBootstrap {
 
     private void ensureStarted() throws IOException {
         if (session == null) throw new IOException("CdpBootstrap is not started; call start() first");
+    }
+
+    // FIX34: test mode = running under Surefire (mvn test). Login flow (headful Chrome) must not open.
+    private static boolean isTestMode() {
+        try {
+            if (System.getProperty("surefire.test.class.path") != null) return true;
+            String cp = System.getProperty("java.class.path", "");
+            if (cp.contains("surefire")) return true;
+            StackTraceElement[] st = Thread.currentThread().getStackTrace();
+            for (StackTraceElement e : st) {
+                if (e.getClassName().startsWith("org.junit.") || e.getClassName().startsWith("org.apache.maven.")) return true;
+            }
+        } catch (Exception ignored) { }
+        return false;
     }
 
     private void acquireLock() throws IOException {
