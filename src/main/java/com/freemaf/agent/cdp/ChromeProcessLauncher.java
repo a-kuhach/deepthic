@@ -29,7 +29,13 @@ public final class ChromeProcessLauncher {
         args.add("--remote-debugging-port=" + port);
         args.add("--remote-allow-origins=*");
         args.add("--user-data-dir=" + profilePath);
-        args.add("--no-startup-window");
+
+        // FIX31: headful needs a visible window with a tab; --no-startup-window leaves a blank window.
+        if (headless) {
+            args.add("--no-startup-window");
+        } else {
+            args.add("--new-window");
+        }
         args.add("--no-first-run");
         args.add("--no-default-browser-check");
         args.add("--disable-sync");

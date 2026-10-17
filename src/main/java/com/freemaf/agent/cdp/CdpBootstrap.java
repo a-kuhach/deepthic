@@ -182,8 +182,25 @@ public final class CdpBootstrap {
             CdpHttpClient http = new CdpHttpClient(port);
             if (!http.waitForPort(PORT_WAIT_MS)) throw new IOException("Headful Chrome did not open on port " + port);
             session = new CdpSession(port);
-            CdpDeepSeek headfulProbe = new CdpDeepSeek(session, loginHandler);
-            headfulProbe.open();
+
+            CdpDeepSeek headfulProbe = new CdpDeepSeek(session, loginHandler);
+            headfulProbe.open();
+
+            // FIX31: verify headful tab is on DeepSeek; otherwise force navigate.
+            try {
+                Thread.sleep(2000L);
+                String headfulUrl = headfulProbe.evaluate("String(location.href)");
+                AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: headful URL after open = " + headfulUrl);
+                if (headfulUrl == null || !headfulUrl.contains("deepseek.com")) {
+                    AppLogger.warn("CdpBootstrap.ensureLoggedInOrRelogin: headful tab not on DeepSeek; forcing navigate to " + "https://chat.deepseek.com/");
+                    headfulProbe.navigate("https://chat.deepseek.com/");
+                    Thread.sleep(3000L);
+                    String afterNav = headfulProbe.evaluate("String(location.href)");
+                    AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: headful URL after forced navigate = " + afterNav);
+                }
+            } catch (Exception headfulEx) {
+                AppLogger.warn("CdpBootstrap.ensureLoggedInOrRelogin: headful URL check failed: " + headfulEx.getMessage());
+            }
             long deadline = System.currentTimeMillis() + LOGIN_WAIT_MS;
             long lastLog = System.currentTimeMillis();
             boolean loggedInAfterWait = false;
