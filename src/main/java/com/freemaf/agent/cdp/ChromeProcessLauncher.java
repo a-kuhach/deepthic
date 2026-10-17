@@ -75,16 +75,33 @@ public final class ChromeProcessLauncher {
             headless = true;
             AppLogger.info("FIX36: test mode, forcing headless");
         }
-        // FIX38: Chrome 129+ creates a native Chrome_WidgetWin_1 window even with --headless=new.
-        // It is composited onto the desktop (blank rectangle). Off-screen position hides it.
-        // window-size=1920x1080 (not 1x1) so DeepSeek renders and responds.
+        // FIX39: Chrome 129+ creates a native window even with --headless=new.
+        // 1) If chrome-headless-shell.exe exists (Chrome for Testing 122+), use it: no window at all.
+        // 2) Else if Chrome < 132, use --headless=old (no window).
+        // 3) Else --headless=new + off-screen position (best effort).
         if (headless) {
-            args.add("--window-position=-32000,-32000");
-            args.add("--window-size=1920,1080");
-            args.add("--headless=new");
+            String headlessShell = resolveHeadlessShellPath();
+            if (headlessShell != null) {
+                // Replace chrome.exe with chrome-headless-shell.exe in args[0]
+                args.set(0, headlessShell);
+                AppLogger.info("FIX39: using chrome-headless-shell.exe (no window)");
+            } else {
+                String chromeVer = resolveChromeVersion();
+                int major = 0;
+                try { major = Integer.parseInt(chromeVer); } catch (Exception ignored) { }
+                if (major > 0 && major < 132) {
+                    args.add("--headless=old");
+                    AppLogger.info("FIX39: using --headless=old (Chrome " + major + " < 132, no window)");
+                } else {
+                    args.add("--headless=new");
+                    args.add("--window-position=-32000,-32000");
+                    args.add("--window-size=1920,1080");
+                    AppLogger.info("FIX39: using --headless=new + off-screen (Chrome " + chromeVer + ")");
+                }
+            }
         }
         ProcessBuilder pb = new ProcessBuilder(args);
-        AppLogger.info("FIX38: chrome cmd = " + String.join(" ", args));
+        AppLogger.info("FIX39: chrome cmd = " + String.join(" ", args));
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
         Process p = pb.start();
@@ -170,6 +187,21 @@ public final class ChromeProcessLauncher {
 
     }
 
+
+    // FIX39: chrome-headless-shell.exe is a separate binary (no window at all).
+    // It is shipped with Chrome for Testing 122+; not present in standard Chrome install.
+    // We probe next to chrome.exe; if missing, use --headless=old (Chrome <132).
+    public static String resolveHeadlessShellPath() {
+        try {
+            String chrome = resolveChromePath();
+            java.io.File chromeFile = new java.io.File(chrome);
+            java.io.File dir = chromeFile.getParentFile();
+            if (dir == null) return null;
+            java.io.File shell = new java.io.File(dir, "chrome-headless-shell.exe");
+            if (shell.isFile()) return shell.getAbsolutePath();
+        } catch (Exception ignored) { }
+        return null;
+    }
 
     public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
