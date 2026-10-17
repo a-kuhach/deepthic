@@ -49,4 +49,12 @@ public final class TabSession {
             // best effort
         }
     }
+
+    public void on(String method, java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> handler) {
+        ws.on(method, handler);
+    }
+
+    public void off(String method, java.util.function.Consumer<com.fasterxml.jackson.databind.JsonNode> handler) {
+        ws.off(method, handler);
+    }
 }

@@ -6,6 +6,9 @@ import com.freemaf.agent.winapi.WinApiService;
  * Runtime-реализация ChatScroller через SetCursorPos + SendInput mouse wheel.
  * Не зависит от InputSimulator / CalibrationResult.
  */
+// Legacy WinAPI path; not reachable in cdp.enabled=true. Scheduled for removal beyond S7 MASTER_PLAN.
+// Do not import from new code under com.freemaf.agent.cdp.
+@Deprecated
 public final class WinApiChatScroller implements ChatScroller {
 
     private static final int WHEEL_DELTA = 120;

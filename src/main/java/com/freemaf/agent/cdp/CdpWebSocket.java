@@ -182,6 +182,16 @@ public final class CdpWebSocket {
         }
     }
 
+    public void off(String method, Consumer<JsonNode> handler) {
+        if (method == null || handler == null) return;
+        List<Consumer<JsonNode>> hs = eventHandlers.get(method);
+        if (hs != null) {
+            synchronized (hs) {
+                hs.remove(handler);
+            }
+        }
+    }
+
     private void writerLoop() {
         while (!closed) {
             String msg;

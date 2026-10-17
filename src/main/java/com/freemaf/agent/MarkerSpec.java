@@ -2,6 +2,7 @@ package com.freemaf.agent;
 
 import java.util.List;
 
+@Deprecated
 public record MarkerSpec(CalibrationMarker type,
                          List<String> activeColorsHex,
                          List<String> disabledColorsHex,

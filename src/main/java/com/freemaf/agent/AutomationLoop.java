@@ -44,6 +44,8 @@ public final class AutomationLoop implements Runnable {
 
     private final WindowManager windowManager;
 
+    private final com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap;
+
     private Pointer executorHwnd;
 
     private volatile boolean executorContextRequired = true;
@@ -66,14 +68,20 @@ public final class AutomationLoop implements Runnable {
 
 
 
-    public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
-
-                          StatusMarker statusMarker, PromptQueue promptQueue,
-
-                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
-
-                          Config config, WindowManager windowManager) {
-
+    
+public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
+                          StatusMarker statusMarker, PromptQueue promptQueue,
+                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
+                          Config config, WindowManager windowManager) {
+        this(chatConsole, psConsolePanel, statusMarker, promptQueue, deepSeekSession,
+             powerShellExecutor, config, windowManager, null);
+    }
+
+    public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
+                          StatusMarker statusMarker, PromptQueue promptQueue,
+                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
+                          Config config, WindowManager windowManager,
+                          com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap) {
         this.chatConsole = chatConsole;
 
         this.psConsolePanel = psConsolePanel;
@@ -89,6 +97,7 @@ public final class AutomationLoop implements Runnable {
         this.config = config;
 
         this.windowManager = windowManager;
+        this.cdpBootstrap = cdpBootstrap;
 
         this.executorHwnd = windowManager.hwnd();
 
@@ -100,6 +109,11 @@ public final class AutomationLoop implements Runnable {
 
     public SessionDetector.SessionDecision bootstrapSession() throws Exception {
 
+        if (cdpBootstrap != null) {
+            WindowInfo fake = new WindowInfo(null, "cdp-executor", 0, 0, 1, 1);
+            debug("bootstrap: CDP mode, synthetic OPEN_NEW_CHAT");
+            return new SessionDetector.SessionDecision(SessionDetector.Decision.OPEN_NEW_CHAT, fake, fake, null, null);
+        }
         SessionDetector.SessionDecision d = SessionDetector.detect(config.getWindowTitle(), config);
 
         switch (d.decision()) {
@@ -273,6 +287,31 @@ public final class AutomationLoop implements Runnable {
 
 
     public void performSessionMigration(String commitLog) {
+        if (cdpBootstrap != null) {
+            try {
+                cdpBootstrap.closeReviewer();
+                cdpBootstrap.closeExecutor();
+                cdpBootstrap.openExecutor();
+                cdpBootstrap.activateExecutor();
+            } catch (Exception cex) {
+                AppLogger.warn("performSessionMigration(CDP) failed: " + cex.getMessage());
+                appendSystem("Session migration failed: " + cex.getMessage());
+                statusMarker.setState(StatusMarker.State.STOPPED);
+                return;
+            }
+            config.setExecutorMessageCount(0L);
+            StringBuilder initC = new StringBuilder();
+            if (commitLog != null && !commitLog.isBlank()) {
+                initC.append("Результат завершающего коммита:").append(System.lineSeparator());
+                initC.append(commitLog).append(System.lineSeparator()).append(System.lineSeparator());
+            }
+            initC.append("Продолжи работу по WIP.md и MEMORY.md. Контекст передан в пакете.");
+            promptQueue.add(Prompt.user(initC.toString(), List.of()));
+            awaitingMigrationConfirm = false;
+            warningInjected = false;
+            executorContextRequired = true;
+            return;
+        }
         debug("performSessionMigration: begin (commitLog=" + (commitLog == null ? "none" : "present") + ")");
         try {
             long oldHwnd = config.getLastManagedHwnd();
@@ -510,6 +549,11 @@ public final class AutomationLoop implements Runnable {
 
 
     private void closeReviewerIfOpen() throws InterruptedException {
+        if (cdpBootstrap != null) {
+            cdpBootstrap.closeReviewer();
+            reviewerHwnd = null;
+            return;
+        }
 
         if (reviewerHwnd == null) return;
 
@@ -530,7 +574,12 @@ public final class AutomationLoop implements Runnable {
 
 
     private void switchToExecutor() throws InterruptedException {
-
+        if (cdpBootstrap != null) {
+            cdpBootstrap.closeReviewer();
+            cdpBootstrap.activateExecutor();
+            reviewerHwnd = null;
+            return;
+        }
         closeReviewerIfOpen();
 
         if (executorHwnd != null) {
@@ -548,6 +597,15 @@ public final class AutomationLoop implements Runnable {
 
 
     private void openReviewerWindow(String role) throws Exception {
+        if (cdpBootstrap != null) {
+            cdpBootstrap.closeReviewer();
+            cdpBootstrap.openReviewer();
+            cdpBootstrap.activateReviewer();
+            reviewerHwnd = null;
+            activeReviewerRole = role;
+            debug("opened reviewer via CDP role=" + role);
+            return;
+        }
 
         closeReviewerIfOpen();
 

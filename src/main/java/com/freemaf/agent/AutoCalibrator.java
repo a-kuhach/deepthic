@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+@Deprecated
 public final class AutoCalibrator {
 
     private static final String[] STATIC_MARKERS = {"input_field", "deepthink", "search"};
@@ -432,7 +433,8 @@ public final class AutoCalibrator {
 
     public record MarkerHit(int x, int y, String observedColorHex, boolean disabledObserved) { }
 
-    public static final class CalibrationResult {
+        @Deprecated
+public static final class CalibrationResult {
 
         public static final List<CalibrationMarker> REQUIRED_FOR_CALIBRATION = List.of(
                 CalibrationMarker.INPUT_FIELD,

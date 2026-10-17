@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.freemaf.agent</groupId>
     <artifactId>app</artifactId>
-    <version>0.2.27-beta</version>
+    <version>0.3.0-beta</version>
     <packaging>jar</packaging>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -31,11 +31,6 @@
             <version>2.18.2</version>
         </dependency>
         <dependency>
-            <groupId>com.github.kklisura.cdt</groupId>
-            <artifactId>cdt-java-client</artifactId>
-            <version>4.0.0</version>
-        </dependency>
-        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
             <version>5.11.4</version>
@@ -57,6 +52,9 @@
                 <version>3.13.0</version>
                 <configuration>
                     <release>21</release>
+                    <compilerArgs>
+                        <arg>-Xlint:deprecation</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>

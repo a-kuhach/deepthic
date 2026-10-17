@@ -11,6 +11,7 @@ import com.sun.jna.Pointer;
  * readRegion: BitBlt + GetDIBits за один проход. При сбое BitBlt возвращает массив -1,
  *   не бросает исключение.
  */
+@Deprecated
 public final class PixelColorService implements PixelReader, AutoCloseable {
 
     private static final int CLR_INVALID = 0xFFFFFFFF;

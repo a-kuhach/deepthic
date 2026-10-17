@@ -10,6 +10,7 @@ import java.util.Optional;
  * Payload ProbeResult всегда имеет тип AutoCalibrator.CalibrationResult;
  * потребитель (S5) выполняет безопасное приведение instanceof.
  */
+@Deprecated
 public final class CalibrateAndVerifyProbe implements SizingProbe {
 
     private final WindowManager wm;

@@ -149,6 +149,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private volatile AutomationLoop currentLoop;
 
+    private final com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap;
+
 
 
     private StatusMarker.State currentState = StatusMarker.State.STOPPED;
@@ -178,6 +180,11 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         this.deepSeekSession.setDebugSink(this::appendDebug);
 
         this.deepSeekSession.setWindowRecoveryHandler(this);
+        this.cdpBootstrap = config.isCdpEnabled() ? new com.freemaf.agent.cdp.CdpBootstrap(config) : null;
+        if (this.cdpBootstrap != null) {
+            this.deepSeekSession.setCdpBootstrap(this.cdpBootstrap);
+            AppLogger.info("MainFrame: CDP mode enabled");
+        }
 
         this.powerShellExecutor = new PowerShellExecutor(processManager, config);
 
@@ -491,7 +498,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         JButton restartButton = new JButton("Restart Plan");
 
-        JButton calibrationButton = new JButton("Calibrate");
+        JButton calibrationButton = new JButton("Reconnect");
 
         JButton clearChatButton = new JButton("Clear Chat");
 
@@ -549,7 +556,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         restartButton.addActionListener(e -> restartAction());
 
-        calibrationButton.addActionListener(e -> calibrationAction());
+        calibrationButton.addActionListener(e -> reconnectAction());
 
         clearChatButton.addActionListener(e -> clearChatAction());
 
@@ -588,8 +595,6 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         row2.setBackground(DarkTheme.BG);
 
         JButton attachFilesButton = new JButton("Attach Files");
-        JButton cdpProbeButton = new JButton("CDP Probe");
-        cdpProbeButton.addActionListener(e -> cdpProbeAction());
 
         attachFilesButton.addActionListener(e -> attachFilesAction());
 
@@ -607,10 +612,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         row2.add(attachmentsScroll, BorderLayout.CENTER);
 
-        JPanel attachButtons = new JPanel(new java.awt.GridLayout(1, 2, 4, 0));
+        JPanel attachButtons = new JPanel(new java.awt.GridLayout(1, 1, 4, 0));
         attachButtons.setBackground(DarkTheme.BG);
         attachButtons.add(attachFilesButton);
-        attachButtons.add(cdpProbeButton);
         row2.add(attachButtons, BorderLayout.EAST);
 
         return row2;
@@ -935,18 +939,6 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
-    private void cdpProbeAction() {
-        appendSystem("CDP Probe starting (see stdout for details)...");
-        new Thread(() -> {
-            try {
-                com.freemaf.agent.cdp.CdpProbe.run();
-                appendSystem("CDP Probe finished.");
-            } catch (Exception ex) {
-                appendSystem("CDP Probe failed: " + ex.getMessage());
-                AppLogger.warn("cdpProbeAction failed: " + ex.getMessage());
-            }
-        }, "CdpProbe").start();
-    }
 
     private void restoreChatHistory() {
 
@@ -1112,6 +1104,32 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+    private void reconnectAction() {
+        if (cdpBootstrap != null) {
+            appendSystem("Reconnecting CDP tabs: closing reviewer + executor, then reopening executor...");
+            new Thread(() -> {
+                try {
+                    cdpBootstrap.closeReviewer();
+                    cdpBootstrap.closeExecutor();
+                    cdpBootstrap.openExecutor();
+                    cdpBootstrap.activateExecutor();
+                    appendSystem("Reconnected in CDP mode.");
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+                            "Reconnected in CDP mode.", "Reconnect", JOptionPane.INFORMATION_MESSAGE));
+                } catch (Exception ex) {
+                    AppLogger.warn("reconnectAction failed: " + ex.getMessage());
+                    appendSystem("Reconnect failed: " + ex.getMessage());
+                }
+            }, "ReconnectSequence").start();
+            return;
+        }
+        appendSystem("Calibration is deprecated since S5; use Reconnect in CDP mode.");
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+                "Calibration is deprecated since S5; it is kept only for cdp.enabled=false compatibility." + System.lineSeparator()
+                        + "Switch cdp.enabled=true and use Reconnect.",
+                "Reconnect", JOptionPane.INFORMATION_MESSAGE));
+    }
+
     private void calibrationAction() {
 
         EmergencyStop.reset();
@@ -1131,6 +1149,10 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
     @Override
 
     public boolean recover() {
+        if (cdpBootstrap != null) {
+            appendSystem("recover() ignored in CDP mode");
+            return false;
+        }
 
         final int[] choice = {JOptionPane.NO_OPTION};
 
@@ -1198,87 +1220,74 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+    @Deprecated
     private void runCalibrationAction() {
+        if (cdpBootstrap != null) {
+            appendSystem("Calibration is not required in CDP mode.");
+            SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+                    "Calibration is not required in CDP mode.", "CDP mode", JOptionPane.INFORMATION_MESSAGE));
+            setStatus(StatusMarker.State.STOPPED);
+            return;
+        }
 
+        WindowInfo calibrationWindow = null;
         try {
-
             if (currentLoop != null || startSequenceRunning) {
-
                 appendSystem("Stopping active session before calibration...");
-
                 stopAction();
-
                 Thread.sleep(500L);
-
                 EmergencyStop.reset();
-
             }
 
             java.util.List<com.sun.jna.Pointer> excludes = new java.util.ArrayList<>();
-
             for (WindowInfo w : ChromeLauncher.findChromeWindows()) {
-
                 if (w.title().toLowerCase().contains("deepseek")) {
-
                     excludes.add(w.hwnd());
-
                 }
-
             }
 
             AppLogger.info("runCalibrationAction: excluding " + excludes.size() + " existing DeepSeek window(s)");
-
             appendSystem("Opening fresh Chrome window for calibration...");
 
             WindowInfo window = ChromeLauncher.launchNewWindow(config, excludes);
-
             if (window == null) {
-
                 setStatus(StatusMarker.State.STOPPED);
-
                 return;
-
             }
+            calibrationWindow = window;
 
             windowManager.select(window);
-
             appendSystem("Calibration window: " + window.title());
 
             if (!setupWorkRect()) return;
-
             if (!runCalibrationSequence()) { setStatus(StatusMarker.State.STOPPED); return; }
 
             config.setCalibrated(true);
-
             config.save();
-
             appendSystem("Calibration saved to config.properties.");
-
             setStatus(StatusMarker.State.STOPPED);
-
         } catch (InterruptedException e) {
-
             Thread.currentThread().interrupt();
-
             appendSystem("Calibration interrupted.");
-
             setStatus(StatusMarker.State.STOPPED);
-
         } catch (Exception e) {
-
             appendSystem("Calibration error - " + e.getMessage());
-
             setStatus(StatusMarker.State.STOPPED);
-
         } finally {
-
+            if (calibrationWindow != null) {
+                try {
+                    long hwndLong = calibrationWindow.hwndValue();
+                    if (hwndLong != 0L && com.freemaf.agent.winapi.WinApiService.isWindow(hwndLong)) {
+                        com.freemaf.agent.winapi.WinApiService.closeWindow(hwndLong);
+                        AppLogger.info("runCalibrationAction: closed calibration window hwnd=" + hwndLong);
+                    }
+                } catch (Exception closeEx) {
+                    AppLogger.warn("runCalibrationAction: close calibration window failed: " + closeEx.getMessage());
+                }
+            }
             calibrationRunning = false;
-
         }
-
     }
-
-
 
     private void startSequence() {
 
@@ -1298,9 +1307,21 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             }
 
+            if (cdpBootstrap != null) {
+                AppLogger.info("startSequence: CDP mode, starting bootstrap");
+                try {
+                    cdpBootstrap.start(true);
+                    cdpBootstrap.openExecutor();
+                } catch (Exception cex) {
+                    appendSystem("CDP bootstrap failed: " + cex.getMessage());
+                    setStatus(StatusMarker.State.STOPPED);
+                    return;
+                }
+            }
+
             AutomationLoop loop = new AutomationLoop(chatConsole, psConsolePanel, statusMarkerProxy(), promptQueue,
 
-                    deepSeekSession, powerShellExecutor, config, windowManager);
+                    deepSeekSession, powerShellExecutor, config, windowManager, cdpBootstrap);
 
             SessionDetector.SessionDecision decision = loop.bootstrapSession();
 
@@ -1320,7 +1341,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             }
 
-            if (decision.decision() == SessionDetector.Decision.OPEN_NEW_CHAT
+            if (cdpBootstrap == null && decision.decision() == SessionDetector.Decision.OPEN_NEW_CHAT
 
                     || decision.decision() == SessionDetector.Decision.RECOVER_NEW_EXECUTOR) {
 
@@ -1342,9 +1363,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             }
 
-            if (!setupWorkRect()) return;
+            if (cdpBootstrap == null && !setupWorkRect()) return;
 
-            boolean skipCalibration = decision.decision() == SessionDetector.Decision.RESUME_REVIEWER_SESSION;
+            boolean skipCalibration = cdpBootstrap != null || decision.decision() == SessionDetector.Decision.RESUME_REVIEWER_SESSION;
 
             if (!skipCalibration && !config.isCalibrated()) {
 
@@ -1482,6 +1503,10 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private WindowInfo ensureChromeWindow() throws Exception {
 
+        if (cdpBootstrap != null) {
+            cdpBootstrap.openExecutor();
+            return new WindowInfo(null, "cdp-executor", 0, 0, 1, 1);
+        }
         WindowInfo window = ChromeLauncher.findDeepSeekWindow();
 
         if (window == null) {
@@ -1560,7 +1585,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+    @Deprecated
     private boolean runCalibrationSequence() throws Exception {
+        AppLogger.warn("runCalibrationSequence is deprecated; CDP mode (cdp.enabled=true) does not require calibration");
 
         long tStartAll = System.currentTimeMillis();
 
@@ -2086,6 +2113,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+    @Deprecated
     private boolean runLegacyCalibrationSequence(WindowInfo window, int scale) throws Exception {
 
         long tStartAll = System.currentTimeMillis();
@@ -2409,6 +2437,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
     private void stopAction() {
 
         EmergencyStop.stop();
+        if (cdpBootstrap != null) {
+            try { cdpBootstrap.stop(); } catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
+        }
 
         lastStopAtMs = System.currentTimeMillis();
 
@@ -2509,4 +2540,3 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 }
-

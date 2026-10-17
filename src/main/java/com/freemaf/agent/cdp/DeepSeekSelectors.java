@@ -20,4 +20,13 @@ public final class DeepSeekSelectors {
 
     /** Streaming indicator: presence means generation is in progress. */
     public static final String STREAMING_INDICATOR = "[data-streaming]";
+
+    /** File input element used by DOM.setFileInputFiles (may be hidden). */
+    public static final String FILE_INPUT = "input[type='file']";
+
+    /** Attach button (fallback path when FILE_INPUT is not yet in DOM). */
+    public static final String ATTACH_BUTTON = "button[aria-label*='attach'], button[aria-label*='\u0444\u0430\u0439\u043b'], button[aria-label*='Attach'], [data-testid='attach-button']";
+
+    /** Attachment node that appears after a successful upload (provisional). */
+    public static final String ATTACHMENT_NODE = "[data-file-name], [class*='attachment'], [class*='file-item']";
 }

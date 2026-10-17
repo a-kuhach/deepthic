@@ -21,6 +21,14 @@ import java.io.File;
 
 import java.util.List;
 
+/**
+ * Legacy clipboard-based input/output.
+ *
+ * In CDP mode (cdp.enabled=true) attachments use DOM.setFileInputFiles and
+ * response reading uses innerText; ClipboardService is only reachable via
+ * legacy WinAPI paths and will be removed after S6 MASTER_PLAN.
+ */
+@Deprecated
 public final class ClipboardService {
 
     private static final long CLIPBOARD_TIMEOUT_MS = 2000L;

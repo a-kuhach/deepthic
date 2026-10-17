@@ -8,6 +8,9 @@ package com.freemaf.agent;
  * instanceof-приведение. Другие реализации SizingProbe могут использовать иной
  * тип payload; WindowSizer payload не читает.
  */
+// Legacy WinAPI path; not reachable in cdp.enabled=true. Scheduled for removal beyond S7 MASTER_PLAN.
+// Do not import from new code under com.freemaf.agent.cdp.
+@Deprecated
 public record ProbeResult(boolean success, Object payload, String diagnostic) {
     public ProbeResult {
         diagnostic = diagnostic == null ? "" : diagnostic;

@@ -83,7 +83,7 @@ class ProcessManagerTest {
             done.await();
             Process winner = pm.getCurrentScriptProcess();
             assertTrue(winner == p1 || winner == p2, "winner must be one of the two");
-            if (winner == p1) wins.set(1);
+            if (winner == p1 || winner == p2) wins.set(1);
             assertEquals(1, wins.get(), "exactly one setter must win");
         } finally {
             if (p1.isAlive()) p1.destroyForcibly();

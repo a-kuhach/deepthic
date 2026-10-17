@@ -1,138 +1,125 @@
 # Deepthic
 
-**Version: beta v0.2.27**
+**Version: beta v0.3.0**
 
-A Windows automation bridge that drives a manually opened Chrome window with the
-DeepSeek Web chat and uses it as a remote LLM agent for your project.
+A Windows bridge that drives a Chrome tab on the DeepSeek Web chat and uses it as a remote LLM agent for your project.
 
-The bridge does not use CDP, Selenium, Playwright, browser extensions, remote
-debugging, the DeepSeek API or JavaScript injection. All control is through
-WinAPI and OS-level virtual input (SendInput).
+The active transport is CDP (Chrome DevTools Protocol) over WebSocket + HTTP against headless Chrome with a persistent profile. The legacy WinAPI path (SendInput, pixel markers, calibration, CF_HDROP clipboard) remains in the codebase but is marked `@Deprecated` and is not used when `cdp.enabled=true`, which is the default since v0.3.0.
+
+No Selenium, no Playwright, no browser extensions, no official DeepSeek API, and no JavaScript injection: only the in-house CDP client built on `java.net.http`.
 
 ## What it does
 
-- Finds or launches a Chrome window on https://chat.deepseek.com/.
-- Sends a prompt into the DeepSeek chat input.
-- Waits for the response, copies the last code block through the DeepSeek copy button.
-- Either executes the response as a PowerShell script, or shows it in the chat
-  window as a user message (if the agent chose the USER_CHAT format).
+- Launches (or reuses) headless Chrome on https://chat.deepseek.com/ with the persistent profile `agent/cache/cdp-profile`.
+- Sends a prompt into the DeepSeek chat input via `Runtime.evaluate` + `execCommand('insertText')` + synthetic Enter.
+- Attaches files via `DOM.setFileInputFiles` (with `Page.fileChooserOpened` as fallback).
+- Reads the agent response through `innerText` from the assistant message node.
+- Either executes the response as a PowerShell script or shows it in the chat window as a user message (if the agent chose the `USER_CHAT:` format).
 - Feeds stdout/stderr/exit code back to the agent as the next prompt.
-- Repeats until the agent emits AGENT_DONE / AGENT_STOP or the user presses Stop.
+- Repeats until the agent emits `AGENT_DONE` / `AGENT_STOP` or the user presses Stop / `Shift+F12`.
 
 ## Requirements
 
-- Windows 10 or 11, display scale must be **100%**. Other scales (125%, 150%, 175%, 200%, 225%) are not supported yet.
-  - A future release will add scale-independent calibration; the codebase already contains the growth loop and tolerance-based matching, they are disabled until the real Copy-button colour at those scales is measured (see `agent/project/PROJECT_STATE.md` -> "Deferred — scale-independent calibration").
-- Monitor working area at least 1920x1080.
-- DeepSeek page zoom in Chrome must be 100% at all times (not modified programmatically).
+- Windows 10 or 11 (any display scale; the CDP path is not scale-sensitive).
 - JDK 21 or newer (`java` in PATH).
 - Maven 3.8 or newer (`mvn` in PATH) for the initial build.
-- Google Chrome installed.
-- The DeepSeek web chat reachable at https://chat.deepseek.com/.
+- Google Chrome installed. The framework launches its own Chrome instance with `--remote-debugging-port=9222` and its own `--user-data-dir`; your default Chrome profile is not touched.
+- Internet connection to reach https://chat.deepseek.com/.
+- A DeepSeek account, logged in once into the persistent profile `agent/cache/cdp-profile`. If the login session drops, the framework temporarily relaunches Chrome in headful mode so you can sign in, then returns to headless.
 
 ## Install
 
 1. Download the framework zip from the GitHub releases page.
 2. Extract the contents into an `agent/` folder in the root of your project:
 
-       <your-project>/agent/
+        <your-project>/agent/
 
 3. From your project root, run:
 
-       agent\run.bat
+        agent\run.bat
 
-   On the first run the script compiles the framework with Maven and starts the
-   GUI. Subsequent runs reuse the compiled jar and start immediately.
-4. Chrome opens (or is focused) on the DeepSeek chat. Log in if needed.
-5. Click Start and wait for the automatic calibration to finish.
+   On the first run the script compiles the framework with Maven and starts the GUI. Subsequent runs reuse the compiled jar and start immediately.
+4. On the very first CDP run the framework launches headless Chrome with the persistent profile `agent/cache/cdp-profile` and navigates to DeepSeek. If the session is not logged in yet, the framework relaunches Chrome in headful mode for the login; when the session becomes active it stops headful Chrome and returns to headless.
+5. Click Start in the GUI and enter a task.
 
-## Calibration
+## Configuration
 
-The framework calibrates automatically at startup:
+All runtime configuration lives in `agent/config.properties`. The relevant keys:
 
-- detects the system scale (100-225%);
-- grows the Chrome window step by step from the minimum size (673x473) until all required markers are visible;
-- for each candidate size runs an in-window color-search (input field, DeepThink, Search, Send), scrolls the chat to the bottom, and verifies that the code-block Copy button is visible.
+- `cdp.enabled` (default `true` since v0.3.0) - selects the CDP transport. Set to `false` to fall back to the deprecated WinAPI path.
+- The Chrome profile is fixed at `agent/cache/cdp-profile`; the debug port is fixed at `9222`.
+- `session.*`, `timeout.*`, `watchdog.*` keys apply to both transports.
 
-Calibration succeeds only when all required markers are found AND visible (including the Copy button of the code block). The final CalibrationResult is handed to the input simulator and stays active for the rest of the session.
+On upgrade from an older version, schema migration v7 promotes an existing `cdp.enabled=false` to `true` once. After that, `cdp.enabled` is preserved as-is; to keep the legacy path, set it back to `false` after the first launch of v0.3.0.
 
-If the elements cannot fit even at the maximum window size allowed by the workspace, the framework reports that it is incompatible with this PC (see Requirements) and stops. No automatic retries and no page-zoom changes are performed.
+## Browser control (CDP)
 
-## UI overview
+The framework controls Chrome exclusively through the Chrome DevTools Protocol:
 
-The application window is split into two panes (Chat on the left, PS Console on
-the right). The bottom bar is organized as four stacked rows; each row stretches
-with the window height:
+- `ChromeProcessLauncher` starts its own Chrome with `--headless=new`, `--remote-debugging-port=9222`, `--remote-allow-origins=*`, `--user-data-dir=agent/cache/cdp-profile`, `--no-startup-window`, and anti-throttling flags.
+- `CdpHttpClient` wraps HTTP endpoints under `/json/*`.
+- `CdpWebSocket` implements id-correlated request/response over `java.net.http.WebSocket`.
+- `CdpSession` manages tabs: create, attach (`Target.attachToTarget`), activate (`Target.activateTarget`), close.
+- `CdpDeepSeek` implements the DeepSeek-specific operations: `sendMessage`, `readLastResponse`, `waitForResponse`, `checkLoggedIn`, `attachFile`.
 
-1. Status row - a square indicator (top-left, colored by the current state:
-   red = Stopped, green = Working/Planning/Calibration, orange = Paused), the
-   state name centered over the row, and a row of seven buttons below the
-   indicator area: `a-`, `A+`, `Speed Mode: <current>`, Play/Stop (glyph with
-   `Shift+F12` underneath), `Restart Plan`, `Calibrate`, `Clear Chat`. All seven
-   buttons share the same height; thin dark dividers separate adjacent buttons.
-2. Attach row - attachment chips on the left (`name` + `x` remove button) and
-   the always-visible `Attach Files` button on the right, stretched to the row
-   height.
-3. Input row - the chat input `JTextArea` inside a vertical scroll pane. This
-   row absorbs the extra vertical space on window resize. Files can be
-   drag-and-dropped directly onto the input area.
-4. SEND row - a full-width `SEND` button with the `Enter` hint on the right.
-
-### Speed Mode button
-
-The old speed dropdown is replaced by a single toggle button labelled
-`Speed Mode: <current>`. Each click advances the mode in the order
-Instant -> Fast -> Normal -> Slow -> Very Slow -> Instant. The selection is
-persisted in `agent/config.properties` under the `speed.mode` key and is restored
-on the next launch.
-
-### Attach Files
-
-Use the **Attach Files** button next to the input field, or drag-and-drop files
-directly onto the Chat pane, to attach files to the next message. Limits:
-
-- up to 20 files per message,
-- each file up to 50 MB.
-
-Attached file names are shown above the input field. On send, the files are
-placed on the system clipboard as a Windows file-drop payload (CF_HDROP) and
-pasted into the DeepSeek chat input with a single Ctrl+V; the text of the
-message is pasted with a second Ctrl+V. Both go into the same chat submission,
-so the agent receives files and text together. After submission the local
-attachment list is cleared.
-
-### SEND button
-
-The **SEND** button to the right of the input field duplicates the Enter key
-behaviour: it sends the current message. The button is disabled when the input
-field is empty AND no files are attached; otherwise it is enabled.
-
-### Upload detection
-
-After pasting files, the framework waits for the DeepSeek send button to appear
-grey (upload in progress) and then to return to its active colour (upload
-finished). If the active colour does not appear within two minutes, a dialog
-asks whether to keep waiting; confirming restarts the same two-minute window.
-
-## Files created at runtime
-
-- `agent/config.properties` - window position, marker coordinates and colors, timeouts.
-- `script.ps1` - last PowerShell script received from the agent.
-- `agent/app.log` - application log.
-- `agent/project/WIP.md`, `PROJECT_STATE.md`, `TASK.md`, `PLAN.md` - files the agent
-  may create and update to keep track of project state.
-- `agent/history/` - prompts, responses, scripts and execution logs.
+The WinAPI path (SendInput, pixel markers, calibration, clipboard-based attach) is marked `@Deprecated` and is inactive when `cdp.enabled=true`. It is retained in the codebase as a legacy fallback.
 
 ## Agent protocol
 
 The agent replies in one of two formats only:
 
-- `USER_CHAT: <text>` - a message for the user. The program shows it in the chat
-  and waits for the next user input.
+- `USER_CHAT: <text>` - a message for the user. The framework shows it in the chat and waits for the next user input.
 - One fenced PowerShell code block - executed as `script.ps1` from the project root.
 
-Inside the script output the agent can emit the markers `USER_MSG`, `AGENT_PAUSE`,
-`AGENT_STOP`, `AGENT_DONE`.
+Inside the script output the agent can emit the markers `USER_MSG`, `AGENT_PAUSE`, `AGENT_STOP`, `AGENT_DONE`, `AGENT_SESSION_MIGRATE_START`, `AGENT_SESSION_MIGRATE_CONFIRM`.
+
+In CDP mode the assistant response is read directly from the DOM (`innerText` of the assistant message node), not from the system clipboard. The user-visible format (`USER_CHAT:`) is unchanged.
+
+## Attach Files
+
+Use the **Attach Files** button next to the input field, or drag-and-drop files directly onto the Chat pane. Limits:
+
+- up to 20 files per message,
+- each file up to 50 MB.
+
+In CDP mode the files are uploaded via `DOM.setFileInputFiles` (with `Page.fileChooserOpened` as fallback), and the framework waits for the attachment to appear in the DOM before sending the prompt. The legacy WinAPI path used `CF_HDROP` + Ctrl+V and is only reachable when `cdp.enabled=false`.
+
+## CDP vs legacy (cdp.enabled)
+
+| Aspect             | CDP path (`cdp.enabled=true`, default) | Legacy WinAPI path (`cdp.enabled=false`) |
+|--------------------|----------------------------------------|------------------------------------------|
+| Transport          | CDP over `java.net.http.WebSocket`     | SendInput + clipboard + pixel reads      |
+| Chrome launch      | Own ProcessBuilder, headless           | Finds/focuses a manual Chrome window     |
+| Response reading   | `innerText` from DOM                   | Copy button + clipboard sentinel         |
+| Attach files       | `DOM.setFileInputFiles`                | `CF_HDROP` + Ctrl+V                      |
+| Marker calibration | Not required (hardcoded selectors)     | Required (pixel anchors + calibration)   |
+| Display scale      | Any                                    | Only 100% supported                      |
+| Deprecation status | Active default                         | `@Deprecated`, kept as fallback          |
+
+Deprecated components (still compile, not used when `cdp.enabled=true`): `InputSimulator`, `AutoCalibrator`, `MarkerSpec`, `CalibrationResult`, `CalibrateAndVerifyProbe`, `PixelColorService`, `ClipboardService`, `WinApiChatScroller`, `ChatScroller`, `WindowSizer`, `CompatibilityChecker`, `SizingProbe`, `ProbeResult`, `SizeApplier`, `WindowSizeResult`, `CalibrationPanel`, `CalibrationOrchestrator`.
+
+## Files created at runtime
+
+- `agent/config.properties` - CDP flag, session state, timeouts, watchdog thresholds.
+- `agent/cache/cdp-profile/` - persistent Chrome profile holding the DeepSeek login session.
+- `agent/cache/_/` - backups created by the framework and by PS-script mutations.
+- `agent/app.log` - application log.
+- `agent/history/` - prompts, responses, scripts and execution logs.
+- `agent/project/WIP.md`, `PLAN.md`, `PROJECT_STATE.md` - agent-maintained project state files.
+- `script.ps1` - last PowerShell script received from the agent (deleted immediately after execution).
+
+## UI overview
+
+The application window is split into two panes (Chat left, PS Console right). The bottom bar is organized as four stacked rows; each row stretches with the window height:
+
+1. Status row - a rectangular status panel (indicator + state label) at the left, followed by a row of seven buttons: `a-`, `A+`, `Speed Mode: <current>`, Play/Stop (glyph with `Shift+F12` underneath), `Restart Plan`, `Calibrate`, `Clear Chat`. All seven buttons share the same height; thin dark dividers separate adjacent buttons.
+2. Attach row - attachment chips on the left (name + x remove button) and the always-visible `Attach Files` button on the right, stretched to the row height.
+3. Input row - the chat input `JTextArea` inside a vertical scroll pane. This row absorbs the extra vertical space on window resize. Files can be drag-and-dropped directly onto the input area.
+4. SEND row - a full-width `SEND` button with the `Enter` hint on the right.
+
+### Speed Mode button
+
+The speed control is a single toggle button labelled `Speed Mode: <current>`. Each click advances the mode in the order Instant -> Fast -> Normal -> Slow -> Very Slow -> Instant. The selection is persisted in `agent/config.properties` under the `speed.mode` key and is restored on the next launch.
 
 ## License
 

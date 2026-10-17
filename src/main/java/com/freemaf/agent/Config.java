@@ -206,6 +206,8 @@ DEFAULTS.put("config.migrated.v5", "false");
         DEFAULTS.put("window.growth.step.px", "10");
         DEFAULTS.put("window.size.max.width", "0");
         DEFAULTS.put("window.size.max.height", "0");
+        DEFAULTS.put("cdp.enabled", "true");
+        DEFAULTS.put("config.migrated.v7", "false");
 
     }
 
@@ -369,6 +371,17 @@ DEFAULTS.put("config.migrated.v5", "false");
             props.setProperty("legacy.regenerate.y", "343");
             props.setProperty("config.migrated.v6", "true");
             AppLogger.info("Config: schema migration v6 applied (window.work.height -> 508, legacy coords updated)");
+            changed = true;
+        }
+        // Schema migration v7 (S7 MASTER_PLAN): promote cdp.enabled to true for existing profiles.
+        if (!isMigratedV7()) {
+            String currentCdp = props.getProperty("cdp.enabled", "false");
+            if (!"true".equalsIgnoreCase(currentCdp)) {
+                props.setProperty("cdp.enabled", "true");
+                AppLogger.info("Config: schema migration v7 applied (cdp.enabled -> true by default; re-set to false manually to keep legacy)");
+                changed = true;
+            }
+            props.setProperty("config.migrated.v7", "true");
             changed = true;
         }
 java.util.List<String> obsolete = new java.util.ArrayList<>();
@@ -810,6 +823,14 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
         props.setProperty("config.migrated.v4", String.valueOf(value));
     }
 
+    public boolean isMigratedV7() {
+        return "true".equalsIgnoreCase(get("config.migrated.v7", "false"));
+    }
+
+    public void setMigratedV7(boolean value) {
+        props.setProperty("config.migrated.v7", String.valueOf(value));
+    }
+
     public int getWindowGrowthStepPx() {
         int value = getInt("window.growth.step.px", 10);
         return value >= 1 ? value : 10;
@@ -846,6 +867,10 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
     public int getWindowSizeMaxHeight() {
         int value = getInt("window.size.max.height", 0);
         return value >= 0 ? value : 0;
+    }
+
+    public boolean isCdpEnabled() {
+        return getBoolean("cdp.enabled", false);
     }
 
     public void setWindowSizeMaxHeight(int height) {

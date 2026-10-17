@@ -275,4 +275,61 @@ class ConfigTest {
         assertTrue(Config.CALIBRATION_KEYS.contains("marker.input_field.dx"));
         assertTrue(Config.CALIBRATION_KEYS.contains("marker.regenerate.dy"));
     }
+
+    @Test
+    void migratedV7PromotesCdpEnabledForExistingProfiles() {
+        Config config = new Config();
+        String prevV7 = config.get("config.migrated.v7", "false");
+        String prevCdp = config.get("cdp.enabled", "false");
+        config.set("config.migrated.v7", "false");
+        config.set("cdp.enabled", "false");
+        try {
+            config.migrate();
+            assertEquals("true", config.get("cdp.enabled", ""));
+            assertTrue(config.isMigratedV7());
+        } finally {
+            config.set("config.migrated.v7", prevV7);
+            config.set("cdp.enabled", prevCdp);
+            try { config.save(); } catch (Exception ignored) { }
+        }
+    }
+
+    @Test
+    void migratedV7DoesNotReapplyAfterFirstRun() {
+        Config config = new Config();
+        String prevV7 = config.get("config.migrated.v7", "false");
+        String prevCdp = config.get("cdp.enabled", "false");
+        config.set("config.migrated.v7", "true");
+        config.set("cdp.enabled", "false");
+        try {
+            config.migrate();
+            assertEquals("false", config.get("cdp.enabled", ""));
+            assertTrue(config.isMigratedV7());
+        } finally {
+            config.set("config.migrated.v7", prevV7);
+            config.set("cdp.enabled", prevCdp);
+            try { config.save(); } catch (Exception ignored) { }
+        }
+    }
+
+    @Test
+    void migratedV7Idempotent() {
+        Config config = new Config();
+        String prevV7 = config.get("config.migrated.v7", "false");
+        String prevCdp = config.get("cdp.enabled", "false");
+        config.set("config.migrated.v7", "false");
+        config.set("cdp.enabled", "false");
+        try {
+            config.migrate();
+            assertEquals("true", config.get("cdp.enabled", ""));
+            assertTrue(config.isMigratedV7());
+            config.migrate();
+            assertEquals("true", config.get("cdp.enabled", ""));
+            assertTrue(config.isMigratedV7());
+        } finally {
+            config.set("config.migrated.v7", prevV7);
+            config.set("cdp.enabled", prevCdp);
+            try { config.save(); } catch (Exception ignored) { }
+        }
+    }
 }

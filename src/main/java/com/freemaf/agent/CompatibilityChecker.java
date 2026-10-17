@@ -5,6 +5,9 @@ package com.freemaf.agent;
  * workspace WxH инъектируется; WinAPI здесь не вызывается.
  * Минимально требуемый рабочий стол — 1920x1080.
  */
+// Legacy WinAPI path; not reachable in cdp.enabled=true. Scheduled for removal beyond S7 MASTER_PLAN.
+// Do not import from new code under com.freemaf.agent.cdp.
+@Deprecated
 public final class CompatibilityChecker {
 
     public static final int MIN_WORKSPACE_WIDTH = 1920;

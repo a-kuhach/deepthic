@@ -5,6 +5,9 @@ package com.freemaf.agent;
  * Класс не обращается к WinAPI/WindowFinder: workspace bounds и актуальный
  * WindowInfo поступают через конструктор, изменение размера — через SizeApplier.
  */
+// Legacy WinAPI path; not reachable in cdp.enabled=true. Scheduled for removal beyond S7 MASTER_PLAN.
+// Do not import from new code under com.freemaf.agent.cdp.
+@Deprecated
 public final class WindowSizer {
 
     @FunctionalInterface

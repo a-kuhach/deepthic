@@ -6,6 +6,7 @@ import java.io.File;
 
 import java.util.List;
 
+@Deprecated
 public final class InputSimulator {
 
     private final java.util.Random speedRandom = new java.util.Random();
@@ -38,6 +39,7 @@ public final class InputSimulator {
 
     private volatile AutoCalibrator.CalibrationResult calibration;
 
+    @Deprecated
     public InputSimulator(Config config, ClipboardService clipboardService) {
 
         this.config = config;
@@ -46,14 +48,19 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void setWindowManager(WindowManager windowManager) { this.windowManager = windowManager; }
 
+    @Deprecated
     public void setPixelColorService(PixelColorService pixelColorService) { this.pixelColorService = pixelColorService; }
 
+    @Deprecated
     public void setSpeedMode(SpeedMode m) { this.speedMode = m; }
 
+    @Deprecated
     public SpeedMode getSpeedMode() { return speedMode; }
 
+    @Deprecated
     public void setCalibration(AutoCalibrator.CalibrationResult calibration) { this.calibration = calibration; }
 
     AutoCalibrator.MarkerHit requireHit(CalibrationMarker marker) {
@@ -65,6 +72,7 @@ public final class InputSimulator {
                 "InputSimulator: marker " + marker.id() + " missing in calibration result."));
     }
 
+    @Deprecated
     public void moveMouse(int x, int y) {
 
         RateLimiter.pause();
@@ -73,6 +81,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void moveMouseRaw(int x, int y) {
 
         for (int attempt = 0; attempt < 3; attempt++) {
@@ -109,6 +118,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void scrollDown(int notches) throws InterruptedException {
 
         if (windowManager == null) return;
@@ -173,6 +183,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void leftClick() {
 
         RateLimiter.pause();
@@ -199,6 +210,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void click(int x, int y) {
 
         if (x <= 0 || y <= 0) {
@@ -223,6 +235,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void pressKeys(int... vkCodes) {
 
         RateLimiter.pause();
@@ -249,12 +262,16 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void ctrlA() { pressKeys(VK_CONTROL, VK_A); }
 
+    @Deprecated
     public void ctrlC() { pressKeys(VK_CONTROL, VK_C); }
 
+    @Deprecated
     public void ctrlV() { pressKeys(VK_CONTROL, VK_V); }
 
+    @Deprecated
     public void enter() {
 
         pressKeys(VK_ENTER);
@@ -273,6 +290,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void refreshPage() throws InterruptedException {
 
         activateChrome();
@@ -281,10 +299,13 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public interface WaitRetryCallback { boolean shouldRetry(String reason); }
 
+    @Deprecated
     public void setWaitRetryCallback(WaitRetryCallback cb) { this.waitRetryCallback = cb; }
 
+    @Deprecated
     public void typeTextViaClipboard(String text) throws InterruptedException {
 
         AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);
@@ -307,6 +328,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void typeTextWithoutEnter(String text) throws InterruptedException {
 
         AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);
@@ -327,6 +349,7 @@ public final class InputSimulator {
 
     }
 
+    @Deprecated
     public void typeFilesAndTextViaClipboard(List<File> files, String text) throws InterruptedException {
 
         AutoCalibrator.MarkerHit hit = requireHit(CalibrationMarker.INPUT_FIELD);

@@ -13,6 +13,9 @@ import com.sun.jna.Pointer;
  * payload приводится через instanceof AutoCalibrator.CalibrationResult; при несоответствии типа -
  * Status.FAILED с тем же compatibility.
  */
+// Legacy WinAPI path; not reachable in cdp.enabled=true. Scheduled for removal beyond S7 MASTER_PLAN.
+// Do not import from new code under com.freemaf.agent.cdp.
+@Deprecated
 public final class CalibrationOrchestrator {
 
     public enum Status { READY, INCOMPATIBLE_PC, FAILED }
