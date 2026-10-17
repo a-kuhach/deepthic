@@ -220,30 +220,71 @@ public final class CdpBootstrap {
         }
     }
 
-    private void stopChromeAndSession() {
-        try { if (session != null) session.close(); } catch (Exception ignored) { }
-        session = null;
-        long deadPid = 0L;
-        try { if (chromeProcess != null) deadPid = chromeProcess.pid(); } catch (Exception ignored) { }
-        try { if (chromeProcess != null) ChromeProcessLauncher.stop(chromeProcess); } catch (Exception ignored) { }
-        chromeProcess = null;
-        int remaining = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);
-        if (remaining > 0) {
-            AppLogger.info("CdpBootstrap.stopChromeAndSession: killed " + remaining + " leftover chrome process(es) after stop (launcher pid=" + deadPid + ")");
-        } else {
-            AppLogger.info("CdpBootstrap.stopChromeAndSession: no leftover framework chrome (launcher pid=" + deadPid + ")");
-        }
-        Path lockPath = ChromeProcessLauncher.resolveProfilePath().resolve("SingletonLock");
-        if (Files.exists(lockPath)) {
-            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock present before sleep; forcing delete");
-            try { Files.deleteIfExists(lockPath); } catch (Exception ex) { AppLogger.warn("stopChromeAndSession: SingletonLock delete failed: " + ex.getMessage()); }
-        } else {
-            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock clean");
-        }
-        try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-    }
 
-    public synchronized CdpDeepSeek openExecutor() throws Exception {
+    private void stopChromeAndSession() {
+        long deadPid = 0L;
+        try { if (chromeProcess != null) deadPid = chromeProcess.pid(); } catch (Exception ignored) { }
+
+        // Graceful shutdown: Browser.close via CDP lets Chrome flush cookies
+        // (Default/Network/Cookies sqlite), WAL files, and session state.
+        // Without this, on Windows p.destroy() maps to TerminateProcess;
+        // Network Service is killed without flush and Cookies are lost on
+        // the next headless restart (symptom: url=sign_in after headful login).
+        boolean browserCloseSent = false;
+        if (session != null) {
+            try {
+                session.browserClose();
+                browserCloseSent = true;
+                AppLogger.info("CdpBootstrap.stopChromeAndSession: Browser.close sent");
+            } catch (Exception e) {
+                AppLogger.warn("CdpBootstrap.stopChromeAndSession: Browser.close failed: " + e.getMessage());
+            }
+        }
+
+        // Wait up to 5 s for graceful exit after Browser.close.
+        if (chromeProcess != null) {
+            boolean gracefulExit = false;
+            try {
+                gracefulExit = chromeProcess.waitFor(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+            if (gracefulExit) {
+                AppLogger.info("CdpBootstrap.stopChromeAndSession: chrome graceful exit confirmed (pid=" + deadPid + ")");
+            } else if (browserCloseSent) {
+                AppLogger.warn("CdpBootstrap.stopChromeAndSession: chrome still alive 5 s after Browser.close (pid=" + deadPid + "); forcing stop");
+            }
+        }
+
+        // Close WebSocket session (may already be closed after Browser.close).
+        try { if (session != null) session.close(); } catch (Exception ignored) { }
+        session = null;
+
+        // Force-stop if not exited gracefully.
+        try {
+            if (chromeProcess != null && chromeProcess.isAlive()) {
+                ChromeProcessLauncher.stop(chromeProcess);
+            }
+        } catch (Exception ignored) { }
+        chromeProcess = null;
+
+        // Kill any leftover framework children (renderer, GPU, Network Service).
+        int remaining = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);
+        if (remaining > 0) {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: killed " + remaining + " leftover chrome process(es) after stop (launcher pid=" + deadPid + ")");
+        } else {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: no leftover framework chrome (launcher pid=" + deadPid + ")");
+        }
+        Path lockPath = ChromeProcessLauncher.resolveProfilePath().resolve("SingletonLock");
+        if (Files.exists(lockPath)) {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock present before sleep; forcing delete");
+            try { Files.deleteIfExists(lockPath); } catch (Exception ex) { AppLogger.warn("stopChromeAndSession: SingletonLock delete failed: " + ex.getMessage()); }
+        } else {
+            AppLogger.info("CdpBootstrap.stopChromeAndSession: SingletonLock clean");
+        }
+        try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+    }
+    public synchronized CdpDeepSeek openExecutor() throws Exception {
         ensureStarted();
         String stored = config.getCdpExecutorTabId();
         if (allowReuseSession && !stored.isEmpty()) {
@@ -320,33 +361,38 @@ public final class CdpBootstrap {
         config.setCdpReviewerTabId("");
     }
 
-    public synchronized void stop() {
-        try { closeReviewer(); } catch (Exception ignored) { }
-        try { closeExecutor(); } catch (Exception ignored) { }
-        try {
-            if (session != null && chromeProcess != null) {
-                CdpHttpClient http = new CdpHttpClient(port);
-                int forcedClosed = 0;
-                List<CdpTabInfo> remaining = http.list();
-                for (CdpTabInfo t : remaining) {
-                    String url = t.url() == null ? "" : t.url();
-                    if (url.contains(DEEPSEEK_HOST)) { if (http.closeTab(t.id())) forcedClosed++; }
-                }
-                if (forcedClosed > 0) AppLogger.info("CdpBootstrap.stop: force-closed " + forcedClosed + " leftover deepseek tab(s)");
-                else AppLogger.info("CdpBootstrap.stop: no leftover deepseek tabs");
-            } else if (session != null) {
-                AppLogger.info("CdpBootstrap.stop: adopted Chrome left running (no owned process)");
-            }
-        } catch (Exception e) {
-            AppLogger.warn("CdpBootstrap.stop: leftover scan failed: " + e.getMessage());
-        } finally {
-            if (session != null) { try { session.close(); } catch (Exception ignored) { } session = null; }
-            if (chromeProcess != null) { try { ChromeProcessLauncher.stop(chromeProcess); } catch (Exception ignored) { } chromeProcess = null; }
-            releaseLock();
-        }
-    }
 
-    public synchronized boolean isReviewerTabOpen() {
+    public synchronized void stop() {
+        try { closeReviewer(); } catch (Exception ignored) { }
+        try { closeExecutor(); } catch (Exception ignored) { }
+        try {
+            if (session != null && chromeProcess != null) {
+                CdpHttpClient http = new CdpHttpClient(port);
+                int forcedClosed = 0;
+                List<CdpTabInfo> remaining = http.list();
+                for (CdpTabInfo t : remaining) {
+                    String url = t.url() == null ? "" : t.url();
+                    if (url.contains(DEEPSEEK_HOST)) { if (http.closeTab(t.id())) forcedClosed++; }
+                }
+                if (forcedClosed > 0) AppLogger.info("CdpBootstrap.stop: force-closed " + forcedClosed + " leftover deepseek tab(s)");
+                else AppLogger.info("CdpBootstrap.stop: no leftover deepseek tabs");
+            } else if (session != null) {
+                AppLogger.info("CdpBootstrap.stop: adopted Chrome left running (no owned process)");
+            }
+        } catch (Exception e) {
+            AppLogger.warn("CdpBootstrap.stop: leftover scan failed: " + e.getMessage());
+        }
+
+        if (chromeProcess != null) {
+            // Owned Chrome: graceful close (Browser.close) + force fallback + orphan cleanup.
+            stopChromeAndSession();
+        } else {
+            // Adopted Chrome: only close the WebSocket; leave the external process running.
+            if (session != null) { try { session.close(); } catch (Exception ignored) { } session = null; }
+        }
+        releaseLock();
+    }
+    public synchronized boolean isReviewerTabOpen() {
         if (reviewerTabInfo == null || session == null) return false;
         String id = reviewerTabInfo.id();
         for (CdpTabInfo t : session.listTabs()) if (id.equals(t.id())) return true;

@@ -95,7 +95,28 @@ public final class CdpSession {
         return http.closeTab(tab.id());
     }
 
-    public void close() {
+
+    /**
+     * Sends Browser.close via CDP for graceful Chrome shutdown.
+     *
+     * Allows Chrome to flush cookies (Default/Network/Cookies sqlite),
+     * WAL files, and session state before exiting. Without this, on
+     * Windows p.destroy() maps to TerminateProcess; Network Service is
+     * killed without flush and Cookies are lost on the next headless
+     * restart (symptom: url=sign_in after headful login).
+     *
+     * Best-effort: caller should wait for graceful exit and fall back
+     * to force-stop if Chrome does not respond within timeout.
+     */
+    public void browserClose() {
+        try {
+            Map<String, Object> params = new HashMap<>();
+            browserWs.send("Browser.close", params).join();
+        } catch (Exception ignored) {
+            // best-effort; caller handles force-stop fallback
+        }
+    }
+    public void close() {
         try {
             browserWs.close();
         } catch (Exception ignored) {

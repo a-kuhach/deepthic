@@ -39,7 +39,10 @@ public final class ChromeProcessLauncher {
         args.add("--hide-crash-restore-bubble");
         args.add("--disable-session-crashed-bubble");
         if (headless) args.add("--headless=new");
-        return new ProcessBuilder(args).start();
+        ProcessBuilder pb = new ProcessBuilder(args);
+        pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+        pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+        return pb.start();
     }
 
     public static void stop(Process p) {
