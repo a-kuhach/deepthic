@@ -191,26 +191,32 @@ public final class CdpDeepSeek {
 
 
     public void waitForInput(long timeoutMs) throws TimeoutException {
-
-        long deadline = System.currentTimeMillis() + timeoutMs;
-
+        long start = System.currentTimeMillis();
+        long deadline = start + timeoutMs;
+        long midLog = start + 5_000L;
+        boolean midLogged = false;
         String expr = "String(!!document.querySelector(\""
-
                 + escapeJs(DeepSeekSelectors.INPUT) + "\"))";
-
         while (System.currentTimeMillis() < deadline) {
-
             if ("true".equals(evaluate(expr))) return;
-
+            long now = System.currentTimeMillis();
+            if (!midLogged && now >= midLog) {
+                String url = evaluate("String(location.href)");
+                String hasMd = evaluate("String(!!document.querySelector('div.ds-markdown'))");
+                AppLogger.info("CdpDeepSeek.waitForInput: still waiting at 5s, url=" + url + ", hasMarkdown=" + hasMd);
+                midLogged = true;
+            }
             sleep(POLL_INTERVAL_MS);
-
         }
-
-        throw new TimeoutException("input not found within " + timeoutMs + " ms");
-
+        String url = evaluate("String(location.href)");
+        String title = evaluate("String(document.title)");
+        String rs = evaluate("String(document.readyState || 'unknown')");
+        String hasMd = evaluate("String(!!document.querySelector('div.ds-markdown'))");
+        String bodyLen = evaluate("String((document.body && document.body.innerText || '').length)");
+        String diag = "url=" + url + " title=" + title + " readyState=" + rs + " hasMarkdown=" + hasMd + " bodyLen=" + bodyLen;
+        AppLogger.warn("CdpDeepSeek.waitForInput TIMEOUT after " + timeoutMs + "ms: " + diag);
+        throw new TimeoutException("input not found within " + timeoutMs + " ms [" + diag + "]");
     }
-
-
 
     public String evaluate(String expression) {
 

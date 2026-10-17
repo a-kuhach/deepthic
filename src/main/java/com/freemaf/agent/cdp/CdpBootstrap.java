@@ -25,7 +25,7 @@ public final class CdpBootstrap {
     public static final int DEFAULT_PORT = 9222;
     private static final long PORT_WAIT_MS  = 30_000L;
     private static final long LOGIN_WAIT_MS = 5L * 60L * 1000L;
-    private static final long INPUT_WAIT_MS = 30_000L;
+    private static final long INPUT_WAIT_MS = 10_000L;
     private static final String DEEPSEEK_HOST = "deepseek.com";
     private static final String LOCK_FILE = "agent/cache/cdp.lock";
 
@@ -42,6 +42,7 @@ public final class CdpBootstrap {
     private FileChannel lockChannel;
     private FileLock lock;
     private boolean allowReuseSession = false;
+    private volatile java.util.function.Consumer<String> statusSink = null;
 
     public CdpBootstrap(Config config) { this(config, DEFAULT_PORT); }
     public CdpBootstrap(Config config, int port) {
@@ -50,6 +51,14 @@ public final class CdpBootstrap {
         this.config = config;
         this.port = port;
         Runtime.getRuntime().addShutdownHook(new Thread(this::releaseLock, "cdp-lock-release"));
+    }
+
+    public void setStatusSink(java.util.function.Consumer<String> sink) { this.statusSink = sink; }
+
+    private void emitStatus(String message) {
+        java.util.function.Consumer<String> s = this.statusSink;
+        if (s == null) return;
+        try { s.accept(message); } catch (Exception ignored) { }
     }
 
     public Config config() { return config; }
@@ -63,6 +72,7 @@ public final class CdpBootstrap {
         this.allowReuseSession = allowReuse;
         if (chromeProcess != null && chromeProcess.isAlive()) return;
         if (lock == null) acquireLock();
+        if (ensureLogin) emitStatus("Проверка сессии DeepSeek...");
         try { doStart(headless, ensureLogin, allowReuse); }
         catch (IOException ex) { releaseLock(); throw ex; }
     }
@@ -157,9 +167,11 @@ public final class CdpBootstrap {
             try { probe.closeActiveTab(); } catch (Exception ignored) { }
             if (loggedIn) {
                 AppLogger.info("CdpBootstrap: session valid, no relogin needed");
+                emitStatus("Сессия DeepSeek активна.");
                 return;
             }
             AppLogger.info("CdpBootstrap: session missing, restarting headful Chrome for login (port " + port + ")");
+            emitStatus("Ожидайте, открывается окно авторизации DeepSeek. Пожалуйста, войдите в аккаунт.");
             stopChromeAndSession();
             PortOwner preHeadfulOwner = ChromeProcessLauncher.inspectPort(port);
             AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: port owner before headful = " + preHeadfulOwner.kind() + " pid=" + preHeadfulOwner.pid());
@@ -188,6 +200,7 @@ public final class CdpBootstrap {
             stopChromeAndSession();
             if (!loggedInAfterWait) throw new IOException("Login wait timed out after " + LOGIN_WAIT_MS + " ms");
             AppLogger.info("CdpBootstrap: login restored, restarting headless Chrome (port " + port + ")");
+            emitStatus("Авторизация успешна!");
             PortOwner preHeadlessOwner = ChromeProcessLauncher.inspectPort(port);
             AppLogger.info("CdpBootstrap.ensureLoggedInOrRelogin: port owner before headless restore = " + preHeadlessOwner.kind() + " pid=" + preHeadlessOwner.pid());
             int hlKilled = ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L);

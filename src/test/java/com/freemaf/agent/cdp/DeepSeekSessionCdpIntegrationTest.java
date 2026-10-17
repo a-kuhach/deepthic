@@ -79,15 +79,28 @@ class DeepSeekSessionCdpIntegrationTest {
         // DeepSeek lazy-loads prior chat history on "/". Poll for up to 5s so that a non-empty
         // history is detected before we send the prompt; otherwise the model answers in context of
         // the previous conversation instead of PONG.
-        int priorAssistantCount = 0;
-        for (int i = 0; i < 10; i++) {
+                int priorAssistantCount = 0;
+        boolean roleMarkerFound = false;
+        // DeepSeek lazy-loads prior chat history on "/"; wait up to 20s for either
+        // assistant messages (structured selector) or an ANALYST ROLE marker in page text
+        // (fallback when the selector breaks). Any hint of prior context means the model
+        // will answer in-context rather than PONG -> skip.
+        for (int i = 0; i < 40; i++) {
             Thread.sleep(500L);
-            int c = bootstrap.executor().getAssistantMessageCount();
-            if (c > priorAssistantCount) priorAssistantCount = c;
-            if (c > 0) break;
+            try {
+                int c = bootstrap.executor().getAssistantMessageCount();
+                if (c > priorAssistantCount) priorAssistantCount = c;
+            } catch (Exception ignored) { }
+            try {
+                String hasRole = bootstrap.executor().evaluate(
+                        "String(document.body && document.body.innerText.indexOf('ROLE:') >= 0)");
+                if ("true".equals(hasRole)) roleMarkerFound = true;
+            } catch (Exception ignored) { }
+            if (priorAssistantCount > 0 || roleMarkerFound) break;
         }
-        assumeTrue(priorAssistantCount == 0,
-            "skipped: profile has " + priorAssistantCount + " prior assistant messages; test needs a fresh chat");
+        assumeTrue(priorAssistantCount == 0 && !roleMarkerFound,
+            "skipped: profile has prior assistant history (count=" + priorAssistantCount
+                + ", roleMarker=" + roleMarkerFound + "); test needs a fresh chat");
 AgentResponse resp = session.getValidResponse(PROMPT);
         assertTrue(resp != null, "AgentResponse is null");
         String content = resp.content() == null ? "" : resp.content();

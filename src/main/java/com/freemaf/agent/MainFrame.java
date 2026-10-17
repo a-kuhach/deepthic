@@ -183,6 +183,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         this.cdpBootstrap = config.isCdpEnabled() ? new com.freemaf.agent.cdp.CdpBootstrap(config) : null;
         if (this.cdpBootstrap != null) {
             this.deepSeekSession.setCdpBootstrap(this.cdpBootstrap);
+            this.cdpBootstrap.setStatusSink(this::appendSystem);
             AppLogger.info("MainFrame: CDP mode enabled");
         }
 
@@ -1310,7 +1311,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
             if (cdpBootstrap != null) {
                 AppLogger.info("startSequence: CDP mode, starting bootstrap");
                                 try {
+                    appendSystem("Запуск CDP-сессии, ожидайте...");
                     cdpBootstrap.start(true, true, true);
+                    appendSystem("Запуск сессии агента, ожидайте...");
                     cdpBootstrap.openExecutor();
                 } catch (com.freemaf.agent.cdp.ChromeProcessLauncher.PortBusyException pbe) {
                     final boolean[] restart = {false};
@@ -1333,7 +1336,9 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
                     try {
                         com.freemaf.agent.cdp.ChromeProcessLauncher.killPidTree(pbe.pid());
                         Thread.sleep(500L);
+                        appendSystem("Запуск CDP-сессии, ожидайте...");
                         cdpBootstrap.start(true, true, true);
+                        appendSystem("Запуск сессии агента, ожидайте...");
                         cdpBootstrap.openExecutor();
                     } catch (Exception retryEx) {
                         appendSystem("Порт 9222 всё ещё занят: " + retryEx.getMessage());
@@ -1342,6 +1347,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
                     }
                 } catch (Exception cex) {
                     appendSystem("CDP bootstrap failed: " + cex.getMessage());
+                appendSystem("Нажмите Play, чтобы повторить попытку.");
                     setStatus(StatusMarker.State.STOPPED);
                     return;
                 }
