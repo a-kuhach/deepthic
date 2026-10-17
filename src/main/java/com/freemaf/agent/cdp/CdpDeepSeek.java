@@ -19,6 +19,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import com.freemaf.agent.AppLogger;
+import com.freemaf.agent.EmergencyStop;
 
 
 
@@ -82,6 +83,14 @@ public final class CdpDeepSeek {
         this.activeTabInfo = existingTab;
         this.activeTab = session.attach(existingTab);
         session.activateTab(existingTab);
+        try {
+            Map<String, Object> focus = new HashMap<>();
+            focus.put("enabled", Boolean.TRUE);
+            activeTab.send("Emulation.setFocusEmulationEnabled", focus);
+            AppLogger.info("CdpDeepSeek(adopt): Emulation.setFocusEmulationEnabled(true) sent");
+        } catch (Exception e) {
+            AppLogger.warn("Emulation.setFocusEmulationEnabled failed (adopt): " + e.getMessage());
+        }
     }
 
 
@@ -111,6 +120,15 @@ public final class CdpDeepSeek {
 
         }
 
+        try {
+            Map<String, Object> focus = new HashMap<>();
+            focus.put("enabled", Boolean.TRUE);
+            activeTab.send("Emulation.setFocusEmulationEnabled", focus);
+            AppLogger.info("CdpDeepSeek.open: Emulation.setFocusEmulationEnabled(true) sent");
+        } catch (Exception e) {
+            AppLogger.warn("Emulation.setFocusEmulationEnabled failed: " + e.getMessage());
+        }
+
         navigate(DEEPSEEK_URL);
 
 
@@ -126,7 +144,13 @@ public final class CdpDeepSeek {
         }
 
 
-        int landedCount = countAnyMessages();
+        int landedCount = 0;
+        for (int poll = 0; poll < 4; poll++) {
+            int c = countAnyMessages();
+            if (c > landedCount) landedCount = c;
+            if (landedCount > 0) break;
+            sleep(500L);
+        }
 
         if (landedCount > 0) {
 
@@ -448,6 +472,12 @@ public final class CdpDeepSeek {
         while (System.currentTimeMillis() < deadline) {
 
             int curCount = countAssistantMessages();
+            if (EmergencyStop.isStopped() || Thread.currentThread().isInterrupted()) {
+                throw new IllegalStateException("waitForResponse aborted by user stop or thread interrupt");
+            }
+            if (curCount < initialCount) {
+                throw new IllegalStateException("assistant count dropped from " + initialCount + " to " + curCount + "; tab reset or closed");
+            }
             long nowMs = System.currentTimeMillis();
             if (nowMs - lastDiagMs >= 5000L) {
                 lastDiagMs = nowMs;
