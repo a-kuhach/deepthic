@@ -161,6 +161,23 @@ public final class CdpDeepSeek {
         String postUrl = evaluate("String(location.href)");
         int postCount = countAnyMessages();
         AppLogger.info("CdpDeepSeek.open: post-click URL=" + postUrl + " count=" + postCount);
+
+        // FIX17-DIAG: action-bar dump
+        try {
+            if (postCount > 0) {
+                String abDump = evaluate(
+                        "JSON.stringify({"
+                        + "actionBars:Array.from(document.querySelectorAll('div.ds-flex')).map(function(e){return {"
+                        + "className:(e.className||'').toString().slice(0,100),"
+                        + "innerButtons:Array.from(e.querySelectorAll('button, [role=button], [class*=icon]')).map(function(b){return {"
+                        + "tag:b.tagName,aria:(b.getAttribute('aria-label')||''),testid:(b.getAttribute('data-testid')||''),className:(b.className||'').toString().slice(0,60)"
+                        + "};}),"
+                        + "text:(e.textContent||'').trim().slice(0,60)"
+                        + "};})"
+                        + "})");
+                AppLogger.info("FIX17-DIAG open action-bar dump: " + abDump);
+            }
+        } catch (Exception abEx) { AppLogger.warn("FIX17-DIAG action-bar dump error: " + abEx.getMessage()); }
     }
 
 
@@ -189,59 +206,112 @@ public final class CdpDeepSeek {
 
 
 
-    private String clickNewChat() {
-        String expr =
-                "(function(){" +
-                "var nodes=document.querySelectorAll('*');" +
-                "for(var i=0;i<nodes.length;i++){" +
-                "  var el=nodes[i];" +
-                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='New chat'){" +
-                "    var p=el;" +
-                "    for(var j=0;j<6 && p;j++){" +
-                "      var r=p.getAttribute && p.getAttribute('role');" +
-                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
-                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
-                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
-                "      p=p.parentElement;" +
-                "    }" +
-                "    el.click();" +
-                "    return 'clicked-leaf';" +
-                "  }" +
-                "}" +
-                "var byTestId=document.querySelector('[data-testid*=\"new-chat\"], [data-testid*=\"new_chat\"], [data-testid*=\"newChat\"]');" +
-                "if(byTestId){byTestId.click();return 'clicked-testid';}" +
-                "var byAria=document.querySelector('[aria-label*=\"New chat\" i], [aria-label*=\"Новый чат\" i], [aria-label*=\"新对话\" i]');" +
-                "if(byAria){byAria.click();return 'clicked-aria';}" +
-                "var partial=document.querySelectorAll('div, span, button, a');" +
-                "for(var k=0;k<partial.length;k++){" +
-                "  var e2=partial[k];" +
-                "  var t=(e2.textContent||'').trim();" +
-                "  if(t.length>0 && t.length<40 && (t.indexOf('New chat')>=0 || t.indexOf('Новый чат')>=0 || t.indexOf('新对话')>=0)){" +
-                "    var q=e2;" +
-                "    for(var m=0;m<6 && q;m++){" +
-                "      if(q.tagName==='BUTTON'||q.tagName==='A'||(q.getAttribute&&q.getAttribute('role')==='button')){q.click();return 'clicked-partial-'+q.tagName;}" +
-                "      q=q.parentElement;" +
-                "    }" +
-                "    e2.click();return 'clicked-partial-leaf';" +
-                "  }" +
-                "}" +
-                "var anchors=document.querySelectorAll('a[href=\"/\"], a[href=\"https://chat.deepseek.com/\"]');" +
-                "for(var n=0;n<anchors.length;n++){" +
-                "  var a=anchors[n];" +
-                "  var par=a.closest('nav, aside, [class*=\"sidebar\"], [class*=\"sider\"]');" +
-                "  if(par){a.click();return 'clicked-anchor-nav';}" +
-                "}" +
-                "return 'NOT_FOUND';" +
-                "})()";
-        String result = evaluate(expr);
-        if ("NOT_FOUND".equals(result)) {
-            try {
-                String dump = evaluate("JSON.stringify(Array.from(document.querySelectorAll('button, [role=button], a')).slice(0,50).map(function(e){return {tag:e.tagName,role:e.getAttribute('role')||'',aria:e.getAttribute('aria-label')||'',testid:e.getAttribute('data-testid')||'',cls:(e.className||'').toString().slice(0,60),text:(e.textContent||'').trim().slice(0,40)};}))");
-                AppLogger.info("CdpDeepSeek.clickNewChat NOT_FOUND, sidebar dump: " + dump);
-            } catch (Exception ignored) { }
-        }
-        return result;
-    }
+    private String clickNewChat() {
+
+        String expr =
+
+                "(function(){" +
+
+                "var nodes=document.querySelectorAll('*');" +
+
+                "for(var i=0;i<nodes.length;i++){" +
+
+                "  var el=nodes[i];" +
+
+                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='New chat'){" +
+
+                "    var p=el;" +
+
+                "    for(var j=0;j<6 && p;j++){" +
+
+                "      var r=p.getAttribute && p.getAttribute('role');" +
+
+                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
+
+                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
+
+                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
+
+                "      p=p.parentElement;" +
+
+                "    }" +
+
+                "    el.click();" +
+
+                "    return 'clicked-leaf';" +
+
+                "  }" +
+
+                "}" +
+
+                "var byTestId=document.querySelector('[data-testid*=\"new-chat\"], [data-testid*=\"new_chat\"], [data-testid*=\"newChat\"]');" +
+
+                "if(byTestId){byTestId.click();return 'clicked-testid';}" +
+
+                "var byAria=document.querySelector('[aria-label*=\"New chat\" i], [aria-label*=\"Новый чат\" i], [aria-label*=\"新对话\" i]');" +
+
+                "if(byAria){byAria.click();return 'clicked-aria';}" +
+
+                "var partial=document.querySelectorAll('div, span, button, a');" +
+
+                "for(var k=0;k<partial.length;k++){" +
+
+                "  var e2=partial[k];" +
+
+                "  var t=(e2.textContent||'').trim();" +
+
+                "  if(t.length>0 && t.length<40 && (t.indexOf('New chat')>=0 || t.indexOf('Новый чат')>=0 || t.indexOf('新对话')>=0)){" +
+
+                "    var q=e2;" +
+
+                "    for(var m=0;m<6 && q;m++){" +
+
+                "      if(q.tagName==='BUTTON'||q.tagName==='A'||(q.getAttribute&&q.getAttribute('role')==='button')){q.click();return 'clicked-partial-'+q.tagName;}" +
+
+                "      q=q.parentElement;" +
+
+                "    }" +
+
+                "    e2.click();return 'clicked-partial-leaf';" +
+
+                "  }" +
+
+                "}" +
+
+                "var anchors=document.querySelectorAll('a[href=\"/\"], a[href=\"https://chat.deepseek.com/\"]');" +
+
+                "for(var n=0;n<anchors.length;n++){" +
+
+                "  var a=anchors[n];" +
+
+                "  var par=a.closest('nav, aside, [class*=\"sidebar\"], [class*=\"sider\"]');" +
+
+                "  if(par){a.click();return 'clicked-anchor-nav';}" +
+
+                "}" +
+
+                "return 'NOT_FOUND';" +
+
+                "})()";
+
+        String result = evaluate(expr);
+
+        if ("NOT_FOUND".equals(result)) {
+
+            try {
+
+                String dump = evaluate("JSON.stringify(Array.from(document.querySelectorAll('button, [role=button], a')).slice(0,50).map(function(e){return {tag:e.tagName,role:e.getAttribute('role')||'',aria:e.getAttribute('aria-label')||'',testid:e.getAttribute('data-testid')||'',cls:(e.className||'').toString().slice(0,60),text:(e.textContent||'').trim().slice(0,40)};}))");
+
+                AppLogger.info("CdpDeepSeek.clickNewChat NOT_FOUND, sidebar dump: " + dump);
+
+            } catch (Exception ignored) { }
+
+        }
+
+        return result;
+
+    }
+
 
 
     public void navigate(String url) {
@@ -751,6 +821,27 @@ public final class CdpDeepSeek {
 
         // Diagnostic: input attributes
         try {
+
+        // FIX17-DIAG: attachFile pre-set dump
+        try {
+            String preDump = evaluate(
+                    "JSON.stringify({"
+                    + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
+                    + "accept:(e.accept||''),multiple:e.multiple,disabled:e.disabled,hidden:e.hidden,"
+                    + "id:(e.id||''),name:(e.name||''),className:(e.className||''),"
+                    + "parentTag:e.parentElement?e.parentElement.tagName:null,"
+                    + "parentClass:e.parentElement?(e.parentElement.className||''):null,"
+                    + "grandParentTag:e.parentElement&&e.parentElement.parentElement?e.parentElement.parentElement.tagName:null,"
+                    + "grandParentClass:e.parentElement&&e.parentElement.parentElement?(e.parentElement.parentElement.className||''):null"
+                    + "};}),"
+                    + "paperclipCandidates:Array.from(document.querySelectorAll('[class*=paperclip], [class*=attach], button[aria-label*=attach i], button[aria-label*=file i], [data-testid*=attach], [data-testid*=file]')).map(function(e){return {"
+                    + "tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),"
+                    + "className:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)"
+                    + "};}),"
+                    + "textareaParent:(function(){var t=document.querySelector('textarea[name=search]');if(!t)return null;var p=t;for(var i=0;i<5&&p;i++){p=p.parentElement;if(p&&p.querySelector('button, [role=button]')){return {tag:p.tagName,className:(p.className||'').toString()};}}return null;})()"
+                    + "})");
+            AppLogger.info("FIX17-DIAG attachFile pre-set dump: " + preDump);
+        } catch (Exception diagEx) { AppLogger.warn("FIX17-DIAG pre-set dump error: " + diagEx.getMessage()); }
             String inputAttrs = evaluate("String((function(){var i=document.querySelector('input[type=file]');if(!i)return 'none';return 'accept='+(i.accept||'')+' multiple='+i.multiple+' disabled='+i.disabled+' hidden='+i.hidden+' offsetParent='+(i.offsetParent?'yes':'no');})())");
             AppLogger.info("CdpDeepSeek.attachFile: inputAttrs " + inputAttrs);
         } catch (Exception ignored) { }
@@ -800,6 +891,22 @@ public final class CdpDeepSeek {
                 }
                 String firstFiles2 = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
                 AppLogger.info("CdpDeepSeek.attachFile: after backendNodeId firstFiles=" + firstFiles2);
+
+            if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
+                try {
+                    String postDump = evaluate(
+                            "JSON.stringify({"
+                            + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
+                            + "accept:(e.accept||'').slice(0,50),multiple:e.multiple,filesLen:(e.files?e.files.length:-1),"
+                            + "id:(e.id||''),name:(e.name||''),className:(e.className||'')"
+                            + "};}),"
+                            + "fileCards:Array.from(document.querySelectorAll('[class*=file-card], [class*=file-preview], [class*=attachment], [class*=upload], [class*=file-item], [class*=ds-file]')).map(function(e){return {"
+                            + "tag:e.tagName,className:(e.className||'').toString().slice(0,100),text:(e.textContent||'').trim().slice(0,40)"
+                            + "};})"
+                            + "})");
+                    AppLogger.info("FIX17-DIAG attachFile post-set dump: " + postDump);
+                } catch (Exception diagEx2) { AppLogger.warn("FIX17-DIAG post-set dump error: " + diagEx2.getMessage()); }
+            }
                 if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
                     AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, falling back to chooser");
                     attachFileViaChooser(abs, bytes, start);
