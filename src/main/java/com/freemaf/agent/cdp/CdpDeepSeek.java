@@ -704,121 +704,108 @@ public final class CdpDeepSeek {
 
 
     public void attachFile(Path path) throws CdpAttachException {
-
         if (path == null) {
-
             throw new CdpAttachException("validate", "path is null", null);
-
         }
-
         if (!Files.isRegularFile(path)) {
-
             throw new CdpAttachException("validate", "not a regular file: " + path, null);
-
         }
-
         if (activeTab == null) {
-
             throw new CdpAttachException("state", "no active tab", null);
-
         }
-
         String abs = path.toAbsolutePath().toString();
-
         long start = System.currentTimeMillis();
-
         long bytes = -1L;
-
-        try { bytes = Files.size(path); } catch (Exception ignored) { /* best effort */ }
-
-
+        try { bytes = Files.size(path); } catch (Exception ignored) { }
 
         Integer rootNodeId = nodeIdOfDocument();
-
         if (rootNodeId == null) {
-
             throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
-
         }
-
         Integer inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
 
-
-
         int attempts = 0;
-
         while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
-
             attempts++;
-
             clickAttachButton();
-
             sleep(300L);
-
             rootNodeId = nodeIdOfDocument();
-
             if (rootNodeId != null) {
-
                 inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
-
             }
-
         }
-
-
 
         if (inputNodeId == null) {
-
             attachFileViaChooser(abs, bytes, start);
-
             return;
-
         }
 
+        // Diagnostic: input attributes
+        try {
+            String inputAttrs = evaluate("String((function(){var i=document.querySelector('input[type=file]');if(!i)return 'none';return 'accept='+(i.accept||'')+' multiple='+i.multiple+' disabled='+i.disabled+' hidden='+i.hidden+' offsetParent='+(i.offsetParent?'yes':'no');})())");
+            AppLogger.info("CdpDeepSeek.attachFile: inputAttrs " + inputAttrs);
+        } catch (Exception ignored) { }
 
+        // Get backendNodeId for fallback
+        Integer backendNodeId = null;
+        try {
+            Map<String, Object> descParams = new HashMap<>();
+            descParams.put("nodeId", inputNodeId);
+            JsonNode descResp = activeTab.send("DOM.describeNode", descParams);
+            if (descResp != null && descResp.get("error") == null) {
+                JsonNode node = descResp.path("result").path("node");
+                JsonNode bid = node.path("backendNodeId");
+                if (!bid.isMissingNode()) backendNodeId = bid.asInt();
+            }
+        } catch (Exception ignored) { }
 
         Map<String, Object> params = new HashMap<>();
-
         params.put("files", List.of(abs));
-
         params.put("nodeId", inputNodeId);
-
         JsonNode resp;
-
         try {
-
             resp = activeTab.send("DOM.setFileInputFiles", params);
-
         } catch (Exception e) {
-
             throw new CdpAttachException("set-files",
-
                     "DOM.setFileInputFiles exception: " + e.getMessage(), e);
-
         }
-
         if (resp == null || resp.get("error") != null) {
-
             throw new CdpAttachException("set-files",
-
                     "DOM.setFileInputFiles error: " + resp, null);
-
         }
 
-        String inputCount = evaluate("String(document.querySelectorAll('input[type=file]').length)");
+        // Check if files were actually set
         String firstFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
-        String attachNodes = evaluate("String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)");
-        AppLogger.info("CdpDeepSeek.attachFile diag: inputFiles=" + inputCount + " firstFiles=" + firstFiles + " attachNodes=" + attachNodes);
-        if (firstFiles != null && !firstFiles.isEmpty() && !"-1".equals(firstFiles) && !"0".equals(firstFiles)) {
-            evaluate("(function(){var i=document.querySelector('input[type=file]');if(i){i.dispatchEvent(new Event('change',{bubbles:true}));}return '' ;})()");
-            AppLogger.info("CdpDeepSeek.attachFile: dispatched change event on input[type=file]");
+        AppLogger.info("CdpDeepSeek.attachFile: after setFileInputFiles firstFiles=" + firstFiles);
+        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
+            AppLogger.warn("CdpDeepSeek.attachFile: primary setFileInputFiles did not populate files, trying backendNodeId");
+            if (backendNodeId != null) {
+                Map<String, Object> p2 = new HashMap<>();
+                p2.put("files", List.of(abs));
+                p2.put("backendNodeId", backendNodeId);
+                try {
+                    JsonNode r2 = activeTab.send("DOM.setFileInputFiles", p2);
+                    AppLogger.info("CdpDeepSeek.attachFile: backendNodeId attempt resp=" + r2);
+                } catch (Exception e) {
+                    AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId attempt failed: " + e.getMessage());
+                }
+                String firstFiles2 = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
+                AppLogger.info("CdpDeepSeek.attachFile: after backendNodeId firstFiles=" + firstFiles2);
+                if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
+                    AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, falling back to chooser");
+                    attachFileViaChooser(abs, bytes, start);
+                    return;
+                }
+            } else {
+                AppLogger.warn("CdpDeepSeek.attachFile: no backendNodeId, falling back to chooser");
+                attachFileViaChooser(abs, bytes, start);
+                return;
+            }
         }
+
         waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
-
         long elapsed = System.currentTimeMillis() - start;
-
         AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsed + "ms (dom)");
-
     }
 
 
