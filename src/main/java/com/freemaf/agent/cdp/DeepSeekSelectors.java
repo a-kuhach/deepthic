@@ -29,4 +29,7 @@ public final class DeepSeekSelectors {
 
     /** Attachment node that appears after a successful upload (provisional). */
     public static final String ATTACHMENT_NODE = "[data-file-name], [class*='attachment'], [class*='file-item']";
-}
+
+
+    /** Text label of the New chat button (leaf node); used to enforce a fresh chat. */
+    public static final String NEW_CHAT_TEXT = "New chat";}
