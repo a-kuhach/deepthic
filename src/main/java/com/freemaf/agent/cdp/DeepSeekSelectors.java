@@ -57,7 +57,7 @@ public final class DeepSeekSelectors {
     public static final String ATTACH_BUTTON = "button[aria-label*='attach'], button[aria-label*='\u0444\u0430\u0439\u043b'], button[aria-label*='Attach'], [data-testid='attach-button']";
 
     /** Attachment node that appears after a successful upload (provisional). */
-    public static final String ATTACHMENT_NODE = "[data-file-name], [class*='attachment'], [class*='file-item'], [class*='file-card'], [class*='file-preview'], [class*='attach'], [class*='upload'], [data-testid*='file'], [data-testid*='attach']";
+    public static final String ATTACHMENT_NODE = "[data-file-name], [class*='attachment'], [class*='file-item'], [class*='file-card'], [class*='file-preview'], [class*='attach'], [class*='upload'], [data-testid*='file'], [data-testid*='attach'], [class*='image-preview'], [class*='thumbnail']";
 
 
 
