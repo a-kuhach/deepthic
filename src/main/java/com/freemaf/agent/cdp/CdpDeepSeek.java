@@ -152,44 +152,15 @@ public final class CdpDeepSeek {
             sleep(500L);
         }
 
-        if (landedCount > 0) {
-
-            AppLogger.info("CdpDeepSeek.open: history-detected count=" + landedCount + "; clicking New chat");
-
-            String clickResult = clickNewChat();
-
-            AppLogger.info("CdpDeepSeek.open: New chat click = " + clickResult);
-
-            sleep(2000L);
-
-            long deadline = System.currentTimeMillis() + 5000L;
-
-            int postCount = landedCount;
-
-            while (System.currentTimeMillis() < deadline) {
-
-                postCount = countAnyMessages();
-
-                if (postCount == 0) break;
-
-                sleep(300L);
-
-            }
-
-            AppLogger.info("CdpDeepSeek.open: after New chat count=" + postCount);
-
-            if (postCount > 0) {
-
-                AppLogger.warn("CdpDeepSeek.open: chat still has " + postCount + " message/code nodes after New chat click; UI may not have reset");
-
-            }
-
-        } else {
-
-            AppLogger.info("CdpDeepSeek.open: chat is empty (count=0), no New chat click needed");
-
-        }
-
+        // FIX15: unconditionally force fresh chat via clickNewChat (DOM is virtualized, history not visible)
+        AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat()");
+        String clickResult = clickNewChat();
+        AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
+        sleep(2000L);
+        try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
+        String postUrl = evaluate("String(location.href)");
+        int postCount = countAnyMessages();
+        AppLogger.info("CdpDeepSeek.open: post-click URL=" + postUrl + " count=" + postCount);
     }
 
 
@@ -217,51 +188,60 @@ public final class CdpDeepSeek {
     }
 
 
-    private String clickNewChat() {
 
-        String expr =
-
-                "(function(){" +
-
-                "var nodes=document.querySelectorAll('*');" +
-
-                "for(var i=0;i<nodes.length;i++){" +
-
-                "  var el=nodes[i];" +
-
-                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='" + DeepSeekSelectors.NEW_CHAT_TEXT + "'){" +
-
-                "    var p=el;" +
-
-                "    for(var j=0;j<6 && p;j++){" +
-
-                "      var r=p.getAttribute && p.getAttribute('role');" +
-
-                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
-
-                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
-
-                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
-
-                "      p=p.parentElement;" +
-
-                "    }" +
-
-                "    el.click();" +
-
-                "    return 'clicked-leaf';" +
-
-                "  }" +
-
-                "}" +
-
-                "return 'NOT_FOUND';" +
-
-                "})()";
-
-        return evaluate(expr);
-
-    }
+    private String clickNewChat() {
+        String expr =
+                "(function(){" +
+                "var nodes=document.querySelectorAll('*');" +
+                "for(var i=0;i<nodes.length;i++){" +
+                "  var el=nodes[i];" +
+                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='New chat'){" +
+                "    var p=el;" +
+                "    for(var j=0;j<6 && p;j++){" +
+                "      var r=p.getAttribute && p.getAttribute('role');" +
+                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
+                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
+                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
+                "      p=p.parentElement;" +
+                "    }" +
+                "    el.click();" +
+                "    return 'clicked-leaf';" +
+                "  }" +
+                "}" +
+                "var byTestId=document.querySelector('[data-testid*=\"new-chat\"], [data-testid*=\"new_chat\"], [data-testid*=\"newChat\"]');" +
+                "if(byTestId){byTestId.click();return 'clicked-testid';}" +
+                "var byAria=document.querySelector('[aria-label*=\"New chat\" i], [aria-label*=\"Новый чат\" i], [aria-label*=\"新对话\" i]');" +
+                "if(byAria){byAria.click();return 'clicked-aria';}" +
+                "var partial=document.querySelectorAll('div, span, button, a');" +
+                "for(var k=0;k<partial.length;k++){" +
+                "  var e2=partial[k];" +
+                "  var t=(e2.textContent||'').trim();" +
+                "  if(t.length>0 && t.length<40 && (t.indexOf('New chat')>=0 || t.indexOf('Новый чат')>=0 || t.indexOf('新对话')>=0)){" +
+                "    var q=e2;" +
+                "    for(var m=0;m<6 && q;m++){" +
+                "      if(q.tagName==='BUTTON'||q.tagName==='A'||(q.getAttribute&&q.getAttribute('role')==='button')){q.click();return 'clicked-partial-'+q.tagName;}" +
+                "      q=q.parentElement;" +
+                "    }" +
+                "    e2.click();return 'clicked-partial-leaf';" +
+                "  }" +
+                "}" +
+                "var anchors=document.querySelectorAll('a[href=\"/\"], a[href=\"https://chat.deepseek.com/\"]');" +
+                "for(var n=0;n<anchors.length;n++){" +
+                "  var a=anchors[n];" +
+                "  var par=a.closest('nav, aside, [class*=\"sidebar\"], [class*=\"sider\"]');" +
+                "  if(par){a.click();return 'clicked-anchor-nav';}" +
+                "}" +
+                "return 'NOT_FOUND';" +
+                "})()";
+        String result = evaluate(expr);
+        if ("NOT_FOUND".equals(result)) {
+            try {
+                String dump = evaluate("JSON.stringify(Array.from(document.querySelectorAll('button, [role=button], a')).slice(0,50).map(function(e){return {tag:e.tagName,role:e.getAttribute('role')||'',aria:e.getAttribute('aria-label')||'',testid:e.getAttribute('data-testid')||'',cls:(e.className||'').toString().slice(0,60),text:(e.textContent||'').trim().slice(0,40)};}))");
+                AppLogger.info("CdpDeepSeek.clickNewChat NOT_FOUND, sidebar dump: " + dump);
+            } catch (Exception ignored) { }
+        }
+        return result;
+    }
 
 
     public void navigate(String url) {
@@ -727,7 +707,36 @@ public final class CdpDeepSeek {
         int attempts = 0;
         while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
             attempts++;
-            clickAttachButton();
+            // FIX14: use Input.dispatchMouseEvent instead of element.click() (headless chooser)
+            try {
+                String rectJson = evaluate("String((function(){var b=document.querySelector('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]');if(!b)return '' ;var r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
+                if (rectJson != null && rectJson.contains("x")) {
+                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
+                    double cx = rj.path("x").asDouble();
+                    double cy = rj.path("y").asDouble();
+                    Map<String, Object> press = new HashMap<>();
+                    press.put("type", "mousePressed");
+                    press.put("x", cx);
+                    press.put("y", cy);
+                    press.put("button", "left");
+                    press.put("clickCount", 1);
+                    activeTab.send("Input.dispatchMouseEvent", press);
+                    Map<String, Object> release = new HashMap<>();
+                    release.put("type", "mouseReleased");
+                    release.put("x", cx);
+                    release.put("y", cy);
+                    release.put("button", "left");
+                    release.put("clickCount", 1);
+                    activeTab.send("Input.dispatchMouseEvent", release);
+                    AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
+                } else {
+                    AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
+                    clickAttachButton();
+                }
+            } catch (Exception mce) {
+                AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
+                clickAttachButton();
+            }
             sleep(300L);
             rootNodeId = nodeIdOfDocument();
             if (rootNodeId != null) {
@@ -803,6 +812,52 @@ public final class CdpDeepSeek {
             }
         }
 
+        // FIX14 diagnostics: input count, attached, shadow, iframe
+        try {
+            String fileInputs = evaluate("String(document.querySelectorAll('input[type=file]').length)");
+            String attached = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i ? document.contains(i) : 'no-input';})())");
+            String rootIsDoc = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i ? (i.getRootNode() === document) : 'no-input';})())");
+            String iframeCount = evaluate("String(document.querySelectorAll('iframe').length)");
+            String iconButtons = evaluate("String(document.querySelectorAll('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]').length)");
+            AppLogger.info("CdpDeepSeek.attachFile: pierce diag fileInputs=" + fileInputs + " attached=" + attached + " rootIsDoc=" + rootIsDoc + " iframes=" + iframeCount + " iconButtons=" + iconButtons);
+        } catch (Exception diagEx) {
+            AppLogger.warn("CdpDeepSeek.attachFile: pierce diag error: " + diagEx.getMessage());
+        }
+
+        // FIX14: objectId fallback (Playwright uses objectId, not nodeId/backendNodeId)
+        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
+            try {
+                Map<String, Object> evalParams = new HashMap<>();
+                evalParams.put("expression", "document.querySelector(\"input[type=file]\")");
+                evalParams.put("returnByValue", Boolean.FALSE);
+                JsonNode evalResp = activeTab.send("Runtime.evaluate", evalParams);
+                if (evalResp != null && evalResp.get("error") == null) {
+                    JsonNode objIdNode = evalResp.path("result").path("result").path("objectId");
+                    if (!objIdNode.isMissingNode()) {
+                        String objectId = objIdNode.asText();
+                        Map<String, Object> pObj = new HashMap<>();
+                        pObj.put("files", List.of(abs));
+                        pObj.put("objectId", objectId);
+                        JsonNode rObj = activeTab.send("DOM.setFileInputFiles", pObj);
+                        AppLogger.info("CdpDeepSeek.attachFile: objectId attempt resp=" + rObj);
+                        String firstFilesObj = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
+                        AppLogger.info("CdpDeepSeek.attachFile: after objectId firstFiles=" + firstFilesObj);
+                        if (!"0".equals(firstFilesObj) && !"-1".equals(firstFilesObj)) {
+                            firstFiles = firstFilesObj;
+                        }
+                    }
+                }
+            } catch (Exception objEx) {
+                AppLogger.warn("CdpDeepSeek.attachFile: objectId attempt failed: " + objEx.getMessage());
+            }
+        }
+
+        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
+            AppLogger.warn("CdpDeepSeek.attachFile: all setFileInputFiles variants failed, falling back to chooser via CDP mouse click");
+            attachFileViaChooser(abs, bytes, start);
+            return;
+        }
+
         waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS);
         long elapsed = System.currentTimeMillis() - start;
         AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsed + "ms (dom)");
@@ -815,6 +870,7 @@ public final class CdpDeepSeek {
         Map<String, Object> params = new HashMap<>();
 
         params.put("depth", Integer.valueOf(-1));
+        params.put("pierce", Boolean.TRUE);
 
         JsonNode resp;
 
