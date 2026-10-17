@@ -484,7 +484,7 @@ public final class CdpDeepSeek {
                 try {
                     String dsMd = evaluate("String(document.querySelectorAll('div.ds-markdown').length)");
                     String preC = evaluate("String(document.querySelectorAll('pre').length)");
-                    String btnC = evaluate("String(document.querySelectorAll('button[aria-label*=\"Copy\"], button[aria-label*=\"copy\"], button[aria-label*=\"Regenerate\"], button[aria-label*=\"regenerate\"], button[aria-label*=\"Edit\"], button[data-testid*=\"copy\"], button[data-testid*=\"regenerate\"]').length)");
+                    String btnC = evaluate("String(document.querySelectorAll('div.ds-flex button, button[aria-label*='copy'], button[aria-label*='Copy'], button[aria-label*='Копировать']').length)");
                     String vis = evaluate("String(document.visibilityState || 'unknown')");
                     String hrf = evaluate("String(location.href)");
                     String hasInp = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
@@ -548,63 +548,16 @@ public final class CdpDeepSeek {
 
 
     private static boolean isResponseComplete(String raw) {
-
         if (raw == null || raw.isEmpty()) return false;
-
-
-
         int q = 0;
-
         for (int i = 0; i < raw.length(); i++) {
-
             char c = raw.charAt(i);
-
             if (c == '"' && (i == 0 || raw.charAt(i - 1) != '\\')) q++;
-
         }
-
-        if ((q % 2) != 0) return false;
-
-
-
-        String[] lines = raw.split("\\R");
-
-        for (String line : lines) {
-
-            String t = line.strip();
-
-            if (t.isEmpty()) continue;
-
-            if (BARE_CMDLET_VERB.matcher(t).matches()) return false;
-
-            char last = t.charAt(t.length() - 1);
-
-            if (last == '-' || last == '|' || last == ',' || last == '+'
-
-                    || last == '=' || last == '{' || last == '(' || last == '['
-
-                    || last == '.' || last == ':') {
-
-                return false;
-
-            }
-
-        }
-
-
-
-        String stripped = raw.replaceAll("\"[^\"]*\"", "").replaceAll("'[^']*'", "");
-
-        if (countChar(stripped, '{') != countChar(stripped, '}')) return false;
-
-        if (countChar(stripped, '(') != countChar(stripped, ')')) return false;
-
-        if (countChar(stripped, '[') != countChar(stripped, ']')) return false;
-
-
-
-        return true;
-
+        // Truncated mid-string -> odd quote count -> keep polling.
+        // Do NOT reject trailing ':', '(', '{', etc.: PowerShell comments and
+        // multi-line constructs legitimately end with these characters.
+        return (q % 2) == 0;
     }
 
 
