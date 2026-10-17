@@ -52,7 +52,7 @@ public final class ChromeProcessLauncher {
                 String chromeVer = resolveChromeVersion();
                 int major = 0;
                 try { major = Integer.parseInt(chromeVer); } catch (Exception ignored) { }
-                args.add("--headless=old");
+                args.add("--headless=new");
                 args.add("--window-position=-32000,-32000");
                 args.add("--window-size=1920,1080");
                 AppLogger.info("FIX40: using --headless=old + off-screen (Chrome " + chromeVer + ")");
@@ -96,7 +96,7 @@ public final class ChromeProcessLauncher {
                 int major = 0;
                 try { major = Integer.parseInt(chromeVer); } catch (Exception ignored) { }
                 if (major > 0 && major < 132) {
-                    args.add("--headless=old");
+                    args.add("--headless=new");
                     AppLogger.info("FIX39: using --headless=old (Chrome " + major + " < 132, no window)");
                 } else {
                     args.add("--headless=new");
@@ -167,7 +167,7 @@ public final class ChromeProcessLauncher {
 
             if (line != null) {
 
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("Chrome/(\\d+)\\.").matcher(line);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\.").matcher(line);
 
                 if (m.find()) { cachedVersion = m.group(1); return cachedVersion; }
 
@@ -200,6 +200,7 @@ public final class ChromeProcessLauncher {
     // FIX40: chrome-headless-shell.exe is the only window-less binary for Chrome 131+.
     // Auto-download from Chrome for Testing if not present.
     public static String resolveHeadlessShellPath() {
+        AppLogger.info("FIX41: resolveHeadlessShellPath called");
         try {
             String chrome = resolveChromePath();
             java.io.File chromeFile = new java.io.File(chrome);
@@ -210,6 +211,7 @@ public final class ChromeProcessLauncher {
             java.io.File cacheShell = new java.io.File("agent/cache/chrome-headless-shell/chrome-headless-shell.exe");
             if (cacheShell.isFile()) return cacheShell.getAbsolutePath();
             String fullVersion = resolveFullChromeVersion();
+            AppLogger.info("FIX41: resolved fullVersion=" + fullVersion);
             if (fullVersion == null || fullVersion.isEmpty()) {
                 AppLogger.warn("FIX40: cannot resolve full Chrome version for headless-shell download");
                 return null;
@@ -261,7 +263,7 @@ public final class ChromeProcessLauncher {
             }
             try { p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             if (line != null) {
-                java.util.regex.Matcher m = java.util.regex.Pattern.compile("Chrome/([0-9.]+)").matcher(line);
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)").matcher(line);
                 if (m.find()) return m.group(1);
             }
         } catch (Exception ignored) { }
