@@ -428,8 +428,25 @@ public final class CdpDeepSeek {
         String hasMd = evaluate("String(!!document.querySelector('div.ds-markdown'))");
         String bodyLen = evaluate("String((document.body && document.body.innerText || '').length)");
         String diag = "url=" + url + " title=" + title + " readyState=" + rs + " hasMarkdown=" + hasMd + " bodyLen=" + bodyLen;
-        AppLogger.warn("CdpDeepSeek.waitForInput TIMEOUT after " + timeoutMs + "ms: " + diag);
-        throw new TimeoutException("input not found within " + timeoutMs + " ms [" + diag + "]");
+
+        // FIX29: CloudFront/WAF block detection (title=ERROR: The request could not be satisfied, small bodyLen)
+        String bodySnippet = evaluate("String(((document.body && document.body.innerText) || '').slice(0, 200))");
+        boolean cfBlocked = title != null
+                && (title.contains("request could not be satisfied") || title.startsWith("ERROR"))
+                && url != null && !url.contains("/sign_in") && !url.contains("/signin")
+                && bodyLen != null && Long.parseLong(bodyLen) < 1500L;
+        if (cfBlocked) {
+            String msg = "CloudFront/WAF блокирует доступ к chat.deepseek.com (title=\"" + title + "\", bodyLen=" + bodyLen + "). "
+                    + "Причины: (1) IP/страна заблокированы CloudFront — включите/смените VPN (не RU, не датацентр); "
+                    + "(2) rate-limit по IP после серии запросов — подождите 15-30 мин; "
+                    + "(3) Chrome Secure DNS (DoH) конфликтует — chrome://settings/security → Use secure DNS → выключить или 'With your current service provider'; "
+                    + "(4) профиль cdp-profile повреждён — удалите agent/cache/cdp-profile (потеряется логин). "
+                    + "Body: " + bodySnippet;
+            AppLogger.warn("CdpDeepSeek.waitForInput: FIX29 CloudFront blocked — " + msg);
+            throw new IllegalStateException(msg);
+        }
+        AppLogger.warn("CdpDeepSeek.waitForInput TIMEOUT after " + timeoutMs + "ms: " + diag);
+        throw new TimeoutException("input not found within " + timeoutMs + " ms [" + diag + "]");
     }
 
     public String evaluate(String expression) {
@@ -1317,20 +1334,34 @@ public final class CdpDeepSeek {
 
 
 
-    private void waitForAttachmentVisible(long timeoutMs) throws CdpAttachException {
-        // Simple length check (used by attachFileViaChooser fallback; keeps backward-compat with existing test).
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        String expr = "String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)";
-        while (System.currentTimeMillis() < deadline) {
-            String v = evaluate(expr);
-            try {
-                if (v != null && Long.parseLong(v) > 0L) return;
-            } catch (NumberFormatException ignored) { }
-            sleep(ATTACH_POLL_MS);
-        }
-        throw new CdpAttachException("wait-upload",
-                "attachment did not appear in DOM within " + timeoutMs + " ms", null);
-    }
+    private void waitForAttachmentVisible(long timeoutMs) throws CdpAttachException {
+
+        // Simple length check (used by attachFileViaChooser fallback; keeps backward-compat with existing test).
+
+        long deadline = System.currentTimeMillis() + timeoutMs;
+
+        String expr = "String(document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ATTACHMENT_NODE) + "\").length)";
+
+        while (System.currentTimeMillis() < deadline) {
+
+            String v = evaluate(expr);
+
+            try {
+
+                if (v != null && Long.parseLong(v) > 0L) return;
+
+            } catch (NumberFormatException ignored) { }
+
+            sleep(ATTACH_POLL_MS);
+
+        }
+
+        throw new CdpAttachException("wait-upload",
+
+                "attachment did not appear in DOM within " + timeoutMs + " ms", null);
+
+    }
+
 
 
 
