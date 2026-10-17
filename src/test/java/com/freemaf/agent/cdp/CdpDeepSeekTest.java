@@ -93,7 +93,7 @@ class CdpDeepSeekTest {
 
             deepSeek.open();
 
-            Thread.sleep(3000L);
+            Thread.sleep(1000L); // FIX35: was 3000L
 
         } catch (Throwable t) {
 

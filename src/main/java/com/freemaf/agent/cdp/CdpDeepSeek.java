@@ -92,23 +92,40 @@ public final class CdpDeepSeek {
             AppLogger.warn("Emulation.setFocusEmulationEnabled failed (adopt): " + e.getMessage());
         }
 
-
-        try {
-            String stealthSource =
-                    "(function(){"
-                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
-                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
-                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
-                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
-                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
-                    + "})()";
-            Map<String, Object> stealthParams = new HashMap<>();
-            stealthParams.put("source", stealthSource);
-            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
-            AppLogger.info("FIX30: stealth script installed (adopt)");
-        } catch (Exception sx) {
-            AppLogger.warn("FIX30: stealth script install failed (adopt): " + sx.getMessage());
-        }
+
+
+        try {
+
+            String stealthSource =
+
+                    "(function(){"
+
+                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
+
+                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
+
+                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
+
+                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
+
+                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
+
+                    + "})()";
+
+            Map<String, Object> stealthParams = new HashMap<>();
+
+            stealthParams.put("source", stealthSource);
+
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
+
+            AppLogger.info("FIX30: stealth script installed (adopt)");
+
+        } catch (Exception sx) {
+
+            AppLogger.warn("FIX30: stealth script install failed (adopt): " + sx.getMessage());
+
+        }
+
     }
 
 
@@ -138,24 +155,42 @@ public final class CdpDeepSeek {
 
         }
 
-        // FIX30: stealth script via Page.addScriptToEvaluateOnNewDocument
-        try {
-            String stealthSource =
-                    "(function(){"
-                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
-                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
-                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
-                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
-                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
-                    + "try{var origQuery=navigator.permissions&&navigator.permissions.query;if(origQuery){navigator.permissions.query=function(p){if(p&&p.name==='notifications'){return Promise.resolve({state:'denied',onchange:null});}return origQuery.call(navigator.permissions,p);};}}catch(e){}"
-                    + "})()";
-            Map<String, Object> stealthParams = new HashMap<>();
-            stealthParams.put("source", stealthSource);
-            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
-            AppLogger.info("FIX30: stealth script installed via Page.addScriptToEvaluateOnNewDocument");
-        } catch (Exception sx) {
-            AppLogger.warn("FIX30: stealth script install failed: " + sx.getMessage());
-        }
+        // FIX30: stealth script via Page.addScriptToEvaluateOnNewDocument
+
+        try {
+
+            String stealthSource =
+
+                    "(function(){"
+
+                    + "try{Object.defineProperty(navigator,'webdriver',{get:function(){return undefined;},configurable:true});}catch(e){}"
+
+                    + "try{Object.defineProperty(navigator,'plugins',{get:function(){return [1,2,3];},configurable:true});}catch(e){}"
+
+                    + "try{Object.defineProperty(navigator,'languages',{get:function(){return ['ru-RU','ru','en-US','en'];},configurable:true});}catch(e){}"
+
+                    + "try{if(!window.chrome){window.chrome={};}if(!window.chrome.runtime){window.chrome.runtime={};}}catch(e){}"
+
+                    + "try{Object.defineProperty(window,'outerWidth',{get:function(){return window.innerWidth;},configurable:true});Object.defineProperty(window,'outerHeight',{get:function(){return window.innerHeight;},configurable:true});}catch(e){}"
+
+                    + "try{var origQuery=navigator.permissions&&navigator.permissions.query;if(origQuery){navigator.permissions.query=function(p){if(p&&p.name==='notifications'){return Promise.resolve({state:'denied',onchange:null});}return origQuery.call(navigator.permissions,p);};}}catch(e){}"
+
+                    + "})()";
+
+            Map<String, Object> stealthParams = new HashMap<>();
+
+            stealthParams.put("source", stealthSource);
+
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", stealthParams);
+
+            AppLogger.info("FIX30: stealth script installed via Page.addScriptToEvaluateOnNewDocument");
+
+        } catch (Exception sx) {
+
+            AppLogger.warn("FIX30: stealth script install failed: " + sx.getMessage());
+
+        }
+
 
         try {
             Map<String, Object> focus = new HashMap<>();
@@ -167,6 +202,14 @@ public final class CdpDeepSeek {
         }
 
         navigate(DEEPSEEK_URL);
+
+        // FIX35: fast-fail if redirected to sign_in (cold profile, CloudFront sign_in response).
+        // Saves ~13 s per open() call when not logged in.
+        sleep(2000L);
+        String urlAfterNav = evaluate("String(location.href)");
+        if (urlAfterNav != null && (urlAfterNav.contains("/sign_in") || urlAfterNav.contains("/signin") || urlAfterNav.contains("/login"))) {
+            throw new IllegalStateException("FIX35: sign_in detected after navigate (" + urlAfterNav + "); fast-fail");
+        }
 
 
 

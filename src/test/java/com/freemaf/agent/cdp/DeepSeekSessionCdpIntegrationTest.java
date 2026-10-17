@@ -87,7 +87,7 @@ class DeepSeekSessionCdpIntegrationTest {
         // independent detectors (structured selector, any <pre> code block, ROLE marker
         // in body text). Any non-zero hint means prior context exists and the model
         // would answer in-context instead of PONG; skip the test.
-        for (int i = 0; i < 60; i++) {
+        for (int i = 0; i < 10; i++) { // FIX35: was 60 (30 s -> 5 s)
             Thread.sleep(500L);
             try {
                 int c = bootstrap.executor().getAssistantMessageCount();
