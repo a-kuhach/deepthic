@@ -46,9 +46,7 @@ public final class PowerShellExecutor {
         String command = "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
                 + "$OutputEncoding = [System.Text.Encoding]::UTF8; "
                 + "& '" + scriptPath + "'";
-        ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command);
-        pb.directory(Path.of(".").toAbsolutePath().normalize().toFile());
-        pb.redirectErrorStream(false);
+        ProcessBuilder pb = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command);         pb.directory(Path.of(".").toAbsolutePath().normalize().toFile());         pb.redirectErrorStream(false);         // FIX8b: stdin redirect to an empty file plus NonInteractive flag prevent         // the PS process from hanging on interactive prompts. A bare cmdlet alias         // such as Set (short for Set-Variable) prompts for the mandatory -Name         // parameter and reads stdin forever. With NonInteractive plus EOF stdin         // the cmdlet fails fast with ParameterBindingException instead of blocking.         try {             Path stdinFile = Path.of("agent", "cache", "_", "ps_stdin_empty.txt");             Files.createDirectories(stdinFile.getParent());             if (!Files.exists(stdinFile)) Files.writeString(stdinFile, "");             pb.redirectInput(ProcessBuilder.Redirect.from(stdinFile.toFile()));         } catch (Exception stdinErr) {             AppLogger.warn("PowerShellExecutor: stdin redirect setup failed: " + stdinErr.getMessage());         }
         Process process = pb.start();
         processStartMs = System.currentTimeMillis();
         if (JobObjectManager.isActive()) {

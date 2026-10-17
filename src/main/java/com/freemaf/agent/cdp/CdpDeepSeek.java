@@ -85,65 +85,162 @@ public final class CdpDeepSeek {
     }
 
 
-    public void open() throws Exception {
-        activeTabInfo = session.newTab();
-        if (activeTabInfo == null || activeTabInfo.id().isEmpty()) {
-            throw new IllegalStateException("newTab returned no usable tab");
-        }
-        session.activateTab(activeTabInfo);
-        activeTab = session.attach(activeTabInfo);
-        try {
-            Map<String, Object> pageEnable = new HashMap<>();
-            activeTab.send("Page.enable", pageEnable);
-        } catch (Exception e) {
-            AppLogger.warn("Page.enable failed: " + e.getMessage());
-        }
-        navigate(DEEPSEEK_URL);
-
-        try {
-            waitForInput(15_000L);
-        } catch (TimeoutException te) {
-            throw new IllegalStateException("input field not found after navigate: " + te.getMessage(), te);
-        }
-        String landedUrl = evaluate("String(location.href)");
-        if (landedUrl != null && landedUrl.contains("/a/chat/s/")) {
-            AppLogger.info("CdpDeepSeek.open: landed on existing chat " + landedUrl + "; clicking New chat");
-            String clickResult = clickNewChat();
-            AppLogger.info("CdpDeepSeek.open: New chat click = " + clickResult);
-            sleep(1500L);
-            try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
-            String postUrl = evaluate("String(location.href)");
-            AppLogger.info("CdpDeepSeek.open: post-click URL = " + postUrl);
-            if (postUrl != null && postUrl.contains("/a/chat/s/")) {
-                AppLogger.warn("CdpDeepSeek.open: still on a chat URL after New chat click: " + postUrl);
-            }
-        }
-    }
-
-    private String clickNewChat() {
-        String expr =
-                "(function(){" +
-                "var nodes=document.querySelectorAll('*');" +
-                "for(var i=0;i<nodes.length;i++){" +
-                "  var el=nodes[i];" +
-                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='" + DeepSeekSelectors.NEW_CHAT_TEXT + "'){" +
-                "    var p=el;" +
-                "    for(var j=0;j<6 && p;j++){" +
-                "      var r=p.getAttribute && p.getAttribute('role');" +
-                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
-                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
-                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
-                "      p=p.parentElement;" +
-                "    }" +
-                "    el.click();" +
-                "    return 'clicked-leaf';" +
-                "  }" +
-                "}" +
-                "return 'NOT_FOUND';" +
-                "})()";
-        return evaluate(expr);
-    }
-    public void navigate(String url) {
+    public void open() throws Exception {
+
+        activeTabInfo = session.newTab();
+
+        if (activeTabInfo == null || activeTabInfo.id().isEmpty()) {
+
+            throw new IllegalStateException("newTab returned no usable tab");
+
+        }
+
+        session.activateTab(activeTabInfo);
+
+        activeTab = session.attach(activeTabInfo);
+
+        try {
+
+            Map<String, Object> pageEnable = new HashMap<>();
+
+            activeTab.send("Page.enable", pageEnable);
+
+        } catch (Exception e) {
+
+            AppLogger.warn("Page.enable failed: " + e.getMessage());
+
+        }
+
+        navigate(DEEPSEEK_URL);
+
+
+
+        try {
+
+            waitForInput(15_000L);
+
+        } catch (TimeoutException te) {
+
+            throw new IllegalStateException("input field not found after navigate: " + te.getMessage(), te);
+
+        }
+
+
+        int landedCount = countAnyMessages();
+
+        if (landedCount > 0) {
+
+            AppLogger.info("CdpDeepSeek.open: history-detected count=" + landedCount + "; clicking New chat");
+
+            String clickResult = clickNewChat();
+
+            AppLogger.info("CdpDeepSeek.open: New chat click = " + clickResult);
+
+            sleep(2000L);
+
+            long deadline = System.currentTimeMillis() + 5000L;
+
+            int postCount = landedCount;
+
+            while (System.currentTimeMillis() < deadline) {
+
+                postCount = countAnyMessages();
+
+                if (postCount == 0) break;
+
+                sleep(300L);
+
+            }
+
+            AppLogger.info("CdpDeepSeek.open: after New chat count=" + postCount);
+
+            if (postCount > 0) {
+
+                AppLogger.warn("CdpDeepSeek.open: chat still has " + postCount + " message/code nodes after New chat click; UI may not have reset");
+
+            }
+
+        } else {
+
+            AppLogger.info("CdpDeepSeek.open: chat is empty (count=0), no New chat click needed");
+
+        }
+
+    }
+
+
+
+    private int countAnyMessages() {
+
+        String expr = "String(document.querySelectorAll(\""
+
+                + escapeJs(DeepSeekSelectors.ANY_MESSAGE_OR_CODE)
+
+                + "\").length)";
+
+        String v = evaluate(expr);
+
+        try {
+
+            return Integer.parseInt(v);
+
+        } catch (Exception e) {
+
+            return 0;
+
+        }
+
+    }
+
+
+    private String clickNewChat() {
+
+        String expr =
+
+                "(function(){" +
+
+                "var nodes=document.querySelectorAll('*');" +
+
+                "for(var i=0;i<nodes.length;i++){" +
+
+                "  var el=nodes[i];" +
+
+                "  if(el.children.length===0 && el.textContent && el.textContent.trim()==='" + DeepSeekSelectors.NEW_CHAT_TEXT + "'){" +
+
+                "    var p=el;" +
+
+                "    for(var j=0;j<6 && p;j++){" +
+
+                "      var r=p.getAttribute && p.getAttribute('role');" +
+
+                "      if(r==='button'){p.click();return 'clicked-role-button';}" +
+
+                "      if(p.tagName==='BUTTON'){p.click();return 'clicked-BUTTON';}" +
+
+                "      if(p.tagName==='A'){p.click();return 'clicked-A';}" +
+
+                "      p=p.parentElement;" +
+
+                "    }" +
+
+                "    el.click();" +
+
+                "    return 'clicked-leaf';" +
+
+                "  }" +
+
+                "}" +
+
+                "return 'NOT_FOUND';" +
+
+                "})()";
+
+        return evaluate(expr);
+
+    }
+
+
+    public void navigate(String url) {
 
         if (activeTab == null) throw new IllegalStateException("no active tab");
 
@@ -338,53 +435,156 @@ public final class CdpDeepSeek {
                 "(function(){var m=document.querySelectorAll(\""
                 + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE)
                 + "\");if(!m.length)return '';"
-                + "var last=m[m.length-1];"
-                + "var pre=last.querySelector('pre');"
-                + "if(pre)return pre.innerText;"
-                + "return last.innerText;})()";
+                + "var lastPre=null;"
+                + "for(var i=0;i<m.length;i++){"
+                + "var ps=m[i].querySelectorAll('pre');"
+                + "if(ps.length)lastPre=ps[ps.length-1];"
+                + "}"
+                + "if(lastPre)return lastPre.innerText;"
+                + "var allPre=document.querySelectorAll('pre');"
+                + "if(allPre.length)return allPre[allPre.length-1].innerText;"
+                + "return m[m.length-1].innerText;})()";
         String v = evaluate(expr);
         return v == null ? "" : v;
     }
 
 
-    public String waitForResponse(long timeoutMs) throws TimeoutException {
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        int initialCount = countAssistantMessages();
-        String last = "";
-        int stableCount = 0;
-        while (System.currentTimeMillis() < deadline) {
-            int curCount = countAssistantMessages();
-            if (curCount > initialCount) {
-                String cur = readLastResponse();
-                if (cur != null && !cur.isEmpty()) {
-                    boolean streaming = countStreaming() > 0L;
-                    boolean complete = isResponseComplete(cur);
-                    if (!streaming && complete && cur.equals(last)) {
-                        stableCount++;
-                        if (stableCount >= STABLE_ITERATIONS) return cur;
-                    } else {
-                        stableCount = 0;
-                    }
-                    last = cur;
-                }
-            }
-            sleep(POLL_INTERVAL_MS);
-        }
-        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms");
-    }
-
-    private static boolean isResponseComplete(String raw) {
-        // Truncation guard: if the rendered code block was cut off mid-string,
-        // the count of unescaped double quotes is odd. Reject and keep polling.
-        if (raw == null || raw.isEmpty()) return false;
-        int q = 0;
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if (c == '"' && (i == 0 || raw.charAt(i - 1) != '\\')) q++;
-        }
-        return (q % 2) == 0;
-    }
-    private int countAssistantMessages() {
+    public String waitForResponse(long timeoutMs) throws TimeoutException {
+
+        long deadline = System.currentTimeMillis() + timeoutMs;
+
+        int initialCount = countAssistantMessages();
+
+        String last = "";
+
+        int stableCount = 0;
+
+        while (System.currentTimeMillis() < deadline) {
+
+            int curCount = countAssistantMessages();
+
+            if (curCount > initialCount) {
+
+                String cur = readLastResponse();
+
+                if (cur != null && !cur.isEmpty()) {
+
+                    boolean streaming = countStreaming() > 0L;
+
+                    boolean complete = isResponseComplete(cur);
+
+                    if (!streaming && complete && cur.equals(last)) {
+
+                        stableCount++;
+
+                        if (stableCount >= STABLE_ITERATIONS) return cur;
+
+                    } else {
+
+                        stableCount = 0;
+
+                    }
+
+                    last = cur;
+
+                }
+
+            }
+
+            sleep(POLL_INTERVAL_MS);
+
+        }
+
+        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms");
+
+    }
+
+
+
+
+    private static final java.util.regex.Pattern BARE_CMDLET_VERB =
+
+            java.util.regex.Pattern.compile(
+
+                    "(?i)^(Set|Get|New|Remove|Add|Out|Start|Stop|Wait|Copy|Move|Rename|Clear|Test|Import|Export|Invoke|Push|Pop|Group|Where|ForEach)$");
+
+
+
+    private static boolean isResponseComplete(String raw) {
+
+        if (raw == null || raw.isEmpty()) return false;
+
+
+
+        int q = 0;
+
+        for (int i = 0; i < raw.length(); i++) {
+
+            char c = raw.charAt(i);
+
+            if (c == '"' && (i == 0 || raw.charAt(i - 1) != '\\')) q++;
+
+        }
+
+        if ((q % 2) != 0) return false;
+
+
+
+        String[] lines = raw.split("\\R");
+
+        for (String line : lines) {
+
+            String t = line.strip();
+
+            if (t.isEmpty()) continue;
+
+            if (BARE_CMDLET_VERB.matcher(t).matches()) return false;
+
+            char last = t.charAt(t.length() - 1);
+
+            if (last == '-' || last == '|' || last == ',' || last == '+'
+
+                    || last == '=' || last == '{' || last == '(' || last == '['
+
+                    || last == '.' || last == ':') {
+
+                return false;
+
+            }
+
+        }
+
+
+
+        String stripped = raw.replaceAll("\"[^\"]*\"", "").replaceAll("'[^']*'", "");
+
+        if (countChar(stripped, '{') != countChar(stripped, '}')) return false;
+
+        if (countChar(stripped, '(') != countChar(stripped, ')')) return false;
+
+        if (countChar(stripped, '[') != countChar(stripped, ']')) return false;
+
+
+
+        return true;
+
+    }
+
+
+
+    private static int countChar(String s, char c) {
+
+        int n = 0;
+
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == c) n++;
+
+        return n;
+
+    }
+
+
+
+    private int countAssistantMessages() {
         String expr = "String(document.querySelectorAll(\""
                 + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE)
                 + "\").length)";

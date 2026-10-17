@@ -13,7 +13,11 @@ public final class DeepSeekSelectors {
 
     /** Selectors for assistant message containers (comma-joined for querySelectorAll). */
     public static final String ASSISTANT_MESSAGE =
-            "div.ds-markdown, [data-message-author-role='assistant']";
+            "div.ds-markdown, [data-message-author-role='assistant'], [class*='ds-markdown']";
+
+    /** Broad detector for "chat has any rendered content" — used by open() to detect restored history. */
+    public static final String ANY_MESSAGE_OR_CODE =
+            "div.ds-markdown, [data-message-author-role], pre, [class*='ds-markdown']";
 
     /** All textareas - diagnostic only. */
     public static final String ALL_TEXTAREA = "textarea";

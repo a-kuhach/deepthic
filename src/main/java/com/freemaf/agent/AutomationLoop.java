@@ -1263,7 +1263,28 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
 
-                String followUp = PromptBuilder.buildFollowUp(
+
+                // FIX8c: role-less response while a reviewer is active. This is a
+                // reviewer whose ROLE marker was absent (truncated or model ignored).
+                // Do NOT fall through to EXECUTOR; retry in the reviewer window
+                // with a hard reminder so the reviewer can finish its verdict.
+                if ((responseRole == null || responseRole.isEmpty()) && activeReviewerRole != null) {
+                    debug("empty role from reviewer [" + activeReviewerRole + "], retrying in reviewer window");
+                    StringBuilder retry = new StringBuilder();
+                    retry.append("### ROLE_TO_ACT: ").append(activeReviewerRole).append(System.lineSeparator());
+                    retry.append("Твой предыдущий ответ не содержал строку-маркер ROLE на первой строке PS-блока, поэтому роль не определена.")
+                            .append(System.lineSeparator());
+                    retry.append("Повтори ответ одной строкой fenced PowerShell. Первая строка внутри блока ОБЯЗАТЕЛЬНО: Write-Output \"ROLE: ")
+                            .append(activeReviewerRole).append("\" (в двойных кавычках).").append(System.lineSeparator());
+                    retry.append("Если ты выносишь вердикт — добавь Write-Output \"USER_MSG: <PLAN_APPROVED|PLAN_REJECTED|RESULT_APPROVED|RESULT_REJECTED|CODE_APPROVED|CODE_REJECTED>: <причина>\".")
+                            .append(System.lineSeparator());
+                    retry.append("Никаких интерактивных команд (Set без параметров, Read-Host и т.п.). Ничего до блока и после.").append(System.lineSeparator());
+                    retry.append(System.lineSeparator());
+                    retry.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
+                    promptQueue.add(retry.toString());
+                    continue;
+                }
+                String followUp = PromptBuilder.buildFollowUp(
 
                         SystemInstructionProvider.getFormatReminder(), scriptLog);
 
