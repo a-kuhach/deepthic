@@ -11,10 +11,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import com.sun.jna.platform.win32.User32;
+import com.sun.jna.Library;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.platform.win32.WinBase;
+import com.sun.jna.platform.win32.WinDef;
+import com.sun.jna.platform.win32.WinNT;
+import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.WinUser;
-import com.sun.jna.ptr.IntByReference;
-import java.util.HashSet;
 import com.freemaf.agent.AppLogger;
 
 public final class ChromeProcessLauncher {
@@ -90,53 +94,42 @@ public final class ChromeProcessLauncher {
 
 
         if (headless) {
-            // FIX70: chrome-headless-shell via ProcessBuilder (CWD=shell dir)
-            // and continuous hiding of all windows belonging to the shell tree.
+            // FIX72: CREATE_NO_WINDOW + DETACHED_PROCESS + STARTF_USESTDHANDLES
+            // to hide console window and allow shell to initialize properly.
             String shell = resolveHeadlessShellPath();
             if (shell != null) {
                 List<String> shellArgs = new ArrayList<>(args);
                 shellArgs.set(0, shell);
                 shellArgs.add("--no-sandbox");
                 shellArgs.add("--disable-gpu");
-                ProcessBuilder shellPb = new ProcessBuilder(shellArgs);
-                shellPb.directory(new java.io.File(shell).getParentFile());
-                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
-                shellPb.redirectError(shellErr);
-                Process shellProc = shellPb.start();
-                long shellPid = shellProc.pid();
-                AppLogger.info("FIX70: chrome-headless-shell pid=" + shellPid);
-                new Thread(() -> {
-                    while (shellProc.isAlive()) {
-                        hideWindowTree(shellPid);
-                        try { Thread.sleep(200L); } catch (InterruptedException e) { break; }
+                java.io.File workingDir = new java.io.File(shell).getParentFile();
+                Process shellProc = startWithCreateNoWindow(shellArgs, workingDir);
+                if (shellProc != null) {
+                    AppLogger.info("FIX72: chrome-headless-shell (CREATE_NO_WINDOW) pid=" + shellProc.pid());
+                    try { Thread.sleep(3000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    boolean shellPortOk = false;
+                    try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
+                    if (shellPortOk) {
+                        AppLogger.info("FIX72: shell port " + port + " is open");
+                        final Process sp = shellProc;
+                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                            try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
+                        }, "chrome-shutdown-" + port));
+                        return shellProc;
                     }
-                }, "shell-window-hider-" + shellPid).start();
-                try { Thread.sleep(3000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                boolean shellPortOk = false;
-                try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
-                if (shellPortOk) {
-                    AppLogger.info("FIX70: shell port " + port + " is open");
-                    final Process sp = shellProc;
-                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                        try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
-                    }, "chrome-shutdown-" + port));
-                    return shellProc;
+                    AppLogger.warn("FIX72: shell port " + port + " NOT open within 15s");
+                    try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                    shellProc.destroyForcibly();
+                } else {
+                    AppLogger.warn("FIX72: startWithCreateNoWindow returned null");
                 }
-                AppLogger.warn("FIX70: shell port " + port + " NOT open within 15s");
-                try {
-                    String err = java.nio.file.Files.readString(shellErr.toPath());
-                    if (!err.isEmpty()) AppLogger.warn("FIX70: shell stderr: " + err);
-                } catch (Exception ignored) { }
-                try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellPid)).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
-                shellProc.destroyForcibly();
             }
             // Last-resort fallback (visible window, but pipeline continues).
             args.add("--headless=new");
             args.add("--no-sandbox");
             args.add("--disable-gpu");
             args.add("--window-size=1920,1080");
-            AppLogger.warn("FIX70: fallback chrome.exe --headless=new --no-sandbox (window may be visible)");
+            AppLogger.warn("FIX72: fallback chrome.exe --headless=new --no-sandbox (window may be visible)");
         } else {
             args.add("--new-window");
         }
@@ -471,21 +464,56 @@ public final class ChromeProcessLauncher {
     }
 
 
-    // FIX70: hide all windows (including console) of a process and its descendants.
-    private static void hideWindowTree(long rootPid) {
+    // FIX72: launch with CREATE_NO_WINDOW | DETACHED_PROCESS and inherited handles.
+    private static Process startWithCreateNoWindow(List<String> cmd, java.io.File workingDir) {
         try {
-            Set<Long> pids = new HashSet<>();
-            pids.add(rootPid);
-            ProcessHandle.of(rootPid).ifPresent(ph -> ph.descendants().forEach(h -> pids.add(h.pid())));
-            User32.INSTANCE.EnumWindows((hwnd, data) -> {
-                IntByReference pidRef = new IntByReference();
-                User32.INSTANCE.GetWindowThreadProcessId(hwnd, pidRef);
-                if (pids.contains((long) pidRef.getValue())) {
-                    User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
-                }
-                return true;
-            }, null);
-        } catch (Throwable ignored) { }
+            WinBase.STARTUPINFO si = new WinBase.STARTUPINFO();
+            si.cb = new WinDef.DWORD(si.size());
+            si.dwFlags = WinBase.STARTF_USESHOWWINDOW | WinBase.STARTF_USESTDHANDLES;
+            si.wShowWindow = new WinDef.WORD(WinUser.SW_HIDE);
+            si.hStdInput = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_INPUT_HANDLE);
+            si.hStdOutput = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_OUTPUT_HANDLE);
+            si.hStdError = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_ERROR_HANDLE);
+            WinBase.PROCESS_INFORMATION pi = new WinBase.PROCESS_INFORMATION();
+            String cmdLine = "\"" + cmd.get(0) + "\" " + String.join(" ", cmd.subList(1, cmd.size()));
+            String cwd = workingDir != null ? workingDir.getAbsolutePath() : null;
+            int flags = WinBase.CREATE_NO_WINDOW | 0x00000008; // DETACHED_PROCESS
+            boolean ok = Kernel32.INSTANCE.CreateProcess(
+                null, cmdLine, null, null, true,
+                new WinDef.DWORD(flags),
+                null, cwd, si, pi);
+            if (!ok) {
+                AppLogger.warn("FIX72: CreateProcess failed: " + Kernel32.INSTANCE.GetLastError());
+                return null;
+            }
+            Kernel32.INSTANCE.CloseHandle(pi.hThread);
+            Kernel32.INSTANCE.CloseHandle(pi.hProcess);
+            long pid = pi.dwProcessId.longValue();
+            AppLogger.info("FIX72: CreateProcess pid=" + pid);
+            return new HiddenProcess(pid);
+        } catch (Throwable t) {
+            AppLogger.warn("FIX72: startWithCreateNoWindow failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    private static final class HiddenProcess extends Process {
+        private final long pid;
+        HiddenProcess(long pid) { this.pid = pid; }
+        @Override public java.io.OutputStream getOutputStream() { return java.io.OutputStream.nullOutputStream(); }
+        @Override public java.io.InputStream getInputStream() { return java.io.InputStream.nullInputStream(); }
+        @Override public java.io.InputStream getErrorStream() { return java.io.InputStream.nullInputStream(); }
+        @Override public int waitFor() throws InterruptedException { while (isAlive()) Thread.sleep(100); return 0; }
+        @Override public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            long deadline = System.nanoTime() + unit.toNanos(timeout);
+            while (isAlive()) { if (System.nanoTime() > deadline) return false; Thread.sleep(100); }
+            return true;
+        }
+        @Override public int exitValue() { if (isAlive()) throw new IllegalThreadStateException(); return 0; }
+        @Override public void destroy() { killPidTree(pid); }
+        @Override public Process destroyForcibly() { destroy(); return this; }
+        @Override public boolean isAlive() { return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false); }
+        @Override public long pid() { return pid; }
     }
     public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
