@@ -96,10 +96,11 @@ public final class ChromeProcessLauncher {
 
         if (headless) {
             // FIX82: use --headless=old which does not create a native Chrome_WidgetWin_1 window.
-            args.add("--headless=old");
+            args.add("--headless=new");
+            args.add("--window-position=-32000,-32000");
             args.add("--disable-gpu");
             args.add("--no-sandbox");
-            AppLogger.info("FIX82: chrome.exe --headless=old (no window)");
+            AppLogger.info("FIX85: chrome.exe --headless=new (window will be hidden by hunter)");
         } else {
 
             args.add("--new-window");
