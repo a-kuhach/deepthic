@@ -1162,19 +1162,13 @@ public final class CdpDeepSeek {
 
                 if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
                     AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, trying DataTransfer");
-                    attachFileViaDataTransfer(path);
-                    attachFileViaDragEvent(path);
-                    attachFileViaPasteEvent(path);
-                    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
+                    attachFileViaFallbacks(path, baselineComposer);
                     AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
                     return;
                 }
             } else {
                 AppLogger.warn("CdpDeepSeek.attachFile: no backendNodeId, trying DataTransfer");
-                attachFileViaDataTransfer(path);
-                attachFileViaDragEvent(path);
-                attachFileViaPasteEvent(path);
-                waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
+                attachFileViaFallbacks(path, baselineComposer);
                 AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
                 return;
             }
@@ -1222,10 +1216,7 @@ public final class CdpDeepSeek {
 
         if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
             AppLogger.warn("CdpDeepSeek.attachFile: all setFileInputFiles variants failed, trying DataTransfer");
-            attachFileViaDataTransfer(path);
-            attachFileViaDragEvent(path);
-            attachFileViaPasteEvent(path);
-            waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
+            attachFileViaFallbacks(path, baselineComposer);
             long elapsedDt = System.currentTimeMillis() - start;
             AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer)");
             return;
@@ -1541,7 +1532,19 @@ public final class CdpDeepSeek {
 
 
 
-    private boolean attachFileViaDragEvent(Path path) {
+    
+private void attachFileViaFallbacks(Path path, int baselineComposer) throws CdpAttachException {
+    // Stop after the first method that actually produces an attachment.
+    if (attachFileViaDataTransfer(path)) {
+        try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
+    }
+    if (attachFileViaDragEvent(path)) {
+        try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
+    }
+    attachFileViaPasteEvent(path);
+    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
+}
+private boolean attachFileViaDragEvent(Path path) {
 
         try {
 
@@ -1677,7 +1680,7 @@ public final class CdpDeepSeek {
 
             } catch (Exception ignored) { }
 
-            return true; // FIX27: drop event delivered; attachment appears async.
+            return false; // FIX27: caller decides based on DOM state
 
         } catch (Exception e) {
 
@@ -1873,7 +1876,7 @@ public final class CdpDeepSeek {
 
             AppLogger.info("FIX26: DataTransfer(setter) result = " + resultB);
 
-            return true; // FIX27: React may reset input.files; attachment appears async.
+            return false; // FIX27: caller decides based on DOM state
 
         } catch (Exception e) {
 
