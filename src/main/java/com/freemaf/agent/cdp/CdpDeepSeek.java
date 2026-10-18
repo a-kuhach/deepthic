@@ -604,15 +604,28 @@ public final class CdpDeepSeek {
         String insertResult = evaluate(insertExpr);
         AppLogger.info("CdpDeepSeek.sendMessage: insertResult=" + insertResult + " textLen=" + text.length());
         sleep(500L);
-        String enterExpr =
-                "(function(){var el=document.querySelector(\""
-                + escapeJs(DeepSeekSelectors.INPUT)
-                + "\");if(!el)return 'no-input';"
-                + "el.dispatchEvent(new KeyboardEvent('keydown',"
-                + "{key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true}));"
-                + "return 'dispatched';})()";
-        String enterResult = evaluate(enterExpr);
-        AppLogger.info("CdpDeepSeek.sendMessage: enterResult=" + enterResult);
+        try {
+            Map<String, Object> keyDown = new HashMap<>();
+            keyDown.put("type", "keyDown");
+            keyDown.put("key", "Enter");
+            keyDown.put("code", "Enter");
+            keyDown.put("windowsVirtualKeyCode", Integer.valueOf(13));
+            keyDown.put("nativeVirtualKeyCode", Integer.valueOf(13));
+            keyDown.put("text", "\r");
+            keyDown.put("unmodifiedText", "\r");
+            activeTab.send("Input.dispatchKeyEvent", keyDown);
+            sleep(50L);
+            Map<String, Object> keyUp = new HashMap<>();
+            keyUp.put("type", "keyUp");
+            keyUp.put("key", "Enter");
+            keyUp.put("code", "Enter");
+            keyUp.put("windowsVirtualKeyCode", Integer.valueOf(13));
+            keyUp.put("nativeVirtualKeyCode", Integer.valueOf(13));
+            activeTab.send("Input.dispatchKeyEvent", keyUp);
+            AppLogger.info("CdpDeepSeek.sendMessage: enterResult=dispatched-via-CDP");
+        } catch (Exception enterEx) {
+            AppLogger.warn("CdpDeepSeek.sendMessage: CDP Enter failed: " + enterEx.getMessage());
+        }
         sleep(500L);
         String postText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
         AppLogger.info("CdpDeepSeek.sendMessage: postTextareaLen=" + postText.length());
@@ -621,22 +634,38 @@ public final class CdpDeepSeek {
 
 
 
-    public String readLastResponse() {
-        // Prefer the dedicated assistant content container; fall back to the last non-thinking markdown block.
-        String expr =
-                "(function(){"
-                + "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");"
-                + "if(main) return main.innerText;"
-                + "var blocks=document.querySelectorAll('div.ds-markdown');"
-                + "var last=null;"
-                + "for(var i=0;i<blocks.length;i++){"
-                + "  if(!blocks[i].closest('[class*=\"ds-think-content\"]')) last=blocks[i];"
-                + "}"
-                + "return last ? last.innerText : '';"
-                + "})()";
-        String v = evaluate(expr);
-        return v == null ? "" : v;
-    }
+    public String readLastResponse() {
+
+        // Prefer the dedicated assistant content container; fall back to the last non-thinking markdown block.
+
+        String expr =
+
+                "(function(){"
+
+                + "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");"
+
+                + "if(main) return main.innerText;"
+
+                + "var blocks=document.querySelectorAll('div.ds-markdown');"
+
+                + "var last=null;"
+
+                + "for(var i=0;i<blocks.length;i++){"
+
+                + "  if(!blocks[i].closest('[class*=\"ds-think-content\"]')) last=blocks[i];"
+
+                + "}"
+
+                + "return last ? last.innerText : '';"
+
+                + "})()";
+
+        String v = evaluate(expr);
+
+        return v == null ? "" : v;
+
+    }
+
 
 
     public String waitForResponse(long timeoutMs) throws TimeoutException {
@@ -743,13 +772,20 @@ public final class CdpDeepSeek {
 
 
 
-    private static boolean isResponseComplete(String raw) {
-        if (raw == null || raw.isEmpty()) return false;
-        // Completion is determined by DOM state in waitForResponse (stable text + no stop button).
-        // Here we only reject obviously truncated text: an unclosed double quote at the very end.
-        // Do NOT use global quote parity: PowerShell strings legitimately contain escaped quotes.
-        return true;
-    }
+    private static boolean isResponseComplete(String raw) {
+
+        if (raw == null || raw.isEmpty()) return false;
+
+        // Completion is determined by DOM state in waitForResponse (stable text + no stop button).
+
+        // Here we only reject obviously truncated text: an unclosed double quote at the very end.
+
+        // Do NOT use global quote parity: PowerShell strings legitimately contain escaped quotes.
+
+        return true;
+
+    }
+
 
 
 
@@ -1534,17 +1570,29 @@ public final class CdpDeepSeek {
 
     
 
-private void attachFileViaFallbacks(Path path, int baselineComposer) throws CdpAttachException {
-    // Try DataTransfer, then DragEvent, then Paste. After each method, check the DOM.
-    // If the attachment appeared, stop immediately.
-    attachFileViaDataTransfer(path);
-    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-    attachFileViaDragEvent(path);
-    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-    attachFileViaPasteEvent(path);
-    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
-}
-private boolean attachFileViaDragEvent(Path path) {
+private void attachFileViaFallbacks(Path path, int baselineComposer) throws CdpAttachException {
+
+    // Try DataTransfer, then DragEvent, then Paste. After each method, check the DOM.
+
+    // If the attachment appeared, stop immediately.
+
+    attachFileViaDataTransfer(path);
+
+    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
+
+    attachFileViaDragEvent(path);
+
+    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
+
+    attachFileViaPasteEvent(path);
+
+    waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
+
+}
+
+
+
+private boolean attachFileViaDragEvent(Path path) {
 
         try {
 
