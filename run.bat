@@ -267,9 +267,22 @@ if not exist "%JAR%" (
 
 :run
 cd /d "%PROJECT_ROOT%"
+
+rem Start window hunter (closes only framework-created Chrome windows)
+if exist "%AGENT_DIR%\util\window_hunter.ps1" (
+    echo [Deepthic] Starting window hunter...
+    start "WindowHunter" /B powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%AGENT_DIR%\util\window_hunter.ps1"
+) else (
+    echo [Deepthic] window_hunter.ps1 not found; skipping.
+)
+
 echo [Deepthic] Starting...
 java -jar "%JAR%"
 set "JAVA_RC=%ERRORLEVEL%"
+
+rem Kill window hunter
+taskkill /F /T /FI "WINDOWTITLE eq WindowHunter" >nul 2>nul
+
 if not "%JAVA_RC%"=="0" (
     echo [Deepthic] Application exited with code %JAVA_RC%.
     pause

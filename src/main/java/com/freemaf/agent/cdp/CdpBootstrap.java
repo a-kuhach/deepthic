@@ -94,7 +94,6 @@ public final class CdpBootstrap {
         boolean hasStored = !activeExec.isEmpty() || !activeRev.isEmpty();
 
         PortOwner owner = ChromeProcessLauncher.inspectPort(port);
-        ChromeProcessLauncher.killAllChromeWindows();
 
         if (allowReuse && hasStored && owner.kind() == PortOwner.Kind.FRAMEWORK) {
             CdpTabInfo storedTab = findTabOnPort(activeExec, activeRev);
