@@ -11,9 +11,27 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import com.sun.jna.Library;
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.platform.win32.WinBase;
+import com.sun.jna.platform.win32.WinDef;
+import com.sun.jna.platform.win32.WinNT;
+import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.WinUser;
 import com.freemaf.agent.AppLogger;
-import com.sun.jna.platform.win32.User32;
 
+
+    // FIX64: minimal User32 extension for CreateDesktopW / CloseDesktop,
+    // which are not exposed by JNA's built-in User32 interface.
+    interface User32Ext extends Library {
+        User32Ext INSTANCE = Native.load("user32", User32Ext.class);
+        WinNT.HANDLE CreateDesktopW(String lpszDesktop, String lpszDevice,
+                                    Pointer pDevmode, int dwFlags,
+                                    int dwDesiredAccess, Pointer lpsa);
+        boolean CloseDesktop(WinNT.HANDLE hDesktop);
+    }
+
 public final class ChromeProcessLauncher {
 
     private static final String PROFILE_DIR = "agent/cache/cdp-profile";
@@ -86,44 +104,35 @@ public final class ChromeProcessLauncher {
 
 
         if (headless) {
+            // FIX64: --headless=new on Windows always creates a native window that
+            // DWM composites onto the desktop (Chromium issue 359921643). The only
+            // reliable way to run without a visible window is to launch Chrome on a
+            // separate hidden desktop (CreateDesktopW + STARTUPINFO.lpDesktop + SW_HIDE).
             String shell = resolveHeadlessShellPath();
             if (shell != null) {
                 List<String> shellArgs = new ArrayList<>(args);
                 shellArgs.set(0, shell);
-                List<String> cmd = new ArrayList<>();
-                cmd.add("cmd");
-                cmd.add("/c");
-                cmd.add("start");
-                cmd.add("/b");
-                cmd.add("\"\"");
-                cmd.addAll(shellArgs);
-                ProcessBuilder shellPb = new ProcessBuilder(cmd);
-                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
-                shellPb.redirectError(shellErr);
-                Process shellProc = shellPb.start();
-                AppLogger.info("FIX58: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
-                try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                boolean shellPortOk = false;
-                try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
-                if (shellPortOk) {
-                    AppLogger.info("FIX58: shell port " + port + " is open");
-                    final Process sp = shellProc;
-                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                        try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
-                    }, "chrome-shutdown-" + port));
-                    return shellProc;
+                Process shellProc = startOnHiddenDesktop(shellArgs);
+                if (shellProc != null) {
+                    AppLogger.info("FIX64: chrome-headless-shell started on hidden desktop pid=" + shellProc.pid());
+                    try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                    boolean shellPortOk = false;
+                    try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
+                    if (shellPortOk) {
+                        AppLogger.info("FIX64: shell port " + port + " is open");
+                        registerShutdownHook(shellProc, port);
+                        return shellProc;
+                    }
+                    AppLogger.warn("FIX64: shell port " + port + " NOT open within 15s, killing shell");
+                    try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                    shellProc.destroyForcibly();
                 }
-                AppLogger.warn("FIX58: shell port " + port + " NOT open within 15s, killing shell and falling back to chrome.exe --headless=new");
-                try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
-                shellProc.destroyForcibly();
             }
-            // Last-resort fallback: --headless=new (creates a visible window, but keeps pipeline alive)
+            // Fallback: chrome.exe on hidden desktop (still no visible window because of SW_HIDE)
             args.add("--headless=new");
-            args.add("--window-position=-2400,-2400");
             args.add("--window-size=1920,1080");
             args.add("--disable-gpu");
-            AppLogger.warn("FIX58: fallback chrome.exe --headless=new (window may be visible)");
+            AppLogger.info("FIX64: chrome.exe --headless=new on hidden desktop (fallback)");
         } else {
             args.add("--new-window");
         }
@@ -244,86 +253,60 @@ public final class ChromeProcessLauncher {
     // We probe next to chrome.exe; if missing, use --headless=old (Chrome <132).
     // FIX40: chrome-headless-shell.exe is the only window-less binary for Chrome 131+.
     // Auto-download from Chrome for Testing if not present.
-
-    // FIX58: chrome-headless-shell is the only truly window-less Chrome binary.
-    // Its major version MUST match the installed Chrome profile, otherwise it
-    // exits without opening the CDP port (oh-my-pi issue #7601).
-    public static synchronized String resolveHeadlessShellPath() {
-        AppLogger.info("FIX58: resolveHeadlessShellPath called");
-        try {
-            String chrome = resolveChromePath();
-            java.io.File chromeFile = new java.io.File(chrome);
-            java.io.File dir = chromeFile.getParentFile();
-            if (dir != null) {
-                java.io.File shell = new java.io.File(dir, "chrome-headless-shell.exe");
-                if (shell.isFile()) return shell.getAbsolutePath();
-            }
-            java.io.File cacheShell = new java.io.File("agent/cache/chrome-headless-shell/chrome-headless-shell.exe");
-            if (cacheShell.isFile()) return cacheShell.getAbsolutePath();
-
-            String major = resolveChromeVersion();
-            AppLogger.info("FIX58: installed Chrome major = " + major);
-            String fullVersion = findFullVersionForMajor(major);
-            AppLogger.info("FIX58: Chrome for Testing fullVersion = " + fullVersion);
-            if (fullVersion == null || fullVersion.isEmpty()) {
-                AppLogger.warn("FIX58: no Chrome for Testing build for major " + major);
-                return null;
-            }
-            String url = "https://storage.googleapis.com/chrome-for-testing-public/" + fullVersion + "/win64/chrome-headless-shell-win64.zip";
-            java.io.File targetDir = new java.io.File("agent/cache/chrome-headless-shell");
-            targetDir.mkdirs();
-            java.io.File zipFile = new java.io.File(targetDir, "chrome-headless-shell.zip");
-            AppLogger.info("FIX58: downloading chrome-headless-shell from " + url);
-            try (java.io.InputStream in = java.net.URI.create(url).toURL().openStream();
-                 java.io.FileOutputStream out = new java.io.FileOutputStream(zipFile)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            }
-            AppLogger.info("FIX58: downloaded " + zipFile.length() + " bytes; extracting");
-            try (java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile))) {
-                java.util.zip.ZipEntry e;
-                while ((e = zin.getNextEntry()) != null) {
-                    java.io.File target = new java.io.File(targetDir, e.getName());
-                    if (e.isDirectory()) { target.mkdirs(); continue; }
-                    target.getParentFile().mkdirs();
-                    try (java.io.FileOutputStream fout = new java.io.FileOutputStream(target)) {
-                        byte[] b = new byte[8192];
-                        int m;
-                        while ((m = zin.read(b)) > 0) fout.write(b, 0, m);
-                    }
-                }
-            }
-            java.io.File nested = new java.io.File(targetDir, "chrome-headless-shell-win64/chrome-headless-shell.exe");
-            if (nested.isFile()) {
-                java.io.File flat = new java.io.File(targetDir, "chrome-headless-shell.exe");
-                if (!flat.isFile()) nested.renameTo(flat);
-                return flat.getAbsolutePath();
-            }
-            return null;
-        } catch (Exception e) {
-            AppLogger.warn("FIX58: headless-shell download failed: " + e.getMessage());
-            return null;
-        }
-    }
-
-    // FIX58: query Chrome for Testing JSON and pick a version with matching major.
-    private static String findFullVersionForMajor(String major) {
-        try {
-            String json = new String(java.net.URI.create(
-                "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json")
-                .toURL().openStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-            java.util.regex.Matcher m = java.util.regex.Pattern
-                .compile("\"version\"\\s*:\\s*\"(" + major + "\\.[0-9]+\\.[0-9]+\\.[0-9]+)\"")
-                .matcher(json);
-            String last = null;
-            while (m.find()) last = m.group(1);
-            return last;
-        } catch (Exception e) {
-            AppLogger.warn("FIX58: findFullVersionForMajor failed: " + e.getMessage());
-            return null;
-        }
-    }
+    public static synchronized String resolveHeadlessShellPath() {
+        AppLogger.info("FIX41: resolveHeadlessShellPath called");
+        try {
+            String chrome = resolveChromePath();
+            java.io.File chromeFile = new java.io.File(chrome);
+            java.io.File dir = chromeFile.getParentFile();
+            if (dir == null) return null;
+            java.io.File shell = new java.io.File(dir, "chrome-headless-shell.exe");
+            if (shell.isFile()) return shell.getAbsolutePath();
+            java.io.File cacheShell = new java.io.File("agent/cache/chrome-headless-shell/chrome-headless-shell.exe");
+            if (cacheShell.isFile()) return cacheShell.getAbsolutePath();
+            String fullVersion = resolveFullChromeVersion();
+            AppLogger.info("FIX41: resolved fullVersion=" + fullVersion);
+            if (fullVersion == null || fullVersion.isEmpty()) {
+                AppLogger.warn("FIX40: cannot resolve full Chrome version for headless-shell download");
+                return null;
+            }
+            String url = "https://storage.googleapis.com/chrome-for-testing-public/" + fullVersion + "/win64/chrome-headless-shell-win64.zip";
+            java.io.File targetDir = new java.io.File("agent/cache/chrome-headless-shell");
+            targetDir.mkdirs();
+            java.io.File zipFile = new java.io.File(targetDir, "chrome-headless-shell.zip");
+            AppLogger.info("FIX40: downloading chrome-headless-shell from " + url);
+            try (java.io.InputStream in = java.net.URI.create(url).toURL().openStream();
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(zipFile)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            AppLogger.info("FIX40: downloaded " + zipFile.length() + " bytes; extracting");
+            try (java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile))) {
+                java.util.zip.ZipEntry e;
+                while ((e = zin.getNextEntry()) != null) {
+                    java.io.File target = new java.io.File(targetDir, e.getName());
+                    if (e.isDirectory()) { target.mkdirs(); continue; }
+                    target.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream fout = new java.io.FileOutputStream(target)) {
+                        byte[] b = new byte[8192];
+                        int m;
+                        while ((m = zin.read(b)) > 0) fout.write(b, 0, m);
+                    }
+                }
+            }
+            java.io.File nested = new java.io.File(targetDir, "chrome-headless-shell-win64/chrome-headless-shell.exe");
+            if (nested.isFile()) {
+                java.io.File flat = new java.io.File(targetDir, "chrome-headless-shell.exe");
+                if (!flat.isFile()) nested.renameTo(flat);
+                return flat.getAbsolutePath();
+            }
+            return null;
+        } catch (Exception e) {
+            AppLogger.warn("FIX40: headless-shell download failed: " + e.getMessage());
+            return null;
+        }
+    }
 
     // FIX44: chrome.exe --version is GUI; stdout suppressed on Windows. Use PowerShell.
     private static String resolveFullChromeVersion() {
@@ -347,6 +330,75 @@ public final class ChromeProcessLauncher {
         return null;
     }
 
+
+    // FIX64: launch a process on a hidden desktop with SW_HIDE (no window, no focus steal).
+    private static Process startOnHiddenDesktop(List<String> cmd) {
+        try {
+            WinNT.HANDLE hDesk = User32Ext.INSTANCE.CreateDesktopW(
+                "DeepthicHidden", null, null, 0, 0x10000000, null);
+            if (hDesk == null) {
+                AppLogger.warn("FIX64: CreateDesktopW failed: " + Kernel32.INSTANCE.GetLastError());
+                return null;
+            }
+            WinBase.STARTUPINFO si = new WinBase.STARTUPINFO();
+            si.cb = new WinDef.DWORD(si.size());
+            si.lpDesktop = "DeepthicHidden";
+            si.dwFlags = WinBase.STARTF_USESHOWWINDOW;
+            si.wShowWindow = new WinDef.WORD(WinUser.SW_HIDE);
+            WinBase.PROCESS_INFORMATION pi = new WinBase.PROCESS_INFORMATION();
+            String cmdLine = String.join(" ", cmd);
+            boolean ok = Kernel32.INSTANCE.CreateProcess(
+                null, cmdLine, null, null, false,
+                new WinDef.DWORD(WinBase.CREATE_NO_WINDOW),
+                null, null, si, pi);
+            if (!ok) {
+                AppLogger.warn("FIX64: CreateProcess failed: " + Kernel32.INSTANCE.GetLastError());
+                User32Ext.INSTANCE.CloseDesktop(hDesk);
+                return null;
+            }
+            Kernel32.INSTANCE.CloseHandle(pi.hThread);
+            Kernel32.INSTANCE.CloseHandle(pi.hProcess);
+            long pid = pi.dwProcessId.longValue();
+            User32Ext.INSTANCE.CloseDesktop(hDesk);
+            AppLogger.info("FIX64: hidden desktop process pid=" + pid);
+            return new HiddenDesktopProcess(pid);
+        } catch (Throwable t) {
+            AppLogger.warn("FIX64: startOnHiddenDesktop failed: " + t.getMessage());
+            return null;
+        }
+    }
+
+    // FIX64: minimal Process wrapper for a CreateProcess-launched PID.
+    private static final class HiddenDesktopProcess extends Process {
+        private final long pid;
+        HiddenDesktopProcess(long pid) { this.pid = pid; }
+        @Override public java.io.OutputStream getOutputStream() { return java.io.OutputStream.nullOutputStream(); }
+        @Override public java.io.InputStream getInputStream() { return java.io.InputStream.nullInputStream(); }
+        @Override public java.io.InputStream getErrorStream() { return java.io.InputStream.nullInputStream(); }
+        @Override public int waitFor() throws InterruptedException { while (isAlive()) Thread.sleep(100); return 0; }
+        @Override public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            long deadline = System.nanoTime() + unit.toNanos(timeout);
+            while (isAlive()) { if (System.nanoTime() > deadline) return false; Thread.sleep(100); }
+            return true;
+        }
+        @Override public int exitValue() { if (isAlive()) throw new IllegalThreadStateException(); return 0; }
+        @Override public void destroy() { killPidTree(pid); }
+        @Override public Process destroyForcibly() { destroy(); return this; }
+        @Override public boolean isAlive() { return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false); }
+        @Override public long pid() { return pid; }
+    }
+
+    // FIX64: register shutdown hook that kills the whole tree.
+    private static void registerShutdownHook(Process p, int port) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                if (p.isAlive()) {
+                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(p.pid())).start().waitFor(5, TimeUnit.SECONDS);
+                    p.destroyForcibly();
+                }
+            } catch (Exception ignored) { }
+        }, "chrome-shutdown-" + port));
+    }
     public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
         String[] candidates = {
