@@ -116,22 +116,26 @@ public final class ChromeProcessLauncher {
                     AppLogger.info("FIX46: shell port " + port + " is open");
                     final Process sp = shellProc;
                     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                        try { if (sp.isAlive()) { sp.destroy(); if (!sp.waitFor(3, TimeUnit.SECONDS)) sp.destroyForcibly(); } } catch (Exception ignored) { }
+                        try {
+                            if (sp.isAlive()) {
+                                sp.destroy();
+                                if (!sp.waitFor(3, TimeUnit.SECONDS)) {
+                                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS);
+                                    sp.destroyForcibly();
+                                }
+                            }
+                        } catch (Exception ignored) { }
                     }, "chrome-shutdown-" + port));
                     return shellProc;
                 }
                 AppLogger.warn("FIX46: shell port " + port + " NOT open within 3s, killing shell and falling back to chrome.exe --headless=new");
                 try { ChromeProcessLauncher.killFrameworkChromiumProcesses(profilePath, 0L); } catch (Exception ignored) { }
-                args.add("--headless=new");
-                args.add("--window-position=-32000,-32000");
-                args.add("--window-size=1920,1080");
-                AppLogger.info("FIX46: fallback chrome.exe --headless=new (window hidden by ShowWindow)");
 
             }
 
             args.add("--headless=new");
 
-            args.add("--window-position=-32000,-32000");
+            args.add("--window-position=-10000,-10000");
 
             args.add("--window-size=1920,1080");
 
