@@ -85,108 +85,51 @@ public final class ChromeProcessLauncher {
 
 
 
-        if (headless) {
-
-            String shell = resolveHeadlessShellPath();
-
-            if (shell != null) {
 
 
-                // FIX46: cmd /c start /b "" <exe> ... — empty title prevents Windows from
+        if (headless) {
+            String shell = resolveHeadlessShellPath();
+            if (shell != null) {
+                List<String> shellArgs = new ArrayList<>(args);
+                shellArgs.set(0, shell);
+                List<String> cmd = new ArrayList<>();
+                cmd.add("cmd");
+                cmd.add("/c");
+                cmd.add("start");
+                cmd.add("/b");
+                cmd.add("\"\"");
+                cmd.addAll(shellArgs);
+                ProcessBuilder shellPb = new ProcessBuilder(cmd);
+                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                shellPb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                Process shellProc = shellPb.start();
+                AppLogger.info("FIX52: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
+                try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                boolean shellPortOk = false;
+                try { shellPortOk = new CdpHttpClient(port).waitForPort(3000L); } catch (Exception ignored) { }
+                if (shellPortOk) {
+                    AppLogger.info("FIX52: shell port " + port + " is open");
+                    final Process sp = shellProc;
+                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
+                    }, "chrome-shutdown-" + port));
+                    return shellProc;
+                }
+                AppLogger.warn("FIX52: shell port " + port + " NOT open within 3s, killing shell");
+                try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                shellProc.destroyForcibly();
+            }
+            // Fallback: --headless=old (Chrome 131 does not create a visible window)
+            args.add("--headless=old");
+            args.add("--window-position=-10000,-10000");
+            args.add("--window-size=1920,1080");
+            args.add("--disable-gpu");
+            args.add("--no-zygote");
+            AppLogger.info("FIX52: chrome.exe --headless=old fallback");
+        } else {
+            args.add("--new-window");
+        }
 
-                // treating the quoted exe path as the window title (FIX44 bug). start /b keeps
-
-                // the console-subsystem child on the parent's console — no new console window.
-
-                List<String> shellArgs = new ArrayList<>(args);
-
-                shellArgs.set(0, shell);
-
-                List<String> cmd = new ArrayList<>();
-
-                cmd.add("cmd");
-
-                cmd.add("/c");
-
-                cmd.add("start");
-
-                cmd.add("/b");
-
-                cmd.add("\"\"");
-
-                cmd.addAll(shellArgs);
-
-                ProcessBuilder shellPb = new ProcessBuilder(cmd);
-
-                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-
-                shellPb.redirectError(ProcessBuilder.Redirect.DISCARD);
-
-                Process shellProc = shellPb.start();
-
-                AppLogger.info("FIX46: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
-
-                try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-
-                boolean shellPortOk = false;
-
-                try {
-
-                    shellPortOk = new CdpHttpClient(port).waitForPort(3000L);
-
-                } catch (Exception ignored) { }
-
-                if (shellPortOk) {
-
-                    AppLogger.info("FIX46: shell port " + port + " is open");
-
-                    final Process sp = shellProc;
-
-                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-
-                        try {
-
-                            if (sp.isAlive()) {
-
-                                sp.destroy();
-
-                                if (!sp.waitFor(3, TimeUnit.SECONDS)) {
-
-                                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS);
-
-                                    sp.destroyForcibly();
-
-                                }
-
-                            }
-
-                        } catch (Exception ignored) { }
-
-                    }, "chrome-shutdown-" + port));
-
-                    return shellProc;
-
-                }
-
-                AppLogger.warn("FIX46: shell port " + port + " NOT open within 3s, killing shell and falling back to chrome.exe --headless=new");
-
-                try { ChromeProcessLauncher.killFrameworkChromiumProcesses(profilePath, 0L); } catch (Exception ignored) { }
-
-
-            }
-
-
-            args.add("--window-position=-10000,-10000");
-
-            args.add("--window-size=1920,1080");
-
-            AppLogger.info("FIX44: chrome.exe --headless=new fallback (window hidden by ShowWindow)");
-
-        } else {
-
-            args.add("--new-window");
-
-        }
 
 
 
@@ -201,30 +144,52 @@ public final class ChromeProcessLauncher {
         Process p = pb.start();
 
 
-        if (headless) {
-            final long chromePid = p.pid();
-            new Thread(() -> {
-                while (p.isAlive()) {
-                    try {
-                        Set<Long> pids = new HashSet<>();
-                        pids.add(chromePid);
-                        p.descendants().forEach(h -> pids.add(h.pid()));
-                        hideWindowsOfProcesses(pids);
-                    } catch (Exception ignored) { }
-                    try { Thread.sleep(500L); } catch (InterruptedException e) { break; }
-                }
-            }, "chrome-window-hider-" + chromePid).start();
-        }
+        if (headless) {
+
+            final long chromePid = p.pid();
+
+            new Thread(() -> {
+
+                while (p.isAlive()) {
+
+                    try {
+
+                        Set<Long> pids = new HashSet<>();
+
+                        pids.add(chromePid);
+
+                        p.descendants().forEach(h -> pids.add(h.pid()));
+
+                        hideWindowsOfProcesses(pids);
+
+                    } catch (Exception ignored) { }
+
+                    try { Thread.sleep(500L); } catch (InterruptedException e) { break; }
+
+                }
+
+            }, "chrome-window-hider-" + chromePid).start();
+
+        }
 
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                if (p.isAlive()) {
-                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(p.pid())).start().waitFor(5, TimeUnit.SECONDS);
-                    p.destroyForcibly();
-                }
-            } catch (Exception ignored) { }
-        }, "chrome-shutdown-" + port));
+
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+
+            try {
+
+                if (p.isAlive()) {
+
+                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(p.pid())).start().waitFor(5, TimeUnit.SECONDS);
+
+                    p.destroyForcibly();
+
+                }
+
+            } catch (Exception ignored) { }
+
+        }, "chrome-shutdown-" + port));
+
 
         return p;
 
@@ -495,18 +460,34 @@ public final class ChromeProcessLauncher {
 
     // FIX44: hide all top-level windows of the given PID (fallback path only).
 
-    private static void hideWindowsOfProcesses(Set<Long> pids) {
-        User32.INSTANCE.EnumWindows((hwnd, data) -> {
-            IntByReference procId = new IntByReference();
-            User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId);
-            long pid = procId.getValue();
-            if (pids.contains(pid)) {
-                User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
-            }
-            return true;
-        }, null);
-    }
-
+    private static void hideWindowsOfProcesses(Set<Long> pids) {
+
+        User32.INSTANCE.EnumWindows((hwnd, data) -> {
+
+            IntByReference procId = new IntByReference();
+
+            User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId);
+
+            long pid = procId.getValue();
+
+            if (pids.contains(pid)) {
+
+                User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
+
+            }
+
+            return true;
+
+        }, null);
+
+    }
+
+
+
+
+
+
+
     private static void hideWindowByPid(long pid) {
         if (pid <= 0) return;
         try {
