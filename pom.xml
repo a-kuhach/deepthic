@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>com.freemaf.agent</groupId>
     <artifactId>app</artifactId>
-    <version>0.3.41-beta</version>
+    <version>0.3.42-beta</version>
     <packaging>jar</packaging>
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
@@ -17,6 +17,11 @@
         <dependency>
             <groupId>net.java.dev.jna</groupId>
             <artifactId>jna</artifactId>
+            <version>5.17.0</version>
+        </dependency>
+        <dependency>
+            <groupId>net.java.dev.jna</groupId>
+            <artifactId>jna-platform</artifactId>
             <version>5.17.0</version>
         </dependency>
         <dependency>

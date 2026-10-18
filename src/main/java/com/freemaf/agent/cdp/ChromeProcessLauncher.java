@@ -11,6 +11,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import com.freemaf.agent.AppLogger;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.platform.win32.WinUser;
+import com.sun.jna.ptr.IntByReference;
 
 public final class ChromeProcessLauncher {
 
@@ -31,97 +34,159 @@ public final class ChromeProcessLauncher {
         return false;
     }
 
+
     public static Process start(boolean headless, int port) throws IOException {
+
         Path profilePath = resolveProfilePath();
+
         AppLogger.info("ChromeProcessLauncher.start: headless=" + headless + ", isTestMode=" + isTestMode() + ", deepthic.test=" + System.getProperty("deepthic.test", "not-set"));
+
         Files.createDirectories(profilePath);
-        List<String> args = new ArrayList<>();
-        args.add(resolveChromePath());
-        args.add("--remote-debugging-port=" + port);
-        args.add("--remote-allow-origins=*");
-        args.add("--user-data-dir=" + profilePath);
 
-        // FIX31: headful needs a visible window with a tab; --no-startup-window leaves a blank window.
+        if (!headless && isTestMode()) {
 
-        if (headless) {
-            String headlessShell = resolveHeadlessShellPath();
-            if (headlessShell != null) {
-                args.set(0, headlessShell);
-                AppLogger.info("FIX40: using chrome-headless-shell.exe (no window)");
-            } else {
-                String chromeVer = resolveChromeVersion();
-                int major = 0;
-                try { major = Integer.parseInt(chromeVer); } catch (Exception ignored) { }
-                args.add("--headless=new");
-                args.add("--window-position=-32000,-32000");
-                args.add("--window-size=1920,1080");
-                AppLogger.info("FIX40: using --headless=old + off-screen (Chrome " + chromeVer + ")");
-            }
+            headless = true;
+
+            AppLogger.info("FIX44: test mode, forcing headless");
+
         }
 
+        List<String> args = new ArrayList<>();
+
+        args.add(resolveChromePath());
+
+        args.add("--remote-debugging-port=" + port);
+
+        args.add("--remote-allow-origins=*");
+
+        args.add("--user-data-dir=" + profilePath);
+
         args.add("--no-first-run");
+
         args.add("--no-default-browser-check");
+
         args.add("--disable-sync");
+
         args.add("--disable-backgrounding-occluded-windows");
+
         args.add("--disable-renderer-backgrounding");
+
         args.add("--disable-features=CalculateNativeWinOcclusion");
+
         args.add("--hide-crash-restore-bubble");
+
         args.add("--disable-session-crashed-bubble");
-
-        // FIX30: HeadlessChrome UA is flagged by CloudFront WAF (issue #459, browser-probe "stealth-ua").
-
-        // Keep --headless=new (no visible window) but override UA + disable AutomationControlled.
 
         args.add("--disable-blink-features=AutomationControlled");
 
         args.add("--user-agent=" + buildBrowserUserAgent());
 
-        // FIX36: never open a headed window in tests (Surefire).
-        if (!headless && isTestMode()) {
-            headless = true;
-            AppLogger.info("FIX36: test mode, forcing headless");
-        }
-        // FIX39: Chrome 129+ creates a native window even with --headless=new.
-        // 1) If chrome-headless-shell.exe exists (Chrome for Testing 122+), use it: no window at all.
-        // 2) Else if Chrome < 132, use --headless=old (no window).
-        // 3) Else --headless=new + off-screen position (best effort).
+
+
         if (headless) {
-            String headlessShell = resolveHeadlessShellPath();
-            if (headlessShell != null) {
-                // Replace chrome.exe with chrome-headless-shell.exe in args[0]
-                args.set(0, headlessShell);
-                AppLogger.info("FIX39: using chrome-headless-shell.exe (no window)");
-            } else {
-                String chromeVer = resolveChromeVersion();
-                int major = 0;
-                try { major = Integer.parseInt(chromeVer); } catch (Exception ignored) { }
-                if (major > 0 && major < 132) {
-                    args.add("--headless=new");
-                    AppLogger.info("FIX39: using --headless=old (Chrome " + major + " < 132, no window)");
-                } else {
-                    args.add("--headless=new");
-                    args.add("--window-position=-32000,-32000");
-                    args.add("--window-size=1920,1080");
-                    AppLogger.info("FIX39: using --headless=new + off-screen (Chrome " + chromeVer + ")");
-                }
+
+            String shell = resolveHeadlessShellPath();
+
+            if (shell != null) {
+
+
+                // FIX46: cmd /c start /b "" <exe> ... — empty title prevents Windows from
+                // treating the quoted exe path as the window title (FIX44 bug). start /b keeps
+                // the console-subsystem child on the parent's console — no new console window.
+                List<String> shellArgs = new ArrayList<>(args);
+                shellArgs.set(0, shell);
+                List<String> cmd = new ArrayList<>();
+                cmd.add("cmd");
+                cmd.add("/c");
+                cmd.add("start");
+                cmd.add("/b");
+                cmd.add("\"\"");
+                cmd.addAll(shellArgs);
+                ProcessBuilder shellPb = new ProcessBuilder(cmd);
+                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                shellPb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                Process shellProc = shellPb.start();
+                AppLogger.info("FIX46: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
+                try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                boolean shellPortOk = false;
+                try {
+                    shellPortOk = new CdpHttpClient(port).waitForPort(3000L);
+                } catch (Exception ignored) { }
+                if (shellPortOk) {
+                    AppLogger.info("FIX46: shell port " + port + " is open");
+                    final Process sp = shellProc;
+                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        try { if (sp.isAlive()) { sp.destroy(); if (!sp.waitFor(3, TimeUnit.SECONDS)) sp.destroyForcibly(); } } catch (Exception ignored) { }
+                    }, "chrome-shutdown-" + port));
+                    return shellProc;
+                }
+                AppLogger.warn("FIX46: shell port " + port + " NOT open within 3s, killing shell and falling back to chrome.exe --headless=new");
+                try { ChromeProcessLauncher.killFrameworkChromiumProcesses(profilePath, 0L); } catch (Exception ignored) { }
+                args.add("--headless=new");
+                args.add("--window-position=-32000,-32000");
+                args.add("--window-size=1920,1080");
+                AppLogger.info("FIX46: fallback chrome.exe --headless=new (window hidden by ShowWindow)");
+
             }
+
+            args.add("--headless=new");
+
+            args.add("--window-position=-32000,-32000");
+
+            args.add("--window-size=1920,1080");
+
+            AppLogger.info("FIX44: chrome.exe --headless=new fallback (window hidden by ShowWindow)");
+
+        } else {
+
+            args.add("--new-window");
+
         }
+
+
+
         ProcessBuilder pb = new ProcessBuilder(args);
-        AppLogger.info("FIX40: chrome cmd = " + String.join(" ", args));
+
+        AppLogger.info("FIX44: chrome cmd = " + String.join(" ", args));
+
         pb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
+
         Process p = pb.start();
-        // FIX36: belt-and-suspenders shutdown hook — kill Chrome when JVM exits.
+
+        if (headless) {
+
+            final long pidForHide = p.pid();
+
+            new Thread(() -> {
+
+                try {
+
+                    for (int k = 0; k < 8; k++) {
+
+                        Thread.sleep(250L);
+
+                        hideWindowByPid(pidForHide);
+
+                    }
+
+                } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+
+            }, "chrome-hide-" + pidForHide).start();
+
+        }
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                if (p.isAlive()) {
-                    p.destroy();
-                    if (!p.waitFor(3, TimeUnit.SECONDS)) p.destroyForcibly();
-                }
-            } catch (Exception ignored) { }
+
+            try { if (p.isAlive()) { p.destroy(); if (!p.waitFor(3, TimeUnit.SECONDS)) p.destroyForcibly(); } } catch (Exception ignored) { }
+
         }, "chrome-shutdown-" + port));
+
         return p;
+
     }
+
 
     public static void stop(Process p) {
         if (p == null) return;
@@ -199,7 +264,7 @@ public final class ChromeProcessLauncher {
     // We probe next to chrome.exe; if missing, use --headless=old (Chrome <132).
     // FIX40: chrome-headless-shell.exe is the only window-less binary for Chrome 131+.
     // Auto-download from Chrome for Testing if not present.
-    public static String resolveHeadlessShellPath() {
+    public static synchronized String resolveHeadlessShellPath() {
         AppLogger.info("FIX41: resolveHeadlessShellPath called");
         try {
             String chrome = resolveChromePath();
@@ -254,19 +319,25 @@ public final class ChromeProcessLauncher {
         }
     }
 
+    // FIX44: chrome.exe --version is GUI; stdout suppressed on Windows. Use PowerShell.
     private static String resolveFullChromeVersion() {
         try {
-            Process p = new ProcessBuilder(resolveChromePath(), "--version").redirectErrorStream(true).start();
+            String chrome = resolveChromePath();
+            Process p = new ProcessBuilder("powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                    "(Get-Item '" + chrome + "').VersionInfo.FileVersion")
+                    .redirectErrorStream(true).start();
             String line = "";
             try (java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
                 line = br.readLine();
             }
-            try { p.waitFor(3, java.util.concurrent.TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            try { p.waitFor(5, TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
             if (line != null) {
                 java.util.regex.Matcher m = java.util.regex.Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)").matcher(line);
                 if (m.find()) return m.group(1);
             }
-        } catch (Exception ignored) { }
+        } catch (Exception e) {
+            AppLogger.warn("FIX44: resolveFullChromeVersion failed: " + e.getMessage());
+        }
         return null;
     }
 
@@ -324,7 +395,7 @@ public final class ChromeProcessLauncher {
                 "$profile = '" + profile + "';" +
                 "$except = " + exceptPid + ";" +
                 "$killed = 0;" +
-                "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" -ErrorAction SilentlyContinue | ForEach-Object {" +
+                "Get-CimInstance Win32_Process -Filter \"name='chrome.exe' or name='chrome-headless-shell.exe'\" -ErrorAction SilentlyContinue | ForEach-Object {" +
                 "  if ($except -ne 0 -and $_.ProcessId -eq $except) { return }" +
                 "  if ($_.CommandLine -and $_.CommandLine.Contains('--user-data-dir=' + $profile)) {" +
                 "    taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null;" +
@@ -377,5 +448,20 @@ public final class ChromeProcessLauncher {
         }
         public long pid() { return pid; }
         public String commandLine() { return commandLine; }
+    }
+
+    // FIX44: hide all top-level windows of the given PID (fallback path only).
+    private static void hideWindowByPid(long pid) {
+        if (pid <= 0) return;
+        try {
+            User32.INSTANCE.EnumWindows((hwnd, data) -> {
+                IntByReference procId = new IntByReference();
+                User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId);
+                if (procId.getValue() == (int) pid) {
+                    User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
+                }
+                return true;
+            }, null);
+        } catch (Throwable ignored) { }
     }
 }
