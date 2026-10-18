@@ -11,27 +11,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
-import com.sun.jna.Library;
-import com.sun.jna.Native;
-import com.sun.jna.Pointer;
-import com.sun.jna.platform.win32.WinBase;
-import com.sun.jna.platform.win32.WinDef;
-import com.sun.jna.platform.win32.WinNT;
-import com.sun.jna.platform.win32.Kernel32;
-import com.sun.jna.platform.win32.WinUser;
 import com.freemaf.agent.AppLogger;
 
-
-    // FIX64: minimal User32 extension for CreateDesktopW / CloseDesktop,
-    // which are not exposed by JNA's built-in User32 interface.
-    interface User32Ext extends Library {
-        User32Ext INSTANCE = Native.load("user32", User32Ext.class);
-        WinNT.HANDLE CreateDesktopW(String lpszDesktop, String lpszDevice,
-                                    Pointer pDevmode, int dwFlags,
-                                    int dwDesiredAccess, Pointer lpsa);
-        boolean CloseDesktop(WinNT.HANDLE hDesktop);
-    }
-
 public final class ChromeProcessLauncher {
 
     private static final String PROFILE_DIR = "agent/cache/cdp-profile";
@@ -52,9 +33,25 @@ public final class ChromeProcessLauncher {
     }
 
 
+
+    private static void logVersionDiagnostics() {
+        try {
+            AppLogger.info("FIX65: installed Chrome version = " + resolveChromeVersion());
+            String shell = resolveHeadlessShellPath();
+            if (shell != null) {
+                Process p = new ProcessBuilder(shell, "--version").redirectErrorStream(true).start();
+                String line = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8)).readLine();
+                try { p.waitFor(3, TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                AppLogger.info("FIX65: chrome-headless-shell version = " + line);
+            }
+        } catch (Exception e) {
+            AppLogger.warn("FIX65: version diagnostic failed: " + e.getMessage());
+        }
+    }
     public static Process start(boolean headless, int port) throws IOException {
 
         Path profilePath = resolveProfilePath();
+        logVersionDiagnostics();
 
         AppLogger.info("ChromeProcessLauncher.start: headless=" + headless + ", isTestMode=" + isTestMode() + ", deepthic.test=" + System.getProperty("deepthic.test", "not-set"));
 
@@ -104,35 +101,48 @@ public final class ChromeProcessLauncher {
 
 
         if (headless) {
-            // FIX64: --headless=new on Windows always creates a native window that
-            // DWM composites onto the desktop (Chromium issue 359921643). The only
-            // reliable way to run without a visible window is to launch Chrome on a
-            // separate hidden desktop (CreateDesktopW + STARTUPINFO.lpDesktop + SW_HIDE).
+            // FIX65: Chrome sandbox spawns child processes with lpDesktop=nullptr,
+            // so CreateDesktop is ignored and windows appear on the user desktop.
+            // The only window-less binary is chrome-headless-shell. It requires
+            // --no-sandbox and a matching major version with the installed Chrome.
             String shell = resolveHeadlessShellPath();
             if (shell != null) {
                 List<String> shellArgs = new ArrayList<>(args);
                 shellArgs.set(0, shell);
-                Process shellProc = startOnHiddenDesktop(shellArgs);
-                if (shellProc != null) {
-                    AppLogger.info("FIX64: chrome-headless-shell started on hidden desktop pid=" + shellProc.pid());
-                    try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                    boolean shellPortOk = false;
-                    try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
-                    if (shellPortOk) {
-                        AppLogger.info("FIX64: shell port " + port + " is open");
-                        registerShutdownHook(shellProc, port);
-                        return shellProc;
-                    }
-                    AppLogger.warn("FIX64: shell port " + port + " NOT open within 15s, killing shell");
-                    try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
-                    shellProc.destroyForcibly();
+                shellArgs.add("--no-sandbox");
+                shellArgs.add("--disable-gpu");
+                ProcessBuilder shellPb = new ProcessBuilder(shellArgs);
+                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+                java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
+                shellPb.redirectError(shellErr);
+                Process shellProc = shellPb.start();
+                AppLogger.info("FIX65: chrome-headless-shell (--no-sandbox) pid=" + shellProc.pid());
+                try { Thread.sleep(3000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                boolean shellPortOk = false;
+                try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
+                if (shellPortOk) {
+                    AppLogger.info("FIX65: shell port " + port + " is open");
+                    final Process sp = shellProc;
+                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                        try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
+                    }, "chrome-shutdown-" + port));
+                    return shellProc;
                 }
+                AppLogger.warn("FIX65: shell port " + port + " NOT open within 15s");
+                try {
+                    String err = java.nio.file.Files.readString(shellErr.toPath());
+                    if (!err.isEmpty()) AppLogger.warn("FIX65: shell stderr: " + err);
+                } catch (Exception ignored) { }
+                try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                shellProc.destroyForcibly();
             }
-            // Fallback: chrome.exe on hidden desktop (still no visible window because of SW_HIDE)
-            args.add("--headless=new");
-            args.add("--window-size=1920,1080");
+            // Fallback 1: chrome.exe --headless=old --no-sandbox (Chrome 131 still supports old headless)
+            args.add("--headless=old");
+            args.add("--no-sandbox");
             args.add("--disable-gpu");
-            AppLogger.info("FIX64: chrome.exe --headless=new on hidden desktop (fallback)");
+            args.add("--window-position=-10000,-10000");
+            args.add("--window-size=1920,1080");
+            AppLogger.info("FIX65: chrome.exe --headless=old --no-sandbox fallback");
         } else {
             args.add("--new-window");
         }
@@ -330,75 +340,6 @@ public final class ChromeProcessLauncher {
         return null;
     }
 
-
-    // FIX64: launch a process on a hidden desktop with SW_HIDE (no window, no focus steal).
-    private static Process startOnHiddenDesktop(List<String> cmd) {
-        try {
-            WinNT.HANDLE hDesk = User32Ext.INSTANCE.CreateDesktopW(
-                "DeepthicHidden", null, null, 0, 0x10000000, null);
-            if (hDesk == null) {
-                AppLogger.warn("FIX64: CreateDesktopW failed: " + Kernel32.INSTANCE.GetLastError());
-                return null;
-            }
-            WinBase.STARTUPINFO si = new WinBase.STARTUPINFO();
-            si.cb = new WinDef.DWORD(si.size());
-            si.lpDesktop = "DeepthicHidden";
-            si.dwFlags = WinBase.STARTF_USESHOWWINDOW;
-            si.wShowWindow = new WinDef.WORD(WinUser.SW_HIDE);
-            WinBase.PROCESS_INFORMATION pi = new WinBase.PROCESS_INFORMATION();
-            String cmdLine = String.join(" ", cmd);
-            boolean ok = Kernel32.INSTANCE.CreateProcess(
-                null, cmdLine, null, null, false,
-                new WinDef.DWORD(WinBase.CREATE_NO_WINDOW),
-                null, null, si, pi);
-            if (!ok) {
-                AppLogger.warn("FIX64: CreateProcess failed: " + Kernel32.INSTANCE.GetLastError());
-                User32Ext.INSTANCE.CloseDesktop(hDesk);
-                return null;
-            }
-            Kernel32.INSTANCE.CloseHandle(pi.hThread);
-            Kernel32.INSTANCE.CloseHandle(pi.hProcess);
-            long pid = pi.dwProcessId.longValue();
-            User32Ext.INSTANCE.CloseDesktop(hDesk);
-            AppLogger.info("FIX64: hidden desktop process pid=" + pid);
-            return new HiddenDesktopProcess(pid);
-        } catch (Throwable t) {
-            AppLogger.warn("FIX64: startOnHiddenDesktop failed: " + t.getMessage());
-            return null;
-        }
-    }
-
-    // FIX64: minimal Process wrapper for a CreateProcess-launched PID.
-    private static final class HiddenDesktopProcess extends Process {
-        private final long pid;
-        HiddenDesktopProcess(long pid) { this.pid = pid; }
-        @Override public java.io.OutputStream getOutputStream() { return java.io.OutputStream.nullOutputStream(); }
-        @Override public java.io.InputStream getInputStream() { return java.io.InputStream.nullInputStream(); }
-        @Override public java.io.InputStream getErrorStream() { return java.io.InputStream.nullInputStream(); }
-        @Override public int waitFor() throws InterruptedException { while (isAlive()) Thread.sleep(100); return 0; }
-        @Override public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
-            long deadline = System.nanoTime() + unit.toNanos(timeout);
-            while (isAlive()) { if (System.nanoTime() > deadline) return false; Thread.sleep(100); }
-            return true;
-        }
-        @Override public int exitValue() { if (isAlive()) throw new IllegalThreadStateException(); return 0; }
-        @Override public void destroy() { killPidTree(pid); }
-        @Override public Process destroyForcibly() { destroy(); return this; }
-        @Override public boolean isAlive() { return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false); }
-        @Override public long pid() { return pid; }
-    }
-
-    // FIX64: register shutdown hook that kills the whole tree.
-    private static void registerShutdownHook(Process p, int port) {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                if (p.isAlive()) {
-                    new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(p.pid())).start().waitFor(5, TimeUnit.SECONDS);
-                    p.destroyForcibly();
-                }
-            } catch (Exception ignored) { }
-        }, "chrome-shutdown-" + port));
-    }
     public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
         String[] candidates = {
