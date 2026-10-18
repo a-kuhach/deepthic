@@ -87,7 +87,12 @@ public final class ChromeProcessLauncher {
 
 
 
+
         if (headless) {
+            // Prefer chrome-headless-shell (no window at all). It is a console binary;
+            // start /b with empty title keeps it on the parent console (no extra window).
+            // If it fails to open the CDP port, fall back to chrome.exe --headless=old
+            // (Chrome 131 does not create a visible window in old headless mode).
             String shell = resolveHeadlessShellPath();
             if (shell != null) {
                 List<String> shellArgs = new ArrayList<>(args);
@@ -101,34 +106,37 @@ public final class ChromeProcessLauncher {
                 cmd.addAll(shellArgs);
                 ProcessBuilder shellPb = new ProcessBuilder(cmd);
                 shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                shellPb.redirectError(ProcessBuilder.Redirect.DISCARD);
+                // Redirect stderr to a file so a crash is visible in diagnostics.
+                java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
+                shellPb.redirectError(shellErr);
                 Process shellProc = shellPb.start();
-                AppLogger.info("FIX52: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
+                AppLogger.info("FIX55: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
                 try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 boolean shellPortOk = false;
-                try { shellPortOk = new CdpHttpClient(port).waitForPort(3000L); } catch (Exception ignored) { }
+                try { shellPortOk = new CdpHttpClient(port).waitForPort(10_000L); } catch (Exception ignored) { }
                 if (shellPortOk) {
-                    AppLogger.info("FIX52: shell port " + port + " is open");
+                    AppLogger.info("FIX55: shell port " + port + " is open");
                     final Process sp = shellProc;
                     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                         try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
                     }, "chrome-shutdown-" + port));
                     return shellProc;
                 }
-                AppLogger.warn("FIX52: shell port " + port + " NOT open within 3s, killing shell");
+                AppLogger.warn("FIX55: shell port " + port + " NOT open within 10s, killing shell");
                 try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
                 shellProc.destroyForcibly();
             }
-            // Fallback: --headless=old (Chrome 131 does not create a visible window)
+            // Fallback: --headless=old (no visible window in Chrome 131)
             args.add("--headless=old");
             args.add("--window-position=-10000,-10000");
             args.add("--window-size=1920,1080");
             args.add("--disable-gpu");
             args.add("--no-zygote");
-            AppLogger.info("FIX52: chrome.exe --headless=old fallback");
+            AppLogger.info("FIX55: chrome.exe --headless=old fallback");
         } else {
             args.add("--new-window");
         }
+
 
 
 
