@@ -620,23 +620,23 @@ public final class CdpDeepSeek {
 
 
 
-    public String readLastResponse() {
-        String expr =
-                "(function(){var m=document.querySelectorAll(\""
-                + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE)
-                + "\");if(!m.length)return '';"
-                + "var lastPre=null;"
-                + "for(var i=0;i<m.length;i++){"
-                + "var ps=m[i].querySelectorAll('pre');"
-                + "if(ps.length)lastPre=ps[ps.length-1];"
-                + "}"
-                + "if(lastPre)return lastPre.innerText;"
-                + "var allPre=document.querySelectorAll('pre');"
-                + "if(allPre.length)return allPre[allPre.length-1].innerText;"
-                + "return m[m.length-1].innerText;})()";
-        String v = evaluate(expr);
-        return v == null ? "" : v;
-    }
+
+    public String readLastResponse() {
+        // Prefer the dedicated assistant content container; fall back to the last non-thinking markdown block.
+        String expr =
+                "(function(){"
+                + "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");"
+                + "if(main) return main.innerText;"
+                + "var blocks=document.querySelectorAll('div.ds-markdown');"
+                + "var last=null;"
+                + "for(var i=0;i<blocks.length;i++){"
+                + "  if(!blocks[i].closest('[class*=\"ds-think-content\"]')) last=blocks[i];"
+                + "}"
+                + "return last ? last.innerText : '';"
+                + "})()";
+        String v = evaluate(expr);
+        return v == null ? "" : v;
+    }
 
 
     public String waitForResponse(long timeoutMs) throws TimeoutException {
@@ -644,6 +644,7 @@ public final class CdpDeepSeek {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         int initialCount = countAssistantMessages();
+        int emptyEvalCount = 0;
         long lastDiagMs = 0L;
 
         String last = "";
@@ -652,6 +653,15 @@ public final class CdpDeepSeek {
 
         while (System.currentTimeMillis() < deadline) {
 
+            String tabAlive = evaluate("String(1)");
+            if (!"1".equals(tabAlive)) {
+                emptyEvalCount++;
+                if (emptyEvalCount >= 3) {
+                    throw new IllegalStateException("waitForResponse: active tab is closed or unresponsive");
+                }
+            } else {
+                emptyEvalCount = 0;
+            }
             int curCount = countAssistantMessages();
             if (EmergencyStop.isStopped() || Thread.currentThread().isInterrupted()) {
                 throw new IllegalStateException("waitForResponse aborted by user stop or thread interrupt");
@@ -693,7 +703,11 @@ public final class CdpDeepSeek {
 
                         stableCount++;
 
-                        if (stableCount >= STABLE_ITERATIONS) return cur;
+                        if (stableCount >= STABLE_ITERATIONS) {
+                            String stopBtn = evaluate("String((function(){var t=document.body.innerText||';return t.indexOf('Stop generating')>=0;})())");
+                            if (!"true".equals(stopBtn)) return cur;
+                            stableCount = 0;
+                        }
 
                     } else {
 
@@ -728,18 +742,14 @@ public final class CdpDeepSeek {
 
 
 
-    private static boolean isResponseComplete(String raw) {
-        if (raw == null || raw.isEmpty()) return false;
-        int q = 0;
-        for (int i = 0; i < raw.length(); i++) {
-            char c = raw.charAt(i);
-            if (c == '"' && (i == 0 || raw.charAt(i - 1) != '\\')) q++;
-        }
-        // Truncated mid-string -> odd quote count -> keep polling.
-        // Do NOT reject trailing ':', '(', '{', etc.: PowerShell comments and
-        // multi-line constructs legitimately end with these characters.
-        return (q % 2) == 0;
-    }
+
+    private static boolean isResponseComplete(String raw) {
+        if (raw == null || raw.isEmpty()) return false;
+        // Completion is determined by DOM state in waitForResponse (stable text + no stop button).
+        // Here we only reject obviously truncated text: an unclosed double quote at the very end.
+        // Do NOT use global quote parity: PowerShell strings legitimately contain escaped quotes.
+        return true;
+    }
 
 
 

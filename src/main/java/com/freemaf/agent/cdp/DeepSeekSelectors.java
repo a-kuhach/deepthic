@@ -23,6 +23,12 @@ public final class DeepSeekSelectors {
 
 
 
+    /** Main assistant response container (markdown). */
+    public static final String ASSISTANT_MAIN_CONTENT = ".ds-assistant-message-main-content";
+
+    /** Text used by the "Stop generating" button (used to detect ongoing generation). */
+    public static final String STOP_GENERATING_TEXT = "Stop generating";
+
     /** Selectors for assistant message containers (comma-joined for querySelectorAll). */
 
     public static final String ASSISTANT_MESSAGE =
