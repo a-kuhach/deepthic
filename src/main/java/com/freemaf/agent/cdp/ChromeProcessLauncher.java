@@ -9,13 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import com.freemaf.agent.AppLogger;
 import com.sun.jna.platform.win32.User32;
-import com.sun.jna.platform.win32.WinUser;
-import com.sun.jna.ptr.IntByReference;
 
 public final class ChromeProcessLauncher {
 
@@ -89,50 +86,21 @@ public final class ChromeProcessLauncher {
 
 
         if (headless) {
-            // Prefer chrome-headless-shell (no window at all). It is a console binary;
-            // start /b with empty title keeps it on the parent console (no extra window).
-            // If it fails to open the CDP port, fall back to chrome.exe --headless=old
-            // (Chrome 131 does not create a visible window in old headless mode).
-            String shell = resolveHeadlessShellPath();
-            if (shell != null) {
-                List<String> shellArgs = new ArrayList<>(args);
-                shellArgs.set(0, shell);
-                List<String> cmd = new ArrayList<>();
-                cmd.add("cmd");
-                cmd.add("/c");
-                cmd.add("start");
-                cmd.add("/b");
-                cmd.add("\"\"");
-                cmd.addAll(shellArgs);
-                ProcessBuilder shellPb = new ProcessBuilder(cmd);
-                shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
-                // Redirect stderr to a file so a crash is visible in diagnostics.
-                java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
-                shellPb.redirectError(shellErr);
-                Process shellProc = shellPb.start();
-                AppLogger.info("FIX55: start /b \"\" chrome-headless-shell pid=" + shellProc.pid());
-                try { Thread.sleep(2000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                boolean shellPortOk = false;
-                try { shellPortOk = new CdpHttpClient(port).waitForPort(10_000L); } catch (Exception ignored) { }
-                if (shellPortOk) {
-                    AppLogger.info("FIX55: shell port " + port + " is open");
-                    final Process sp = shellProc;
-                    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                        try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
-                    }, "chrome-shutdown-" + port));
-                    return shellProc;
-                }
-                AppLogger.warn("FIX55: shell port " + port + " NOT open within 10s, killing shell");
-                try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
-                shellProc.destroyForcibly();
-            }
-            // Fallback: --headless=old (no visible window in Chrome 131)
-            args.add("--headless=old");
-            args.add("--window-position=-10000,-10000");
+            // Chromium issue 359921643: --headless=new on Windows creates a native
+            // Chrome_WidgetWin_1 window that never receives WS_VISIBLE, yet Chrome
+            // composites its surface onto the desktop via SetWindowDisplayAffinity.
+            // ShowWindow(SW_HIDE) cannot suppress it; EnumWindows does not see it.
+            // chrome-headless-shell (the only truly window-less binary) requires an
+            // exact version match with the installed Chrome profile and is unreliable.
+            // --headless=old is deprecated in Chrome 131 and also creates a window.
+            // The confirmed-working workaround (issue #8005, PR #12299): park the window
+            // off-desktop with --window-position=-2400,-2400. Coordinates outside any
+            // monitor prevent DWM from compositing the window's surface.
+            args.add("--headless=new");
+            args.add("--window-position=-2400,-2400");
             args.add("--window-size=1920,1080");
             args.add("--disable-gpu");
-            args.add("--no-zygote");
-            AppLogger.info("FIX55: chrome.exe --headless=old fallback");
+            AppLogger.info("FIX57: chrome.exe --headless=new --window-position=-2400,-2400");
         } else {
             args.add("--new-window");
         }
@@ -152,33 +120,6 @@ public final class ChromeProcessLauncher {
         Process p = pb.start();
 
 
-        if (headless) {
-
-            final long chromePid = p.pid();
-
-            new Thread(() -> {
-
-                while (p.isAlive()) {
-
-                    try {
-
-                        Set<Long> pids = new HashSet<>();
-
-                        pids.add(chromePid);
-
-                        p.descendants().forEach(h -> pids.add(h.pid()));
-
-                        hideWindowsOfProcesses(pids);
-
-                    } catch (Exception ignored) { }
-
-                    try { Thread.sleep(500L); } catch (InterruptedException e) { break; }
-
-                }
-
-            }, "chrome-window-hider-" + chromePid).start();
-
-        }
 
 
 
@@ -468,27 +409,6 @@ public final class ChromeProcessLauncher {
 
     // FIX44: hide all top-level windows of the given PID (fallback path only).
 
-    private static void hideWindowsOfProcesses(Set<Long> pids) {
-
-        User32.INSTANCE.EnumWindows((hwnd, data) -> {
-
-            IntByReference procId = new IntByReference();
-
-            User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId);
-
-            long pid = procId.getValue();
-
-            if (pids.contains(pid)) {
-
-                User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
-
-            }
-
-            return true;
-
-        }, null);
-
-    }
 
 
 
@@ -496,17 +416,4 @@ public final class ChromeProcessLauncher {
 
 
 
-    private static void hideWindowByPid(long pid) {
-        if (pid <= 0) return;
-        try {
-            User32.INSTANCE.EnumWindows((hwnd, data) -> {
-                IntByReference procId = new IntByReference();
-                User32.INSTANCE.GetWindowThreadProcessId(hwnd, procId);
-                if (procId.getValue() == (int) pid) {
-                    User32.INSTANCE.ShowWindow(hwnd, WinUser.SW_HIDE);
-                }
-                return true;
-            }, null);
-        } catch (Throwable ignored) { }
-    }
 }
