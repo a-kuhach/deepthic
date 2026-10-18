@@ -52,6 +52,7 @@ public final class PowerShellExecutor {
         pb.environment().put("credential.interactive", "false");
         pb.environment().put("GIT_ASKPASS", "echo");
         pb.environment().put("SSH_ASKPASS", "echo");         // FIX8b: stdin redirect to an empty file plus NonInteractive flag prevent         // the PS process from hanging on interactive prompts. A bare cmdlet alias         // such as Set (short for Set-Variable) prompts for the mandatory -Name         // parameter and reads stdin forever. With NonInteractive plus EOF stdin         // the cmdlet fails fast with ParameterBindingException instead of blocking.         try {             Path stdinFile = Path.of("agent", "cache", "_", "ps_stdin_empty.txt");             Files.createDirectories(stdinFile.getParent());             if (!Files.exists(stdinFile)) Files.writeString(stdinFile, "");             pb.redirectInput(ProcessBuilder.Redirect.from(stdinFile.toFile()));         } catch (Exception stdinErr) {             AppLogger.warn("PowerShellExecutor: stdin redirect setup failed: " + stdinErr.getMessage());         }
+        AppLogger.info("PowerShellExecutor: starting script.ps1 (timeoutSec=" + config.getScriptTimeoutSeconds() + ")");
         Process process = pb.start();
         processStartMs = System.currentTimeMillis();
         if (JobObjectManager.isActive()) {
@@ -102,6 +103,7 @@ public final class PowerShellExecutor {
             processManager.clearCurrentScriptProcess(process);
         }
         long elapsedSeconds = (System.currentTimeMillis() - processStartMs) / 1000L;
+        AppLogger.info("PowerShellExecutor: script finished (exit=" + process.exitValue() + ", elapsed=" + elapsedSeconds + "s, timedOut=" + timedOutFlag + ")");
         String stdout = stdoutFuture.join();
         String stderr = stderrFuture.join();
         int exitCode = process.exitValue();

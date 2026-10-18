@@ -1533,17 +1533,17 @@ public final class CdpDeepSeek {
 
 
     
+
 private void attachFileViaFallbacks(Path path, int baselineComposer) throws CdpAttachException {
-    // Stop after the first method that actually produces an attachment.
-    if (attachFileViaDataTransfer(path)) {
-        try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-    }
-    if (attachFileViaDragEvent(path)) {
-        try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-    }
+    // Try DataTransfer, then DragEvent, then Paste. After each method, check the DOM.
+    // If the attachment appeared, stop immediately.
+    attachFileViaDataTransfer(path);
+    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
+    attachFileViaDragEvent(path);
+    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
     attachFileViaPasteEvent(path);
     waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
-}
+}
 private boolean attachFileViaDragEvent(Path path) {
 
         try {
