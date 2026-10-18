@@ -74,6 +74,31 @@ public final class CdpBootstrap {
     public Config config() { return config; }
     public int port() { return port; }
 
+
+    private static final String ACTIVE_PIDS_FILE = "agent/cache/active_pids.txt";
+
+    private synchronized void registerActivePid(long pid) {
+        try {
+            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
+            java.nio.file.Files.createDirectories(path.getParent());
+            java.util.Set<String> lines = new java.util.HashSet<>();
+            if (java.nio.file.Files.exists(path)) lines.addAll(java.nio.file.Files.readAllLines(path));
+            lines.add(String.valueOf(pid));
+            java.nio.file.Files.write(path, lines);
+        } catch (Exception e) { AppLogger.warn("registerActivePid failed: " + e.getMessage()); }
+    }
+
+    private synchronized void unregisterActivePid(long pid) {
+        try {
+            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
+            if (!java.nio.file.Files.exists(path)) return;
+            java.util.Set<String> lines = new java.util.HashSet<>(java.nio.file.Files.readAllLines(path));
+            lines.remove(String.valueOf(pid));
+            if (lines.isEmpty()) java.nio.file.Files.deleteIfExists(path);
+            else java.nio.file.Files.write(path, lines);
+        } catch (Exception e) { AppLogger.warn("unregisterActivePid failed: " + e.getMessage()); }
+    }
+
     public synchronized void start(boolean headless) throws IOException { start(headless, false, false); }
 
     public synchronized void start(boolean headless, boolean ensureLogin) throws IOException { start(headless, ensureLogin, false); }

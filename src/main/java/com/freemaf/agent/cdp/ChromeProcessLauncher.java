@@ -94,17 +94,18 @@ public final class ChromeProcessLauncher {
 
 
 
-        if (headless) {
-            // FIX73: chrome.exe --headless=new with off-screen parking + background window hider.
-            args.add("--headless=new");
-            args.add("--window-position=-2400,-2400");
-            args.add("--window-size=1920,1080");
-            args.add("--disable-gpu");
-            args.add("--no-sandbox");
-            AppLogger.info("FIX73: chrome.exe --headless=new --window-position=-2400,-2400 (background hider enabled)");
-        } else {
-            args.add("--new-window");
-        }
+        if (headless) {
+            // FIX82: use --headless=old which does not create a native Chrome_WidgetWin_1 window.
+            args.add("--headless=old");
+            args.add("--disable-gpu");
+            args.add("--no-sandbox");
+            AppLogger.info("FIX82: chrome.exe --headless=old (no window)");
+        } else {
+
+            args.add("--new-window");
+
+        }
+
 
 
 
@@ -121,39 +122,6 @@ public final class ChromeProcessLauncher {
         pb.redirectError(ProcessBuilder.Redirect.DISCARD);
 
         Process p = pb.start();
-
-
-        // FIX73: background window hider (enumerate all windows, hide Chrome_WidgetWin_1 of our process tree)
-        if (headless) {
-            final long rootPid = p.pid();
-            new Thread(() -> {
-                while (p.isAlive()) {
-                    try {
-                        java.util.Set<Long> pids = new java.util.HashSet<>();
-                        pids.add(rootPid);
-                        p.descendants().forEach(h -> pids.add(h.pid()));
-                        com.sun.jna.platform.win32.User32.INSTANCE.EnumWindows((hwnd, data) -> {
-                            com.sun.jna.ptr.IntByReference pidRef = new com.sun.jna.ptr.IntByReference();
-                            com.sun.jna.platform.win32.User32.INSTANCE.GetWindowThreadProcessId(hwnd, pidRef);
-                            if (pids.contains((long) pidRef.getValue())) {
-                                char[] cls = new char[256];
-                                com.sun.jna.platform.win32.User32.INSTANCE.GetClassName(hwnd, cls, 256);
-                                String className = new String(cls).trim();
-                                if (className.contains("Chrome_WidgetWin_1")) {
-                                    com.sun.jna.platform.win32.User32.INSTANCE.ShowWindow(hwnd, com.sun.jna.platform.win32.WinUser.SW_HIDE);
-                                }
-                            }
-                            return true;
-                        }, null);
-                    } catch (Throwable ignored) { }
-                    try { Thread.sleep(200L); } catch (InterruptedException e) { break; }
-                }
-            }, "chrome-window-hider-" + port).start();
-        }
-
-
-
-
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 
