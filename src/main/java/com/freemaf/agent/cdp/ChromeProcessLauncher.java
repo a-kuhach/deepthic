@@ -19,6 +19,9 @@ import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.WinUser;
+import com.sun.jna.platform.win32.User32;
+import com.sun.jna.ptr.IntByReference;
+import java.util.HashSet;
 import com.freemaf.agent.AppLogger;
 
 public final class ChromeProcessLauncher {
@@ -93,19 +96,85 @@ public final class ChromeProcessLauncher {
 
 
 
+        if (headless) {
 
-        if (headless) {
-            // FIX73: chrome.exe --headless=new with off-screen parking + background window hider.
+            // FIX72: CREATE_NO_WINDOW + DETACHED_PROCESS + STARTF_USESTDHANDLES
+
+            // to hide console window and allow shell to initialize properly.
+
+            String shell = resolveHeadlessShellPath();
+
+            if (shell != null) {
+
+                List<String> shellArgs = new ArrayList<>(args);
+
+                shellArgs.set(0, shell);
+
+                shellArgs.add("--no-sandbox");
+
+                shellArgs.add("--disable-gpu");
+
+                java.io.File workingDir = new java.io.File(shell).getParentFile();
+
+                Process shellProc = startWithCreateNoWindow(shellArgs, workingDir);
+
+                if (shellProc != null) {
+
+                    AppLogger.info("FIX72: chrome-headless-shell (CREATE_NO_WINDOW) pid=" + shellProc.pid());
+
+                    try { Thread.sleep(3000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+
+                    boolean shellPortOk = false;
+
+                    try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
+
+                    if (shellPortOk) {
+
+                        AppLogger.info("FIX72: shell port " + port + " is open");
+
+                        final Process sp = shellProc;
+
+                        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+
+                            try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
+
+                        }, "chrome-shutdown-" + port));
+
+                        return shellProc;
+
+                    }
+
+                    AppLogger.warn("FIX72: shell port " + port + " NOT open within 15s");
+
+                    try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+
+                    shellProc.destroyForcibly();
+
+                } else {
+
+                    AppLogger.warn("FIX72: startWithCreateNoWindow returned null");
+
+                }
+
+            }
+
+            // Last-resort fallback (visible window, but pipeline continues).
+
             args.add("--headless=new");
-            args.add("--disable-dwm-composition");
-            args.add("--window-position=-32000,-32000");
-            args.add("--window-size=1920,1080");
-            args.add("--disable-gpu");
-            args.add("--no-sandbox");
-            AppLogger.info("FIX73: chrome.exe --headless=new --window-position=-32000,-32000 (background hider enabled)");
-        } else {
-            args.add("--new-window");
-        }
+
+            args.add("--no-sandbox");
+
+            args.add("--disable-gpu");
+
+            args.add("--window-size=1920,1080");
+
+            AppLogger.warn("FIX72: fallback chrome.exe --headless=new --no-sandbox (window may be visible)");
+
+        } else {
+
+            args.add("--new-window");
+
+        }
 
 
 
@@ -123,7 +192,10 @@ public final class ChromeProcessLauncher {
 
         Process p = pb.start();
 
-
+
+
+
+
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 
             try {
@@ -141,6 +213,25 @@ public final class ChromeProcessLauncher {
         }, "chrome-shutdown-" + port));
 
 
+
+        // FIX75: census before/after to kill new Chrome windows
+        if (headless) {
+            final Set<Long> before = getChromeWindowHandles();
+            new Thread(() -> {
+                try { Thread.sleep(2000L); } catch (InterruptedException e) { return; }
+                Set<Long> after = getChromeWindowHandles();
+                after.removeAll(before);
+                for (long hwnd : after) {
+                    IntByReference pidRef = new IntByReference();
+                    User32.INSTANCE.GetWindowThreadProcessId(new WinDef.HWND(Pointer.createConstant(hwnd)), pidRef);
+                    long pid = pidRef.getValue();
+                    if (pid > 0) {
+                        AppLogger.info("FIX75: killing new Chrome window hwnd=" + hwnd + " pid=" + pid);
+                        try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(pid)).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                    }
+                }
+            }, "chrome-window-killer-" + p.pid()).start();
+        }
         return p;
 
     }
@@ -437,6 +528,138 @@ public final class ChromeProcessLauncher {
 
     // FIX72: launch with CREATE_NO_WINDOW | DETACHED_PROCESS and inherited handles.
 
+    private static Process startWithCreateNoWindow(List<String> cmd, java.io.File workingDir) {
+
+        try {
+
+            WinBase.STARTUPINFO si = new WinBase.STARTUPINFO();
+
+            si.cb = new WinDef.DWORD(si.size());
+
+            si.dwFlags = WinBase.STARTF_USESHOWWINDOW | WinBase.STARTF_USESTDHANDLES;
+
+            si.wShowWindow = new WinDef.WORD(WinUser.SW_HIDE);
+
+            si.hStdInput = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_INPUT_HANDLE);
+
+            si.hStdOutput = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_OUTPUT_HANDLE);
+
+            si.hStdError = Kernel32.INSTANCE.GetStdHandle(Kernel32.STD_ERROR_HANDLE);
+
+            WinBase.PROCESS_INFORMATION pi = new WinBase.PROCESS_INFORMATION();
+
+            String cmdLine = "\"" + cmd.get(0) + "\" " + String.join(" ", cmd.subList(1, cmd.size()));
+
+            String cwd = workingDir != null ? workingDir.getAbsolutePath() : null;
+
+            int flags = WinBase.CREATE_NO_WINDOW | 0x00000008; // DETACHED_PROCESS
+
+            boolean ok = Kernel32.INSTANCE.CreateProcess(
+
+                null, cmdLine, null, null, true,
+
+                new WinDef.DWORD(flags),
+
+                null, cwd, si, pi);
+
+            if (!ok) {
+
+                AppLogger.warn("FIX72: CreateProcess failed: " + Kernel32.INSTANCE.GetLastError());
+
+                return null;
+
+            }
+
+            Kernel32.INSTANCE.CloseHandle(pi.hThread);
+
+            Kernel32.INSTANCE.CloseHandle(pi.hProcess);
+
+            long pid = pi.dwProcessId.longValue();
+
+            AppLogger.info("FIX72: CreateProcess pid=" + pid);
+
+            return new HiddenProcess(pid);
+
+        } catch (Throwable t) {
+
+            AppLogger.warn("FIX72: startWithCreateNoWindow failed: " + t.getMessage());
+
+            return null;
+
+        }
+
+    }
+
+
+
+    private static final class HiddenProcess extends Process {
+
+        private final long pid;
+
+        HiddenProcess(long pid) { this.pid = pid; }
+
+        @Override public java.io.OutputStream getOutputStream() { return java.io.OutputStream.nullOutputStream(); }
+
+        @Override public java.io.InputStream getInputStream() { return java.io.InputStream.nullInputStream(); }
+
+        @Override public java.io.InputStream getErrorStream() { return java.io.InputStream.nullInputStream(); }
+
+        @Override public int waitFor() throws InterruptedException { while (isAlive()) Thread.sleep(100); return 0; }
+
+        @Override public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+
+            long deadline = System.nanoTime() + unit.toNanos(timeout);
+
+            while (isAlive()) { if (System.nanoTime() > deadline) return false; Thread.sleep(100); }
+
+            return true;
+
+        }
+
+        @Override public int exitValue() { if (isAlive()) throw new IllegalThreadStateException(); return 0; }
+
+        @Override public void destroy() { killPidTree(pid); }
+
+        @Override public Process destroyForcibly() { destroy(); return this; }
+
+        @Override public boolean isAlive() { return ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false); }
+
+        @Override public long pid() { return pid; }
+
+    }
+
+
+    private static Set<Long> getChromeWindowHandles() {
+        Set<Long> handles = new HashSet<>();
+        User32.INSTANCE.EnumWindows((hwnd, data) -> {
+            char[] cls = new char[256];
+            User32.INSTANCE.GetClassName(hwnd, cls, 256);
+            if ("Chrome_WidgetWin_1".equals(new String(cls).trim())) {
+                handles.add(Pointer.nativeValue(hwnd.getPointer()));
+            }
+            return true;
+        }, null);
+        return handles;
+    }
+
+    public static void killAllChromeWindows() {
+        Set<Long> handles = getChromeWindowHandles();
+        for (long hwnd : handles) {
+            IntByReference pidRef = new IntByReference();
+            User32.INSTANCE.GetWindowThreadProcessId(new WinDef.HWND(Pointer.createConstant(hwnd)), pidRef);
+            long pid = pidRef.getValue();
+            if (pid > 0) {
+                ProcessHandle.of(pid).ifPresent(ph -> {
+                    String cmd = ph.info().commandLine().orElse("");
+                    if (cmd.contains("--user-data-dir=") && cmd.contains("cdp-profile")) {
+                        AppLogger.info("killAllChromeWindows: killing pid=" + pid);
+                        try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(pid)).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
+                    }
+                });
+            }
+        }
+    }
+
     public static String resolveChromePath() {
         String local = System.getenv("LOCALAPPDATA");
         String[] candidates = {
