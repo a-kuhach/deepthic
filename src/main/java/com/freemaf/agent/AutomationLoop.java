@@ -68,20 +68,47 @@ public final class AutomationLoop implements Runnable {
 
 
 
-    
-public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
-                          StatusMarker statusMarker, PromptQueue promptQueue,
-                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
-                          Config config, WindowManager windowManager) {
-        this(chatConsole, psConsolePanel, statusMarker, promptQueue, deepSeekSession,
-             powerShellExecutor, config, windowManager, null);
-    }
-
-    public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
-                          StatusMarker statusMarker, PromptQueue promptQueue,
-                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
-                          Config config, WindowManager windowManager,
-                          com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap) {
+    
+
+public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
+
+
+                          StatusMarker statusMarker, PromptQueue promptQueue,
+
+
+                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
+
+
+                          Config config, WindowManager windowManager) {
+
+
+        this(chatConsole, psConsolePanel, statusMarker, promptQueue, deepSeekSession,
+
+
+             powerShellExecutor, config, windowManager, null);
+
+
+    }
+
+
+
+
+
+    public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
+
+
+                          StatusMarker statusMarker, PromptQueue promptQueue,
+
+
+                          DeepSeekSession deepSeekSession, PowerShellExecutor powerShellExecutor,
+
+
+                          Config config, WindowManager windowManager,
+
+
+                          com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap) {
+
+
         this.chatConsole = chatConsole;
 
         this.psConsolePanel = psConsolePanel;
@@ -392,48 +419,89 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
     }
 
 
-    long touchExecutorCounterIfActive() {
-        long current = config.getExecutorMessageCount();
-        if (activeReviewerRole != null) return current;
-        long next = current + 1;
-        config.setExecutorMessageCount(next);
-        return next;
-    }
-
-    String injectMigrationWarningIfNeeded(String prompt) {
-        if (activeReviewerRole != null) return prompt;
-        if (awaitingMigrationConfirm) return prompt;
+    long touchExecutorCounterIfActive() {
+
+        long current = config.getExecutorMessageCount();
+
+        if (activeReviewerRole != null) return current;
+
+        long next = current + 1;
+
+        config.setExecutorMessageCount(next);
+
+        return next;
+
+    }
+
+
+
+    String injectMigrationWarningIfNeeded(String prompt) {
+
+        if (activeReviewerRole != null) return prompt;
+
+        if (awaitingMigrationConfirm) return prompt;
+
         if (config.getExecutorMessageCount() < 100) return prompt;
-        if (warningInjected) return prompt;
-        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с одной строкой: Write-Output \"AGENT_SESSION_MIGRATE_START: <текст>\", затем дождись лога и отправь ТОЛЬКО строку маркера: AGENT_SESSION_MIGRATE_CONFIRM: <текст> без скрипта и без обёртки.";
-        warningInjected = true;
-        debug("injected migration warning (counter=" + config.getExecutorMessageCount() + ")");
-        return warn + System.lineSeparator() + System.lineSeparator() + prompt;
-    }
-
-    boolean detectMigrationHalt(List<MarkerEvent> events, String responseRole) {
-        boolean isAgentStop = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_STOP);
-        return isAgentStop
-                && "EXECUTOR".equals(responseRole)
-                && config.getExecutorMessageCount() >= 100
-                && warningInjected;
-    }
-
-    void recognizeMigrationStart(List<MarkerEvent> events, String responseRole) {
-        boolean startEvent = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_SESSION_MIGRATE_START);
-        if (!startEvent) return;
-        if ("EXECUTOR".equals(responseRole)) {
-            awaitingMigrationConfirm = true;
-            debug("AGENT_SESSION_MIGRATE_START recognized, awaiting CONFIRM");
-        } else {
-            AppLogger.warn("AGENT_SESSION_MIGRATE_START from non-EXECUTOR role [" + responseRole + "], ignored");
-        }
-    }
-
-    boolean isAwaitingMigrationConfirm() { return awaitingMigrationConfirm; }
-
-    boolean isWarningInjected() { return warningInjected; }
-    private WindowInfo applyWorkRectToNewWindow(WindowInfo w) throws InterruptedException {
+        if (warningInjected) return prompt;
+
+        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с одной строкой: Write-Output \"AGENT_SESSION_MIGRATE_START: <текст>\", затем дождись лога и отправь ТОЛЬКО строку маркера: AGENT_SESSION_MIGRATE_CONFIRM: <текст> без скрипта и без обёртки.";
+
+        warningInjected = true;
+
+        debug("injected migration warning (counter=" + config.getExecutorMessageCount() + ")");
+
+        return warn + System.lineSeparator() + System.lineSeparator() + prompt;
+
+    }
+
+
+
+    boolean detectMigrationHalt(List<MarkerEvent> events, String responseRole) {
+
+        boolean isAgentStop = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_STOP);
+
+        return isAgentStop
+
+                && "EXECUTOR".equals(responseRole)
+
+                && config.getExecutorMessageCount() >= 100
+
+                && warningInjected;
+
+    }
+
+
+
+    void recognizeMigrationStart(List<MarkerEvent> events, String responseRole) {
+
+        boolean startEvent = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_SESSION_MIGRATE_START);
+
+        if (!startEvent) return;
+
+        if ("EXECUTOR".equals(responseRole)) {
+
+            awaitingMigrationConfirm = true;
+
+            debug("AGENT_SESSION_MIGRATE_START recognized, awaiting CONFIRM");
+
+        } else {
+
+            AppLogger.warn("AGENT_SESSION_MIGRATE_START from non-EXECUTOR role [" + responseRole + "], ignored");
+
+        }
+
+    }
+
+
+
+    boolean isAwaitingMigrationConfirm() { return awaitingMigrationConfirm; }
+
+
+
+    boolean isWarningInjected() { return warningInjected; }
+
+
+    private WindowInfo applyWorkRectToNewWindow(WindowInfo w) throws InterruptedException {
         int wx = config.getInt("window.work.x", 50);
         int wy = config.getInt("window.work.y", 50);
         int ww = config.getInt("window.work.width", 731);
@@ -796,10 +864,12 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
                 String psScript = response.content();
+                AppLogger.info("AutomationLoop: saving script.ps1, length=" + psScript.length());
 
                 try {
 
                     ScriptSaver.save(psScript);
+                    AppLogger.info("AutomationLoop: script.ps1 saved");
 
                 } catch (IOException e) {
 
@@ -819,6 +889,7 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
                 try {
 
+                    AppLogger.info("AutomationLoop: executing script.ps1");
                     result = powerShellExecutor.execute(Path.of("script.ps1"),
 
                             line -> SwingUtilities.invokeLater(() -> psConsolePanel.append(line)));
@@ -838,6 +909,7 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
                 deleteDeliveryScript();
+                AppLogger.info("AutomationLoop: script.ps1 executed, exit=" + result.exitCode());
 
                 if (EmergencyStop.isStopped()) {
 
@@ -1264,27 +1336,48 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
 
-                // FIX8c: role-less response while a reviewer is active. This is a
-                // reviewer whose ROLE marker was absent (truncated or model ignored).
-                // Do NOT fall through to EXECUTOR; retry in the reviewer window
-                // with a hard reminder so the reviewer can finish its verdict.
-                if ((responseRole == null || responseRole.isEmpty()) && activeReviewerRole != null) {
-                    debug("empty role from reviewer [" + activeReviewerRole + "], retrying in reviewer window");
-                    StringBuilder retry = new StringBuilder();
-                    retry.append("### ROLE_TO_ACT: ").append(activeReviewerRole).append(System.lineSeparator());
-                    retry.append("Твой предыдущий ответ не содержал строку-маркер ROLE на первой строке PS-блока, поэтому роль не определена.")
-                            .append(System.lineSeparator());
-                    retry.append("Повтори ответ одной строкой fenced PowerShell. Первая строка внутри блока ОБЯЗАТЕЛЬНО: Write-Output \"ROLE: ")
-                            .append(activeReviewerRole).append("\" (в двойных кавычках).").append(System.lineSeparator());
-                    retry.append("Если ты выносишь вердикт — добавь Write-Output \"USER_MSG: <PLAN_APPROVED|PLAN_REJECTED|RESULT_APPROVED|RESULT_REJECTED|CODE_APPROVED|CODE_REJECTED>: <причина>\".")
-                            .append(System.lineSeparator());
-                    retry.append("Никаких интерактивных команд (Set без параметров, Read-Host и т.п.). Ничего до блока и после.").append(System.lineSeparator());
-                    retry.append(System.lineSeparator());
-                    retry.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
-                    promptQueue.add(retry.toString());
-                    continue;
-                }
-                String followUp = PromptBuilder.buildFollowUp(
+                // FIX8c: role-less response while a reviewer is active. This is a
+
+                // reviewer whose ROLE marker was absent (truncated or model ignored).
+
+                // Do NOT fall through to EXECUTOR; retry in the reviewer window
+
+                // with a hard reminder so the reviewer can finish its verdict.
+
+                if ((responseRole == null || responseRole.isEmpty()) && activeReviewerRole != null) {
+
+                    debug("empty role from reviewer [" + activeReviewerRole + "], retrying in reviewer window");
+
+                    StringBuilder retry = new StringBuilder();
+
+                    retry.append("### ROLE_TO_ACT: ").append(activeReviewerRole).append(System.lineSeparator());
+
+                    retry.append("Твой предыдущий ответ не содержал строку-маркер ROLE на первой строке PS-блока, поэтому роль не определена.")
+
+                            .append(System.lineSeparator());
+
+                    retry.append("Повтори ответ одной строкой fenced PowerShell. Первая строка внутри блока ОБЯЗАТЕЛЬНО: Write-Output \"ROLE: ")
+
+                            .append(activeReviewerRole).append("\" (в двойных кавычках).").append(System.lineSeparator());
+
+                    retry.append("Если ты выносишь вердикт — добавь Write-Output \"USER_MSG: <PLAN_APPROVED|PLAN_REJECTED|RESULT_APPROVED|RESULT_REJECTED|CODE_APPROVED|CODE_REJECTED>: <причина>\".")
+
+                            .append(System.lineSeparator());
+
+                    retry.append("Никаких интерактивных команд (Set без параметров, Read-Host и т.п.). Ничего до блока и после.").append(System.lineSeparator());
+
+                    retry.append(System.lineSeparator());
+
+                    retry.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
+
+                    promptQueue.add(retry.toString());
+
+                    continue;
+
+                }
+
+
+                String followUp = PromptBuilder.buildFollowUp(
 
                         SystemInstructionProvider.getFormatReminder(), scriptLog);
 
