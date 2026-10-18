@@ -485,6 +485,7 @@ public final class CdpBootstrap {
         if (tab != null && session != null) { try { session.closeTab(tab); } catch (Exception ignored) { } }
         if (ex != null) { try { ex.closeActiveTab(); } catch (Exception ignored) { } }
         config.setCdpExecutorTabId("");
+        try { ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L); } catch (Exception ignored) { }
     }
 
     public synchronized void closeReviewer() {
@@ -493,6 +494,7 @@ public final class CdpBootstrap {
         if (tab != null && session != null) { try { session.closeTab(tab); } catch (Exception ignored) { } }
         if (rev != null) { try { rev.closeActiveTab(); } catch (Exception ignored) { } }
         config.setCdpReviewerTabId("");
+        try { ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L); } catch (Exception ignored) { }
     }
 
 

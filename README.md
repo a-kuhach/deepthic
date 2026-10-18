@@ -1,6 +1,6 @@
 # Deepthic
 
-**Version: beta v0.3.69**
+**Version: beta v0.3.70**
 
 A Windows bridge that drives a Chrome tab on the DeepSeek Web chat and uses it as a remote LLM agent for your project.
 

@@ -1310,6 +1310,12 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             if (cdpBootstrap != null) {
                 AppLogger.info("startSequence: CDP mode, starting bootstrap");
+                // FIX73: kill any orphan framework chrome processes before starting a new session.
+                try {
+                    int killed = com.freemaf.agent.cdp.ChromeProcessLauncher.killFrameworkChromiumProcesses(
+                        com.freemaf.agent.cdp.ChromeProcessLauncher.resolveProfilePath(), 0L);
+                    if (killed > 0) AppLogger.info("startSequence: killed " + killed + " orphan framework chrome process(es)");
+                } catch (Exception ignored) { }
                                 try {
                     appendSystem("Запуск CDP-сессии, ожидайте...");
                     cdpBootstrap.start(true, true, true);
