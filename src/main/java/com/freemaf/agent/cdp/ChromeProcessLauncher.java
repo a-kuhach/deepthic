@@ -33,25 +33,9 @@ public final class ChromeProcessLauncher {
     }
 
 
-
-    private static void logVersionDiagnostics() {
-        try {
-            AppLogger.info("FIX65: installed Chrome version = " + resolveChromeVersion());
-            String shell = resolveHeadlessShellPath();
-            if (shell != null) {
-                Process p = new ProcessBuilder(shell, "--version").redirectErrorStream(true).start();
-                String line = new java.io.BufferedReader(new java.io.InputStreamReader(p.getInputStream(), java.nio.charset.StandardCharsets.UTF_8)).readLine();
-                try { p.waitFor(3, TimeUnit.SECONDS); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
-                AppLogger.info("FIX65: chrome-headless-shell version = " + line);
-            }
-        } catch (Exception e) {
-            AppLogger.warn("FIX65: version diagnostic failed: " + e.getMessage());
-        }
-    }
     public static Process start(boolean headless, int port) throws IOException {
 
         Path profilePath = resolveProfilePath();
-        logVersionDiagnostics();
 
         AppLogger.info("ChromeProcessLauncher.start: headless=" + headless + ", isTestMode=" + isTestMode() + ", deepthic.test=" + System.getProperty("deepthic.test", "not-set"));
 
@@ -101,48 +85,48 @@ public final class ChromeProcessLauncher {
 
 
         if (headless) {
-            // FIX65: Chrome sandbox spawns child processes with lpDesktop=nullptr,
-            // so CreateDesktop is ignored and windows appear on the user desktop.
-            // The only window-less binary is chrome-headless-shell. It requires
-            // --no-sandbox and a matching major version with the installed Chrome.
+            // FIX66: chrome-headless-shell is the only window-less binary.
+            // It requires icudtl.dat next to the executable. Previous unpacking
+            // left icudtl.dat in the subfolder, causing "Invalid file descriptor
+            // to ICU data received" and a fallback to chrome.exe --headless=old,
+            // which creates a visible window.
+            // Fix: unpack ALL files from the subfolder into the target directory.
             String shell = resolveHeadlessShellPath();
             if (shell != null) {
                 List<String> shellArgs = new ArrayList<>(args);
                 shellArgs.set(0, shell);
-                shellArgs.add("--no-sandbox");
-                shellArgs.add("--disable-gpu");
                 ProcessBuilder shellPb = new ProcessBuilder(shellArgs);
                 shellPb.redirectOutput(ProcessBuilder.Redirect.DISCARD);
                 java.io.File shellErr = new java.io.File("agent/cache/_/chrome-headless-shell.err.log");
                 shellPb.redirectError(shellErr);
                 Process shellProc = shellPb.start();
-                AppLogger.info("FIX65: chrome-headless-shell (--no-sandbox) pid=" + shellProc.pid());
+                AppLogger.info("FIX66: chrome-headless-shell pid=" + shellProc.pid());
                 try { Thread.sleep(3000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                 boolean shellPortOk = false;
                 try { shellPortOk = new CdpHttpClient(port).waitForPort(15_000L); } catch (Exception ignored) { }
                 if (shellPortOk) {
-                    AppLogger.info("FIX65: shell port " + port + " is open");
+                    AppLogger.info("FIX66: shell port " + port + " is open");
                     final Process sp = shellProc;
                     Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                         try { if (sp.isAlive()) { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(sp.pid())).start().waitFor(5, TimeUnit.SECONDS); sp.destroyForcibly(); } } catch (Exception ignored) { }
                     }, "chrome-shutdown-" + port));
                     return shellProc;
                 }
-                AppLogger.warn("FIX65: shell port " + port + " NOT open within 15s");
+                AppLogger.warn("FIX66: shell port " + port + " NOT open within 15s");
                 try {
                     String err = java.nio.file.Files.readString(shellErr.toPath());
-                    if (!err.isEmpty()) AppLogger.warn("FIX65: shell stderr: " + err);
+                    if (!err.isEmpty()) AppLogger.warn("FIX66: shell stderr: " + err);
                 } catch (Exception ignored) { }
                 try { new ProcessBuilder("taskkill", "/F", "/T", "/PID", String.valueOf(shellProc.pid())).start().waitFor(5, TimeUnit.SECONDS); } catch (Exception ignored) { }
                 shellProc.destroyForcibly();
             }
-            // Fallback 1: chrome.exe --headless=old --no-sandbox (Chrome 131 still supports old headless)
+            // Last-resort fallback (visible window, but pipeline continues).
             args.add("--headless=old");
             args.add("--no-sandbox");
             args.add("--disable-gpu");
             args.add("--window-position=-10000,-10000");
             args.add("--window-size=1920,1080");
-            AppLogger.info("FIX65: chrome.exe --headless=old --no-sandbox fallback");
+            AppLogger.warn("FIX66: fallback chrome.exe --headless=old --no-sandbox (window may be visible)");
         } else {
             args.add("--new-window");
         }
@@ -263,60 +247,69 @@ public final class ChromeProcessLauncher {
     // We probe next to chrome.exe; if missing, use --headless=old (Chrome <132).
     // FIX40: chrome-headless-shell.exe is the only window-less binary for Chrome 131+.
     // Auto-download from Chrome for Testing if not present.
-    public static synchronized String resolveHeadlessShellPath() {
-        AppLogger.info("FIX41: resolveHeadlessShellPath called");
-        try {
-            String chrome = resolveChromePath();
-            java.io.File chromeFile = new java.io.File(chrome);
-            java.io.File dir = chromeFile.getParentFile();
-            if (dir == null) return null;
-            java.io.File shell = new java.io.File(dir, "chrome-headless-shell.exe");
-            if (shell.isFile()) return shell.getAbsolutePath();
-            java.io.File cacheShell = new java.io.File("agent/cache/chrome-headless-shell/chrome-headless-shell.exe");
-            if (cacheShell.isFile()) return cacheShell.getAbsolutePath();
-            String fullVersion = resolveFullChromeVersion();
-            AppLogger.info("FIX41: resolved fullVersion=" + fullVersion);
-            if (fullVersion == null || fullVersion.isEmpty()) {
-                AppLogger.warn("FIX40: cannot resolve full Chrome version for headless-shell download");
-                return null;
-            }
-            String url = "https://storage.googleapis.com/chrome-for-testing-public/" + fullVersion + "/win64/chrome-headless-shell-win64.zip";
-            java.io.File targetDir = new java.io.File("agent/cache/chrome-headless-shell");
-            targetDir.mkdirs();
-            java.io.File zipFile = new java.io.File(targetDir, "chrome-headless-shell.zip");
-            AppLogger.info("FIX40: downloading chrome-headless-shell from " + url);
-            try (java.io.InputStream in = java.net.URI.create(url).toURL().openStream();
-                 java.io.FileOutputStream out = new java.io.FileOutputStream(zipFile)) {
-                byte[] buf = new byte[8192];
-                int n;
-                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            }
-            AppLogger.info("FIX40: downloaded " + zipFile.length() + " bytes; extracting");
-            try (java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile))) {
-                java.util.zip.ZipEntry e;
-                while ((e = zin.getNextEntry()) != null) {
-                    java.io.File target = new java.io.File(targetDir, e.getName());
-                    if (e.isDirectory()) { target.mkdirs(); continue; }
-                    target.getParentFile().mkdirs();
-                    try (java.io.FileOutputStream fout = new java.io.FileOutputStream(target)) {
-                        byte[] b = new byte[8192];
-                        int m;
-                        while ((m = zin.read(b)) > 0) fout.write(b, 0, m);
-                    }
-                }
-            }
-            java.io.File nested = new java.io.File(targetDir, "chrome-headless-shell-win64/chrome-headless-shell.exe");
-            if (nested.isFile()) {
-                java.io.File flat = new java.io.File(targetDir, "chrome-headless-shell.exe");
-                if (!flat.isFile()) nested.renameTo(flat);
-                return flat.getAbsolutePath();
-            }
-            return null;
-        } catch (Exception e) {
-            AppLogger.warn("FIX40: headless-shell download failed: " + e.getMessage());
-            return null;
-        }
-    }
+
+    // FIX66: unpack ALL files from the subfolder into targetDir, so icudtl.dat
+    // and other resources are next to chrome-headless-shell.exe.
+    public static synchronized String resolveHeadlessShellPath() {
+        AppLogger.info("FIX66: resolveHeadlessShellPath called");
+        try {
+            String chrome = resolveChromePath();
+            java.io.File chromeFile = new java.io.File(chrome);
+            java.io.File dir = chromeFile.getParentFile();
+            if (dir != null) {
+                java.io.File shell = new java.io.File(dir, "chrome-headless-shell.exe");
+                if (shell.isFile()) return shell.getAbsolutePath();
+            }
+            java.io.File cacheShell = new java.io.File("agent/cache/chrome-headless-shell/chrome-headless-shell.exe");
+            if (cacheShell.isFile()) return cacheShell.getAbsolutePath();
+
+            String fullVersion = resolveFullChromeVersion();
+            AppLogger.info("FIX66: resolved fullVersion=" + fullVersion);
+            if (fullVersion == null || fullVersion.isEmpty()) {
+                AppLogger.warn("FIX66: cannot resolve full Chrome version for headless-shell download");
+                return null;
+            }
+            String url = "https://storage.googleapis.com/chrome-for-testing-public/" + fullVersion + "/win64/chrome-headless-shell-win64.zip";
+            java.io.File targetDir = new java.io.File("agent/cache/chrome-headless-shell");
+            targetDir.mkdirs();
+            java.io.File zipFile = new java.io.File(targetDir, "chrome-headless-shell.zip");
+            AppLogger.info("FIX66: downloading chrome-headless-shell from " + url);
+            try (java.io.InputStream in = java.net.URI.create(url).toURL().openStream();
+                 java.io.FileOutputStream out = new java.io.FileOutputStream(zipFile)) {
+                byte[] buf = new byte[8192];
+                int n;
+                while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            }
+            AppLogger.info("FIX66: downloaded " + zipFile.length() + " bytes; extracting");
+            try (java.util.zip.ZipInputStream zin = new java.util.zip.ZipInputStream(new java.io.FileInputStream(zipFile))) {
+                java.util.zip.ZipEntry e;
+                while ((e = zin.getNextEntry()) != null) {
+                    java.io.File target = new java.io.File(targetDir, e.getName());
+                    if (e.isDirectory()) { target.mkdirs(); continue; }
+                    target.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream fout = new java.io.FileOutputStream(target)) {
+                        byte[] b = new byte[8192];
+                        int m;
+                        while ((m = zin.read(b)) > 0) fout.write(b, 0, m);
+                    }
+                }
+            }
+            // Move all files from subfolder to targetDir.
+            java.io.File sub = new java.io.File(targetDir, "chrome-headless-shell-win64");
+            if (sub.isDirectory()) {
+                for (java.io.File f : sub.listFiles()) {
+                    java.io.File dest = new java.io.File(targetDir, f.getName());
+                    if (!dest.exists()) f.renameTo(dest);
+                }
+            }
+            java.io.File exe = new java.io.File(targetDir, "chrome-headless-shell.exe");
+            if (exe.isFile()) return exe.getAbsolutePath();
+            return null;
+        } catch (Exception e) {
+            AppLogger.warn("FIX66: headless-shell download failed: " + e.getMessage());
+            return null;
+        }
+    }
 
     // FIX44: chrome.exe --version is GUI; stdout suppressed on Windows. Use PowerShell.
     private static String resolveFullChromeVersion() {
