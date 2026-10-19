@@ -705,23 +705,18 @@ public final class CdpDeepSeek {
 
 
     public String readLastResponse() {
-        // Iterate assistant messages in reverse order, skip think-content blocks,
-        // and return the text of the first non-empty message found (i.e., the most recent).
+        // Extract ONLY the content of the copyable block (<pre>). Plain text is invalid and rejected.
         String expr =
                 "(function(){" +
                 "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
                 "for (var i = msgs.length - 1; i >= 0; i--) {" +
                 "  var m = msgs[i];" +
                 "  if (m.closest(\"[class*=\\\"ds-think-content\\\"]\")) continue;" +
-                "  var t = m.innerText || \"\";" +
-                "  if (t.trim().length > 0) {" +
-                "    var pres = m.querySelectorAll(\"pre\");" +
-                "    if (pres.length > 0) {" +
-                "      var parts = [];" +
-                "      for (var k = 0; k < pres.length; k++) parts.push(pres[k].innerText);" +
-                "      return parts.join(\"\\n\\n\");" +
-                "    }" +
-                "    return t;" +
+                "  var pres = m.querySelectorAll(\"pre\");" +
+                "  if (pres.length > 0) {" +
+                "    var parts = [];" +
+                "    for (var k = 0; k < pres.length; k++) parts.push(pres[k].innerText);" +
+                "    return parts.join(\"\\n\\n\");" +
                 "  }" +
                 "}" +
                 "return \"\";" +

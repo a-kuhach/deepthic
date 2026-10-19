@@ -189,7 +189,7 @@ class CdpDeepSeekTest {
 
             deepSeek.waitForInput(10_000L);
 
-            deepSeek.sendMessage("Reply with exactly: PING");
+            deepSeek.sendMessage("Write a PowerShell script that outputs exactly: PING");
 
             String response = deepSeek.waitForResponse(60_000L);
 
