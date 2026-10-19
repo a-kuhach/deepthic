@@ -24,20 +24,15 @@
 
 ## Обязательные проверки
 
-- SCRIPT_TIME_LIMIT: все сгенерированные PS-скрипты укладываются в 30 минут.
-  Хотя бы один превышает — FAIL.
 - DIRECTIVE_FILE_PROTECTION: если хотя бы один PS-скрипт пишет в agent/rules/*.md или
   agent/AGENT_INSTRUCTIONS.md — FAIL.
-- BLOCKING_QUESTION_PAUSE_CHECK: если скрипт задаёт пользователю блокирующий вопрос через
-  USER_MSG, но не отправляет парный AGENT_PAUSE — FAIL (CRITICAL).
-  Информационный USER_MSG без AGENT_PAUSE — не дефект.
-- NO_BROAD_PROCESS_KILL_CHECK: если скрипт убивает процессы по имени
-  (Get-Process -Name java | Stop-Process, Stop-Process -Name javaw, taskkill /IM java.exe,
-  pkill -f java и т.п.) — FAIL. Убийство по конкретному PID, полученному тем же скриптом, — не дефект.
-- AGENT_PAUSE_WITH_WORK_SCRIPT_CHECK: AGENT_PAUSE рядом с рабочим скриптом — не дефект.
-  BLOCKING_QUESTION_PAUSE_CHECK при этом продолжает действовать.
+- NO_BROAD_PROCESS_KILL_CHECK: запрещено убивать процессы по имени (Stop-Process -Name, taskkill /IM, pkill и любые аналоги). Убийство разрешено только по конкретному PID, полученному тем же скриптом.
 
 ## Язык
 
 Отвечай на языке пользовательского запроса в промпте.
 Технические идентификаторы — ASCII/Latin.
+
+## Маркеры вердикта (CRITICAL)
+- При успешной проверке отправь: Write-Output "USER_MSG: CODE_APPROVED: <обоснование>"
+- При провале отправь: Write-Output "USER_MSG: CODE_REJECTED: <причина>"

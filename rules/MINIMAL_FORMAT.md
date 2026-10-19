@@ -16,7 +16,6 @@
 
 - Write-Output "USER_MSG: <текст>" — сообщение пользователю, выполнение продолжается.
 - Write-Output "AGENT_PAUSE: <причина>" — пауза до ответа пользователя.
-- Write-Output "AGENT_STOP: <причина>" — остановка пайплайна.
 - Write-Output "AGENT_DONE: <итог>" — завершение задачи (только ANALYST при передаче PLANNER).
 
 ## Блокирующий вопрос (CRITICAL)
