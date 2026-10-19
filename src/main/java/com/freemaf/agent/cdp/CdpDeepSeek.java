@@ -703,37 +703,32 @@ public final class CdpDeepSeek {
 
 
 
-    public String readLastResponse() {
 
-        // Prefer the dedicated assistant content container; fall back to the last non-thinking markdown block.
-
-        String expr =
-
-                "(function(){"
-
-                + "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");"
-
-                + "if(main) return main.innerText;"
-
-                + "var blocks=document.querySelectorAll('div.ds-markdown');"
-
-                + "var last=null;"
-
-                + "for(var i=0;i<blocks.length;i++){"
-
-                + "  if(!blocks[i].closest('[class*=\"ds-think-content\"]')) last=blocks[i];"
-
-                + "}"
-
-                + "return last ? last.innerText : '';"
-
-                + "})()";
-
-        String v = evaluate(expr);
-
-        return v == null ? "" : v;
-
-    }
+    public String readLastResponse() {
+        // Prefer code-block content (pre.innerText) to avoid UI chrome ("powershell", "Копировать", "Скачать")
+        // leaking into the extracted script. Fall back to the assistant container innerText for plain USER_CHAT replies.
+        String expr =
+                "(function(){" +
+                "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");" +
+                "var root=main;" +
+                "if(!root){" +
+                "  var blocks=document.querySelectorAll('div.ds-markdown');" +
+                "  for(var i=0;i<blocks.length;i++){" +
+                "    if(!blocks[i].closest('[class*=\"ds-think-content\"]')) root=blocks[i];" +
+                "  }" +
+                "}" +
+                "if(!root) return '';" +
+                "var pres=root.querySelectorAll('pre');" +
+                "if(pres.length>0){" +
+                "  var parts=[];" +
+                "  for(var k=0;k<pres.length;k++) parts.push(pres[k].innerText);" +
+                "  return parts.join('\n\n');" +
+                "}" +
+                "return root.innerText;" +
+                "})()";
+        String v = evaluate(expr);
+        return v == null ? "" : v;
+    }
 
 
 

@@ -34,7 +34,32 @@ public final class PowerShellExecutor {
         return result;
     }
     public ExecutionResult execute(Path script) throws IOException, InterruptedException {
-        String scriptContent = Files.readString(script, StandardCharsets.UTF_8);
+        
+String scriptContent = Files.readString(script, StandardCharsets.UTF_8);
+        // FIX94: reject scripts whose first non-blank line is a UI chrome label or a shell name.
+        String firstNonBlank = null;
+        for (String ln : scriptContent.split("\\R")) {
+            if (!ln.isBlank()) { firstNonBlank = ln.trim(); break; }
+        }
+        if (firstNonBlank != null && firstNonBlank.length() > 0 && firstNonBlank.charAt(0) == '\uFEFF') {
+            firstNonBlank = firstNonBlank.substring(1);
+        }
+        if (firstNonBlank != null) {
+            String lo = firstNonBlank.toLowerCase();
+            if (lo.equals("powershell") || lo.equals("pwsh") || lo.equals("bash") || lo.equals("sh")
+                    || lo.equals("cmd") || lo.equals("copy") || lo.equals("download")
+                    || lo.equals("копировать") || lo.equals("скачать")) {
+                ExecutionResult blocked = new ExecutionResult("",
+                        "Script rejected: first non-blank line is '" + firstNonBlank
+                                + "', which looks like a DeepSeek UI header or shell name. "
+                                + "The response was mis-parsed; fix CdpDeepSeek.readLastResponse or the model output. "
+                                + "Do not start a nested shell.",
+                        -2, false, 0L);
+                ExecutionLogger.save(blocked);
+                AppLogger.warn("PowerShellExecutor: rejected script, first line = " + firstNonBlank);
+                return blocked;
+            }
+        }
         DirectiveValidator.ValidationResult validation = DirectiveValidator.validate(scriptContent);
         if (!validation.allowed()) {
             ExecutionResult blocked = new ExecutionResult("", validation.reason(), -1, false, 0L);
