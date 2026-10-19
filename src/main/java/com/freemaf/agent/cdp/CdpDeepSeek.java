@@ -590,46 +590,115 @@ public final class CdpDeepSeek {
 
 
     public void sendMessage(String text) {
+
         String preHref = evaluate("String(location.href)");
+
         String preHasInput = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
+
         AppLogger.info("CdpDeepSeek.sendMessage: preState href=" + preHref + " hasInput=" + preHasInput);
-        String focusExpr =
-                "(function(){var el=document.querySelector(\""
-                + escapeJs(DeepSeekSelectors.INPUT)
-                + "\");if(el)el.focus();return '';})()";
+
+        String focusExpr = "(function(){var el=document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\");if(el)el.focus();return '';})()";
+
         evaluate(focusExpr);
+
         sleep(300L);
+
         String safe = escapeJsSingleQuoted(text);
-        String insertExpr = "document.execCommand('insertText', false, '" + safe + "')";
-        String insertResult = evaluate(insertExpr);
+
+        String setterScript = "(function(){var el=document.querySelector('" + escapeJsSingleQuoted(DeepSeekSelectors.INPUT) + "');if(!el)return 'no-input';try{var ns=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;ns.call(el,'" + safe + "');el.dispatchEvent(new Event('input',{bubbles:true}));return 'setter-'+el.value.length;}catch(e){return 'err-'+e.message;}})()";
+
+        String insertResult = evaluate(setterScript);
+
         AppLogger.info("CdpDeepSeek.sendMessage: insertResult=" + insertResult + " textLen=" + text.length());
+
+        String afterInsertText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+
+        AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertText.length());
+
         sleep(500L);
-        try {
-            Map<String, Object> keyDown = new HashMap<>();
-            keyDown.put("type", "keyDown");
-            keyDown.put("key", "Enter");
-            keyDown.put("code", "Enter");
-            keyDown.put("windowsVirtualKeyCode", Integer.valueOf(13));
-            keyDown.put("nativeVirtualKeyCode", Integer.valueOf(13));
-            keyDown.put("text", "\r");
-            keyDown.put("unmodifiedText", "\r");
-            activeTab.send("Input.dispatchKeyEvent", keyDown);
-            sleep(50L);
-            Map<String, Object> keyUp = new HashMap<>();
-            keyUp.put("type", "keyUp");
-            keyUp.put("key", "Enter");
-            keyUp.put("code", "Enter");
-            keyUp.put("windowsVirtualKeyCode", Integer.valueOf(13));
-            keyUp.put("nativeVirtualKeyCode", Integer.valueOf(13));
-            activeTab.send("Input.dispatchKeyEvent", keyUp);
-            AppLogger.info("CdpDeepSeek.sendMessage: enterResult=dispatched-via-CDP");
-        } catch (Exception enterEx) {
-            AppLogger.warn("CdpDeepSeek.sendMessage: CDP Enter failed: " + enterEx.getMessage());
+
+        boolean sent = false;
+
+        for (int attempt = 1; attempt <= 3 && !sent; attempt++) {
+
+            evaluate(focusExpr);
+
+            sleep(200L);
+
+            try {
+
+                Map<String, Object> keyDown = new HashMap<>();
+
+                keyDown.put("type", "keyDown");
+
+                keyDown.put("key", "Enter");
+
+                keyDown.put("code", "Enter");
+
+                keyDown.put("windowsVirtualKeyCode", Integer.valueOf(13));
+
+                keyDown.put("nativeVirtualKeyCode", Integer.valueOf(13));
+
+                keyDown.put("text", "\r");
+
+                keyDown.put("unmodifiedText", "\r");
+
+                activeTab.send("Input.dispatchKeyEvent", keyDown);
+
+                sleep(50L);
+
+                Map<String, Object> keyUp = new HashMap<>();
+
+                keyUp.put("type", "keyUp");
+
+                keyUp.put("key", "Enter");
+
+                keyUp.put("code", "Enter");
+
+                keyUp.put("windowsVirtualKeyCode", Integer.valueOf(13));
+
+                keyUp.put("nativeVirtualKeyCode", Integer.valueOf(13));
+
+                activeTab.send("Input.dispatchKeyEvent", keyUp);
+
+                sleep(500L);
+
+                String checkText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+
+                if (checkText.isEmpty()) {
+
+                    sent = true;
+
+                    AppLogger.info("CdpDeepSeek.sendMessage: enterResult=dispatched-via-CDP (attempt " + attempt + ")");
+
+                } else {
+
+                    AppLogger.warn("CdpDeepSeek.sendMessage: textarea still has " + checkText.length() + " chars after Enter (attempt " + attempt + "), retrying");
+
+                }
+
+            } catch (Exception enterEx) {
+
+                AppLogger.warn("CdpDeepSeek.sendMessage: CDP Enter failed: " + enterEx.getMessage());
+
+            }
+
         }
+
+        if (!sent) {
+
+            AppLogger.warn("CdpDeepSeek.sendMessage: failed to send message after 3 attempts");
+
+        }
+
         sleep(500L);
+
         String postText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+
         AppLogger.info("CdpDeepSeek.sendMessage: postTextareaLen=" + postText.length());
+
     }
+
 
 
 
@@ -708,11 +777,16 @@ public final class CdpDeepSeek {
                     String vis = evaluate("String(document.visibilityState || 'unknown')");
                     String hrf = evaluate("String(location.href)");
                     String hasInp = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
-                    AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " initial=" + initialCount + " streaming=" + countStreaming() + " dsMd=" + dsMd + " pre=" + preC + " btns=" + btnC + " vis=" + vis + " hasInput=" + hasInp + " href=" + hrf + " lastLen=" + (last == null ? 0 : last.length()));
-                    if (last != null && last.length() > 0) {
-                        String preview = last.length() > 200 ? last.substring(0, 200) : last;
-                        AppLogger.info("CdpDeepSeek.waitForResponse lastRaw: " + preview.replace("\r", "\\r").replace("\n", "\\n"));
-                    }
+                    String thinkC = evaluate("String(document.querySelectorAll('[class*=''ds-think-content''']').length)");
+                    String assistN = evaluate("String(document.querySelectorAll('" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "').length)");
+                    String bodyRaw = evaluate("String(((document.body && document.body.innerText) || '').slice(0,200))");
+                    String bodySnip = bodyRaw == null ? "" : bodyRaw.replace("`r", "\\r").replace("`n", "\\n").replace("|", "/");
+                    AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " initial=" + initialCount + " streaming=" + countStreaming() + " dsMd=" + dsMd + " pre=" + preC + " btns=" + btnC + " vis=" + vis + " hasInput=" + hasInp + " href=" + hrf + " lastLen=" + (last == null ? 0 : last.length()) + " think=" + thinkC + " assistN=" + assistN + " bodySnip=[" + bodySnip + "]");
+                        if (last != null && last.length() > 0) {
+                            String preview = last.length() > 200 ? last.substring(0, 200) : last;
+                            String previewEsc = preview.replace("`r", "\\r").replace("`n", "\\n").replace("|", "/");
+                            AppLogger.info("CdpDeepSeek.waitForResponse lastRaw len=" + last.length() + " raw=[" + previewEsc + "]");
+                        }
                 } catch (Exception diagEx) {
                     AppLogger.warn("CdpDeepSeek.waitForResponse diag error: " + diagEx.getMessage());
                 }
