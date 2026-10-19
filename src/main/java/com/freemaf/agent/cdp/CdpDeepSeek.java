@@ -704,6 +704,12 @@ public final class CdpDeepSeek {
 
 
 
+
+    public void clickRegenerate() {
+        String expr = "(function(){var r=document.querySelector('rect[id=\"重新生成\"]');if(r){var b=r.closest('div.ds-icon-button');if(b){b.click();return 'clicked';}}return 'not-found';})()";
+        String res = evaluate(expr);
+        AppLogger.info("clickRegenerate result = " + res);
+    }
     public String readLastResponse() {
         // Extract ONLY the content of the copyable block (<pre>). Plain text is invalid and rejected.
         String expr =
@@ -1875,7 +1881,7 @@ private boolean attachFileViaDragEvent(Path path) {
             a.append("var file=new File([bytes],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
             a.append("var dt=new DataTransfer();");
             a.append("dt.items.add(file);");
-            a.append("var ev=new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true});");
+            a.append("var ev=new DragEvent('drop',{dataTransfer:dt,bubbles:false,cancelable:true});");
             a.append("t.dispatchEvent(ev);");
             a.append("return 'drop-dispatched';");
             a.append("}catch(e){return 'err-'+e.message;}");

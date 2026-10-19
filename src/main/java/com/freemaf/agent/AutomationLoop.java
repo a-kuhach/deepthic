@@ -830,6 +830,7 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
                 prompt = injectMigrationWarningIfNeeded(prompt);
                 deepSeekSession.setAwaitingMigrationConfirm(awaitingMigrationConfirm);
+                deepSeekSession.setUseReviewer(activeReviewerRole != null);
                 AgentResponse response = deepSeekSession.getValidResponse(prompt, incomingFiles);
 
                 String responseRole = response.role();

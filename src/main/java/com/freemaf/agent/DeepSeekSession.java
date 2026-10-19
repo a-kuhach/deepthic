@@ -71,6 +71,7 @@ public final class DeepSeekSession {
 
 
     private volatile CdpBootstrap cdpBootstrap;
+    private volatile boolean useReviewer = false;
 
 
 
@@ -147,8 +148,11 @@ public final class DeepSeekSession {
 
 
     public void setAwaitingMigrationConfirm(boolean flag) { this.awaitingMigrationConfirm = flag; }
+    public void setUseReviewer(boolean flag) { this.useReviewer = flag; }
 
 
+
+    private static void sleep(long ms) { try { Thread.sleep(ms); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
 
     private void debug(String line) {
 
@@ -317,7 +321,7 @@ public AgentResponse getValidResponse(String prompt, List<File> files) throws Ex
 
 
 
-            CdpDeepSeek ex = cdpBootstrap.executor();
+            CdpDeepSeek ex = useReviewer ? cdpBootstrap.reviewer() : cdpBootstrap.executor();
 
             if (ex == null) {
 
@@ -681,7 +685,7 @@ public void sendPrompt(String prompt, List<File> files) throws InterruptedExcept
 
 
 
-            CdpDeepSeek ex = cdpBootstrap.executor();
+            CdpDeepSeek ex = useReviewer ? cdpBootstrap.reviewer() : cdpBootstrap.executor();
 
             if (ex == null) {
 
@@ -1102,7 +1106,7 @@ public void sendPrompt(String prompt, List<File> files) throws InterruptedExcept
 
 
 
-            CdpDeepSeek ex = cdpBootstrap.executor();
+            CdpDeepSeek ex = useReviewer ? cdpBootstrap.reviewer() : cdpBootstrap.executor();
 
             if (ex == null) {
 
@@ -1298,7 +1302,7 @@ public void sendPrompt(String prompt, List<File> files) throws InterruptedExcept
 
 
 
-            CdpDeepSeek ex = cdpBootstrap.executor();
+            CdpDeepSeek ex = useReviewer ? cdpBootstrap.reviewer() : cdpBootstrap.executor();
 
             if (ex == null) {
 
