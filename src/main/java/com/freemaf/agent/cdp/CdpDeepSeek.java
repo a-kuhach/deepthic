@@ -1862,29 +1862,30 @@ private boolean attachFileViaDragEvent(Path path) {
             String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
             String safeMime = mimeType.replace("'", "\\'");
 
+            // Use a synthetic drop event on the composer textarea.
+            // DeepSeek ComposerAttachments listens for drop, not change.
             StringBuilder a = new StringBuilder();
             a.append("(function(){");
-            a.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
+            a.append("var t=document.querySelector('textarea[name=search]');if(!t)return 'no-textarea';");
             a.append("try{");
             a.append("var b64='").append(base64).append("';");
             a.append("var bin=atob(b64);");
             a.append("var bytes=new Uint8Array(bin.length);");
             a.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
-            a.append("var blob=new Blob([bytes],{type:'").append(safeMime).append("'});");
-            a.append("var file=new File([blob],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
+            a.append("var file=new File([bytes],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
             a.append("var dt=new DataTransfer();");
             a.append("dt.items.add(file);");
-            a.append("i.files=dt.files;");
-            a.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
-            a.append("return 'direct-'+(i.files?i.files.length:-1);");
+            a.append("var ev=new DragEvent('drop',{dataTransfer:dt,bubbles:true,cancelable:true});");
+            a.append("t.dispatchEvent(ev);");
+            a.append("return 'drop-dispatched';");
             a.append("}catch(e){return 'err-'+e.message;}");
             a.append("})()");
 
-            String resultA = evaluate(a.toString());
-            AppLogger.info("FIX102: DataTransfer(direct, change-only) result = " + resultA);
+            String result = evaluate(a.toString());
+            AppLogger.info("FIX103: drop event result = " + result);
             return true;
         } catch (Exception e) {
-            AppLogger.warn("FIX102: DataTransfer failed: " + e.getMessage());
+            AppLogger.warn("FIX103: drop event failed: " + e.getMessage());
             return false;
         }
     }
