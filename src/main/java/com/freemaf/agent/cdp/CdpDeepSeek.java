@@ -711,21 +711,16 @@ public final class CdpDeepSeek {
         AppLogger.info("clickRegenerate result = " + res);
     }
     public String readLastResponse() {
-        // Extract ONLY the content of the copyable block (<pre>). Plain text is invalid and rejected.
+        // Directly query the last <pre> block globally, excluding think-content.
         String expr =
                 "(function(){" +
-                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
-                "for (var i = msgs.length - 1; i >= 0; i--) {" +
-                "  var m = msgs[i];" +
-                "  if (m.closest(\"[class*=\\\"ds-think-content\\\"]\")) continue;" +
-                "  var pres = m.querySelectorAll(\"pre\");" +
-                "  if (pres.length > 0) {" +
-                "    var parts = [];" +
-                "    for (var k = 0; k < pres.length; k++) parts.push(pres[k].innerText);" +
-                "    return parts.join(\"\\n\\n\");" +
+                "var pres = document.querySelectorAll('pre');" +
+                "for (var i = pres.length - 1; i >= 0; i--) {" +
+                "  if (!pres[i].closest('[class*=\"ds-think-content\"]')) {" +
+                "    return pres[i].innerText;" +
                 "  }" +
                 "}" +
-                "return \"\";" +
+                "return '';" +
                 "})()";
         String v = evaluate(expr);
         return v == null ? "" : v;
@@ -786,7 +781,7 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
                 }
             }
 
-            if (curCount > initialCount) {
+            if (curCount >= initialCount) {
 
                 String cur = readLastResponse();
 
