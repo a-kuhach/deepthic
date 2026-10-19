@@ -1633,26 +1633,10 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
     
 
 private void attachFileViaFallbacks(Path path, int baselineComposer) throws CdpAttachException {
-
-    // Try DataTransfer, then DragEvent, then Paste. After each method, check the DOM.
-
-    // If the attachment appeared, stop immediately.
-
+    // Single method: DataTransfer with change event only. No setter, no DragEvent, no PasteEvent.
     attachFileViaDataTransfer(path);
-
-    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-
-    attachFileViaDragEvent(path);
-
-    try { waitForAttachmentVisible(5000L, baselineComposer); return; } catch (CdpAttachException ignored) { }
-
-    attachFileViaPasteEvent(path);
-
     waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
-
 }
-
-
 
 private boolean attachFileViaDragEvent(Path path) {
 
@@ -1869,139 +1853,43 @@ private boolean attachFileViaDragEvent(Path path) {
 
 
     private boolean attachFileViaDataTransfer(Path path) {
-
         try {
-
             byte[] fileBytes = Files.readAllBytes(path);
-
             String base64 = java.util.Base64.getEncoder().encodeToString(fileBytes);
-
             String fileName = path.getFileName().toString();
-
             String mimeType = java.net.URLConnection.guessContentTypeFromName(fileName);
-
             if (mimeType == null) mimeType = "application/octet-stream";
-
             String safeName = fileName.replace("\\", "\\\\").replace("'", "\\'");
-
             String safeMime = mimeType.replace("'", "\\'");
 
-
-
-            // FIX26 attempt A: direct assignment (article-proven: input.files = dt.files)
-
             StringBuilder a = new StringBuilder();
-
             a.append("(function(){");
-
             a.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
-
             a.append("try{");
-
             a.append("var b64='").append(base64).append("';");
-
             a.append("var bin=atob(b64);");
-
             a.append("var bytes=new Uint8Array(bin.length);");
-
             a.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
-
             a.append("var blob=new Blob([bytes],{type:'").append(safeMime).append("'});");
-
             a.append("var file=new File([blob],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
-
             a.append("var dt=new DataTransfer();");
-
             a.append("dt.items.add(file);");
-
             a.append("i.files=dt.files;");
-
             a.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
-
-            a.append("i.dispatchEvent(new Event('input',{bubbles:true}));");
-
-            a.append("var n=i.files?i.files.length:-1;");
-
-            a.append("return 'direct-'+n+'-'+file.name+'-'+file.size;");
-
+            a.append("return 'direct-'+(i.files?i.files.length:-1);");
             a.append("}catch(e){return 'err-'+e.message;}");
-
             a.append("})()");
 
             String resultA = evaluate(a.toString());
-
-            AppLogger.info("FIX26: DataTransfer(direct) result = " + resultA);
-
-            if (resultA != null && resultA.startsWith("direct-") && !resultA.startsWith("direct-0")) {
-
-                return true;
-
-            }
-
-
-
-            // FIX26 attempt B: native setter (legacy FIX22 path, older React versions)
-
-            StringBuilder b = new StringBuilder();
-
-            b.append("(function(){");
-
-            b.append("var i=document.querySelector('input[type=file]');if(!i)return 'no-input';");
-
-            b.append("try{");
-
-            b.append("var b64='").append(base64).append("';");
-
-            b.append("var bin=atob(b64);");
-
-            b.append("var bytes=new Uint8Array(bin.length);");
-
-            b.append("for(var k=0;k<bin.length;k++)bytes[k]=bin.charCodeAt(k);");
-
-            b.append("var blob=new Blob([bytes],{type:'").append(safeMime).append("'});");
-
-            b.append("var file=new File([blob],'").append(safeName).append("',{type:'").append(safeMime).append("'});");
-
-            b.append("var dt=new DataTransfer();");
-
-            b.append("dt.items.add(file);");
-
-            b.append("var setter=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'files').set;");
-
-            b.append("setter.call(i,dt.files);");
-
-            b.append("i.dispatchEvent(new Event('input',{bubbles:true}));");
-
-            b.append("i.dispatchEvent(new Event('change',{bubbles:true}));");
-
-            b.append("var n=i.files?i.files.length:-1;");
-
-            b.append("return 'setter-'+n+'-'+file.name+'-'+file.size;");
-
-            b.append("}catch(e){return 'err-'+e.message;}");
-
-            b.append("})()");
-
-            String resultB = evaluate(b.toString());
-
-            AppLogger.info("FIX26: DataTransfer(setter) result = " + resultB);
-
-            return false; // FIX27: caller decides based on DOM state
-
+            AppLogger.info("FIX102: DataTransfer(direct, change-only) result = " + resultA);
+            return true;
         } catch (Exception e) {
-
-            AppLogger.warn("FIX26: DataTransfer failed: " + e.getMessage());
-
+            AppLogger.warn("FIX102: DataTransfer failed: " + e.getMessage());
             return false;
-
         }
-
     }
 
-
-
-
-    private void attachFileViaChooser(String abs, long bytes, long start) throws CdpAttachException {
+private void attachFileViaChooser(String abs, long bytes, long start) throws CdpAttachException {
 
         CompletableFuture<Integer> chooserFuture = new CompletableFuture<>();
 
