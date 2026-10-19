@@ -735,7 +735,6 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
         long lastDiagMs = 0L;
 
         String last = "";
-
         int stableCount = 0;
 
         while (System.currentTimeMillis() < deadline) {
@@ -762,7 +761,7 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
                 try {
                     String dsMd = evaluate("String(document.querySelectorAll('div.ds-markdown').length)");
                     String preC = evaluate("String(document.querySelectorAll('pre').length)");
-                    String btnC = evaluate("String(document.querySelectorAll('div.ds-flex button, button[aria-label*='copy'], button[aria-label*='Copy'], button[aria-label*='Копировать']').length)");
+                    String btnC = evaluate("String(document.querySelectorAll('div.ds-flex button, button[aria-label*=''copy''], button[aria-label*=''Copy''], button[aria-label*=''Копировать'']').length)");
                     String vis = evaluate("String(document.visibilityState || 'unknown')");
                     String hrf = evaluate("String(location.href)");
                     String hasInp = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
@@ -771,11 +770,11 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
                     String bodyRaw = evaluate("String(((document.body && document.body.innerText) || '').slice(0,200))");
                     String bodySnip = bodyRaw == null ? "" : bodyRaw.replace("`r", "\\r").replace("`n", "\\n").replace("|", "/");
                     AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " initial=" + initialCount + " streaming=" + countStreaming() + " dsMd=" + dsMd + " pre=" + preC + " btns=" + btnC + " vis=" + vis + " hasInput=" + hasInp + " href=" + hrf + " lastLen=" + (last == null ? 0 : last.length()) + " think=" + thinkC + " assistN=" + assistN + " bodySnip=[" + bodySnip + "]");
-                        if (last != null && last.length() > 0) {
-                            String preview = last.length() > 200 ? last.substring(0, 200) : last;
-                            String previewEsc = preview.replace("`r", "\\r").replace("`n", "\\n").replace("|", "/");
-                            AppLogger.info("CdpDeepSeek.waitForResponse lastRaw len=" + last.length() + " raw=[" + previewEsc + "]");
-                        }
+                    if (last != null && last.length() > 0) {
+                        String preview = last.length() > 200 ? last.substring(0, 200) : last;
+                        String previewEsc = preview.replace("`r", "\\r").replace("`n", "\\n").replace("|", "/");
+                        AppLogger.info("CdpDeepSeek.waitForResponse lastRaw len=" + last.length() + " raw=[" + previewEsc + "]");
+                    }
                 } catch (Exception diagEx) {
                     AppLogger.warn("CdpDeepSeek.waitForResponse diag error: " + diagEx.getMessage());
                 }
@@ -788,45 +787,30 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
                 if (cur != null && !cur.isEmpty()) {
 
                     boolean streaming = countStreaming() > 0L;
-
                     boolean complete = isResponseComplete(cur);
 
                     if (!streaming && complete && cur.equals(last)) {
-
                         stableCount++;
-
                         if (stableCount >= STABLE_ITERATIONS) {
-                            String stopBtn = evaluate("String((function(){var t=document.body.innerText||';return t.indexOf('Stop generating')>=0;})())");
-                            if (!"true".equals(stopBtn)) return cur;
-                            stableCount = 0;
+                            return cur;
                         }
-
                     } else {
-
                         stableCount = 0;
-
                     }
 
                     last = cur;
-
                 }
-
             }
 
             sleep(POLL_INTERVAL_MS);
-
         }
 
         String finalDsMd = evaluate("String(document.querySelectorAll('div.ds-markdown').length)");
         String finalHasInput = evaluate("String(!!document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\"))");
         throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms [initial=" + initialCount + " cur=" + countAssistantMessages() + " streaming=" + countStreaming() + " dsMd=" + finalDsMd + " hasInput=" + finalHasInput + " lastLen=" + (last == null ? 0 : last.length()) + "]");
-
     }
 
-
-
-
-    private static final java.util.regex.Pattern BARE_CMDLET_VERB =
+private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
             java.util.regex.Pattern.compile(
 
