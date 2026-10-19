@@ -687,7 +687,7 @@ public final class CdpDeepSeek {
 
         if (!sent) {
 
-            AppLogger.warn("CdpDeepSeek.sendMessage: failed to send message after 3 attempts");
+            throw new IllegalStateException("sendMessage failed: textarea still contains text after 3 Enter attempts");
 
         }
 
@@ -704,35 +704,33 @@ public final class CdpDeepSeek {
 
 
 
-    public String readLastResponse() {
-        // Prefer code-block content (pre.innerText) to avoid UI chrome ("powershell", "Копировать", "Скачать")
-        // leaking into the extracted script. Fall back to the assistant container innerText for plain USER_CHAT replies.
-        String expr =
-                "(function(){" +
-                "var main=document.querySelector(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MAIN_CONTENT) + "\");" +
-                "var root=main;" +
-                "if(!root){" +
-                "  var blocks=document.querySelectorAll('div.ds-markdown');" +
-                "  for(var i=0;i<blocks.length;i++){" +
-                "    if(!blocks[i].closest('[class*=\"ds-think-content\"]')) root=blocks[i];" +
-                "  }" +
-                "}" +
-                "if(!root) return '';" +
-                "var pres=root.querySelectorAll('pre');" +
-                "if(pres.length>0){" +
-                "  var parts=[];" +
-                "  for(var k=0;k<pres.length;k++) parts.push(pres[k].innerText);" +
-                "  return parts.join('\n\n');" +
-                "}" +
-                "return root.innerText;" +
-                "})()";
-        String v = evaluate(expr);
-        return v == null ? "" : v;
-    }
+    public String readLastResponse() {
+        // Iterate assistant messages in reverse order, skip think-content blocks,
+        // and return the text of the first non-empty message found (i.e., the most recent).
+        String expr =
+                "(function(){" +
+                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
+                "for (var i = msgs.length - 1; i >= 0; i--) {" +
+                "  var m = msgs[i];" +
+                "  if (m.closest(\"[class*=\\\"ds-think-content\\\"]\")) continue;" +
+                "  var t = m.innerText || \"\";" +
+                "  if (t.trim().length > 0) {" +
+                "    var pres = m.querySelectorAll(\"pre\");" +
+                "    if (pres.length > 0) {" +
+                "      var parts = [];" +
+                "      for (var k = 0; k < pres.length; k++) parts.push(pres[k].innerText);" +
+                "      return parts.join(\"\\n\\n\");" +
+                "    }" +
+                "    return t;" +
+                "  }" +
+                "}" +
+                "return \"\";" +
+                "})()";
+        String v = evaluate(expr);
+        return v == null ? "" : v;
+    }
 
-
-
-    public String waitForResponse(long timeoutMs) throws TimeoutException {
+public String waitForResponse(long timeoutMs) throws TimeoutException {
 
         long deadline = System.currentTimeMillis() + timeoutMs;
 
