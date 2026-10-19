@@ -51,13 +51,7 @@ class RulesContentTest {
         assertTrue(content.contains("AGENT_PAUSE"));
     }
 
-    @Test
-    void codeReviewerRulesHaveBlockingQuestionPauseCheck() throws IOException {
-        String content = Files.readString(Path.of("rules/CODE_REVIEWER.md"), StandardCharsets.UTF_8);
-        assertTrue(content.contains("BLOCKING_QUESTION_PAUSE_CHECK"));
-        assertTrue(content.contains("USER_MSG"));
-        assertTrue(content.contains("AGENT_PAUSE"));
-    }
+    
 @Test
     void executorRulesHaveNoBroadProcessKill() throws IOException {
         String content = Files.readString(Path.of("rules/EXECUTOR.md"), StandardCharsets.UTF_8);

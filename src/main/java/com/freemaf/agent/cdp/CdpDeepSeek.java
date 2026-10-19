@@ -993,342 +993,131 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
 
 
 
-    public void attachFile(Path path) throws CdpAttachException {
-        if (path == null) {
-            throw new CdpAttachException("validate", "path is null", null);
-        }
-        if (!Files.isRegularFile(path)) {
-            throw new CdpAttachException("validate", "not a regular file: " + path, null);
-        }
-        if (activeTab == null) {
-            throw new CdpAttachException("state", "no active tab", null);
-        }
-        String abs = path.toAbsolutePath().toString();
-        long start = System.currentTimeMillis();
-        long bytes = -1L;
-        try { bytes = Files.size(path); } catch (Exception ignored) { }
-
-        // FIX28: composer blob-img baseline before attach
-
-        String baselineJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"total\":0,\"composer\":0}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}return JSON.stringify({total:total,composer:comp});})())");
-
-        AppLogger.info("FIX28: baseline blob-img = " + baselineJson);
-
-        int baselineComposer = 0;
-
-        try {
-
-            com.fasterxml.jackson.databind.JsonNode bj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(baselineJson);
-
-            baselineComposer = bj.path("composer").asInt(0);
-
-        } catch (Exception ignored) { }
-
-
-        Integer rootNodeId = nodeIdOfDocument();
-        if (rootNodeId == null) {
-            throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
-        }
-        Integer inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
-
-        int attempts = 0;
-        while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
-            attempts++;
-            // FIX14: use Input.dispatchMouseEvent instead of element.click() (headless chooser)
-            try {
-                String rectJson = evaluate("String((function(){var b=document.querySelector('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]');if(!b)return '' ;var r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
-                if (rectJson != null && rectJson.contains("x")) {
-                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
-                    double cx = rj.path("x").asDouble();
-                    double cy = rj.path("y").asDouble();
-                    Map<String, Object> press = new HashMap<>();
-                    press.put("type", "mousePressed");
-                    press.put("x", cx);
-                    press.put("y", cy);
-                    press.put("button", "left");
-                    press.put("clickCount", 1);
-                    activeTab.send("Input.dispatchMouseEvent", press);
-                    Map<String, Object> release = new HashMap<>();
-                    release.put("type", "mouseReleased");
-                    release.put("x", cx);
-                    release.put("y", cy);
-                    release.put("button", "left");
-                    release.put("clickCount", 1);
-                    activeTab.send("Input.dispatchMouseEvent", release);
-                    AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
-                } else {
-                    AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
-                    // FIX18: input.click() first, then clickNearInput(), then legacy clickAttachButton()
-                    String fix18Result = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
-                    AppLogger.info("FIX18: input.click() result = " + fix18Result);
-                    if (!"input-clicked".equals(fix18Result)) {
-                        String cnResult = clickNearInput();
-                        AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
-                        if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
-
-            // FIX19: clickNearInput-first (React button click opens native chooser), then input.click, then legacy
-
-            String cnResult19 = clickNearInput();
-
-            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
-
-            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
-
-                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
-
-                AppLogger.info("FIX19: input.click() result = " + icResult19);
-
-                if (!"input-clicked".equals(icResult19)) {
-
-                    clickAttachButton();
-
-                }
-
-            }
-
-                        }
-                    }
-                }
-            } catch (Exception mce) {
-                AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
-                clickAttachButton();
-            }
-            sleep(300L);
-            rootNodeId = nodeIdOfDocument();
-            if (rootNodeId != null) {
-                inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
-            }
-        }
-
-        if (inputNodeId == null) {
-            attachFileViaChooser(abs, bytes, start);
-            return;
-        }
-
-        // Diagnostic: input attributes
-        try {
-
-        // FIX17-DIAG: attachFile pre-set dump
-
-        try {
-
-            String preDump = evaluate(
-
-                    "JSON.stringify({"
-
-                    + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
-
-                    + "accept:(e.accept||''),multiple:e.multiple,disabled:e.disabled,hidden:e.hidden,"
-
-                    + "id:(e.id||''),name:(e.name||''),className:(e.className||''),"
-
-                    + "parentTag:e.parentElement?e.parentElement.tagName:null,"
-
-                    + "parentClass:e.parentElement?(e.parentElement.className||''):null,"
-
-                    + "grandParentTag:e.parentElement&&e.parentElement.parentElement?e.parentElement.parentElement.tagName:null,"
-
-                    + "grandParentClass:e.parentElement&&e.parentElement.parentElement?(e.parentElement.parentElement.className||''):null"
-
-                    + "};}),"
-
-                    + "paperclipCandidates:Array.from(document.querySelectorAll('[class*=paperclip], [class*=attach], button[aria-label*=attach i], button[aria-label*=file i], [data-testid*=attach], [data-testid*=file]')).map(function(e){return {"
-
-                    + "tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),"
-
-                    + "className:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)"
-
-                    + "};}),"
-
-                    + "textareaParent:(function(){var t=document.querySelector('textarea[name=search]');if(!t)return null;var p=t;for(var i=0;i<5&&p;i++){p=p.parentElement;if(p&&p.querySelector('button, [role=button]')){return {tag:p.tagName,className:(p.className||'').toString()};}}return null;})()"
-
-                    + "})");
-
-            AppLogger.info("FIX17-DIAG attachFile pre-set dump: " + preDump);
-
-            try {
-
-                String inputCtxDump = evaluate(
-
-                        "JSON.stringify((function(){"
-
-                        + "var i=document.querySelector('input[type=file]');if(!i)return null;"
-
-                        + "function d(e){return {tag:e.tagName,aria:(e.getAttribute('aria-label')||''),testid:(e.getAttribute('data-testid')||''),cls:(e.className||'').toString().slice(0,80),text:(e.textContent||'').trim().slice(0,30)};}"
-
-                        + "var p=i.parentElement;"
-
-                        + "var gp=p&&p.parentElement;"
-
-                        + "return {"
-
-                        + "parentHtml:p?(p.outerHTML||'').slice(0,600):'',"
-
-                        + "siblings:p?Array.from(p.children).map(d):[],"
-
-                        + "gpSiblings:gp?Array.from(gp.children).map(d):[]"
-
-                        + "};"
-
-                        + "})())");
-
-                AppLogger.info("FIX18-DIAG inputCtx: " + inputCtxDump);
-
-            } catch (Exception icx) { AppLogger.warn("FIX18-DIAG inputCtx error: " + icx.getMessage()); }
-
-
-        } catch (Exception diagEx) { AppLogger.warn("FIX17-DIAG pre-set dump error: " + diagEx.getMessage()); }
-
-            String inputAttrs = evaluate("String((function(){var i=document.querySelector('input[type=file]');if(!i)return 'none';return 'accept='+(i.accept||'')+' multiple='+i.multiple+' disabled='+i.disabled+' hidden='+i.hidden+' offsetParent='+(i.offsetParent?'yes':'no');})())");
-            AppLogger.info("CdpDeepSeek.attachFile: inputAttrs " + inputAttrs);
-        } catch (Exception ignored) { }
-
-        // Get backendNodeId for fallback
-        Integer backendNodeId = null;
-        try {
-            Map<String, Object> descParams = new HashMap<>();
-            descParams.put("nodeId", inputNodeId);
-            JsonNode descResp = activeTab.send("DOM.describeNode", descParams);
-            if (descResp != null && descResp.get("error") == null) {
-                JsonNode node = descResp.path("result").path("node");
-                JsonNode bid = node.path("backendNodeId");
-                if (!bid.isMissingNode()) backendNodeId = bid.asInt();
-            }
-        } catch (Exception ignored) { }
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("files", List.of(abs));
-        params.put("nodeId", inputNodeId);
-        JsonNode resp;
-        try {
-            resp = activeTab.send("DOM.setFileInputFiles", params);
-        } catch (Exception e) {
-            throw new CdpAttachException("set-files",
-                    "DOM.setFileInputFiles exception: " + e.getMessage(), e);
-        }
-        if (resp == null || resp.get("error") != null) {
-            throw new CdpAttachException("set-files",
-                    "DOM.setFileInputFiles error: " + resp, null);
-        }
-
-        // Check if files were actually set
-        String firstFiles = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
-        AppLogger.info("CdpDeepSeek.attachFile: after setFileInputFiles firstFiles=" + firstFiles);
-        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
-            AppLogger.warn("CdpDeepSeek.attachFile: primary setFileInputFiles did not populate files, trying backendNodeId");
-            if (backendNodeId != null) {
-                Map<String, Object> p2 = new HashMap<>();
-                p2.put("files", List.of(abs));
-                p2.put("backendNodeId", backendNodeId);
-                try {
-                    JsonNode r2 = activeTab.send("DOM.setFileInputFiles", p2);
-                    AppLogger.info("CdpDeepSeek.attachFile: backendNodeId attempt resp=" + r2);
-                } catch (Exception e) {
-                    AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId attempt failed: " + e.getMessage());
-                }
-                String firstFiles2 = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
-                AppLogger.info("CdpDeepSeek.attachFile: after backendNodeId firstFiles=" + firstFiles2);
-
-            if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
-
-                try {
-
-                    String postDump = evaluate(
-
-                            "JSON.stringify({"
-
-                            + "fileInputs:Array.from(document.querySelectorAll('input[type=file]')).map(function(e){return {"
-
-                            + "accept:(e.accept||'').slice(0,50),multiple:e.multiple,filesLen:(e.files?e.files.length:-1),"
-
-                            + "id:(e.id||''),name:(e.name||''),className:(e.className||'')"
-
-                            + "};}),"
-
-                            + "fileCards:Array.from(document.querySelectorAll('[class*=file-card], [class*=file-preview], [class*=attachment], [class*=upload], [class*=file-item], [class*=ds-file]')).map(function(e){return {"
-
-                            + "tag:e.tagName,className:(e.className||'').toString().slice(0,100),text:(e.textContent||'').trim().slice(0,40)"
-
-                            + "};})"
-
-                            + "})");
-
-                    AppLogger.info("FIX17-DIAG attachFile post-set dump: " + postDump);
-
-                } catch (Exception diagEx2) { AppLogger.warn("FIX17-DIAG post-set dump error: " + diagEx2.getMessage()); }
-
-            }
-
-                if ("0".equals(firstFiles2) || "-1".equals(firstFiles2)) {
-                    AppLogger.warn("CdpDeepSeek.attachFile: backendNodeId did not populate files, trying DataTransfer");
-                    attachFileViaFallbacks(path, baselineComposer);
-                    AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
-                    return;
-                }
-            } else {
-                AppLogger.warn("CdpDeepSeek.attachFile: no backendNodeId, trying DataTransfer");
-                attachFileViaFallbacks(path, baselineComposer);
-                AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (datatransfer)");
-                return;
-            }
-        }
-
-        // FIX14 diagnostics: input count, attached, shadow, iframe
-        try {
-            String fileInputs = evaluate("String(document.querySelectorAll('input[type=file]').length)");
-            String attached = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i ? document.contains(i) : 'no-input';})())");
-            String rootIsDoc = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i ? (i.getRootNode() === document) : 'no-input';})())");
-            String iframeCount = evaluate("String(document.querySelectorAll('iframe').length)");
-            String iconButtons = evaluate("String(document.querySelectorAll('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]').length)");
-            AppLogger.info("CdpDeepSeek.attachFile: pierce diag fileInputs=" + fileInputs + " attached=" + attached + " rootIsDoc=" + rootIsDoc + " iframes=" + iframeCount + " iconButtons=" + iconButtons);
-        } catch (Exception diagEx) {
-            AppLogger.warn("CdpDeepSeek.attachFile: pierce diag error: " + diagEx.getMessage());
-        }
-
-        // FIX14: objectId fallback (Playwright uses objectId, not nodeId/backendNodeId)
-        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
-            try {
-                Map<String, Object> evalParams = new HashMap<>();
-                evalParams.put("expression", "document.querySelector(\"input[type=file]\")");
-                evalParams.put("returnByValue", Boolean.FALSE);
-                JsonNode evalResp = activeTab.send("Runtime.evaluate", evalParams);
-                if (evalResp != null && evalResp.get("error") == null) {
-                    JsonNode objIdNode = evalResp.path("result").path("result").path("objectId");
-                    if (!objIdNode.isMissingNode()) {
-                        String objectId = objIdNode.asText();
-                        Map<String, Object> pObj = new HashMap<>();
-                        pObj.put("files", List.of(abs));
-                        pObj.put("objectId", objectId);
-                        JsonNode rObj = activeTab.send("DOM.setFileInputFiles", pObj);
-                        AppLogger.info("CdpDeepSeek.attachFile: objectId attempt resp=" + rObj);
-                        String firstFilesObj = evaluate("String((function(){var i=document.querySelector('input[type=file]');return i && i.files ? i.files.length : -1;})())");
-                        AppLogger.info("CdpDeepSeek.attachFile: after objectId firstFiles=" + firstFilesObj);
-                        if (!"0".equals(firstFilesObj) && !"-1".equals(firstFilesObj)) {
-                            firstFiles = firstFilesObj;
-                        }
-                    }
-                }
-            } catch (Exception objEx) {
-                AppLogger.warn("CdpDeepSeek.attachFile: objectId attempt failed: " + objEx.getMessage());
-            }
-        }
-
-        if ("0".equals(firstFiles) || "-1".equals(firstFiles)) {
-            AppLogger.warn("CdpDeepSeek.attachFile: all setFileInputFiles variants failed, trying DataTransfer");
-            attachFileViaFallbacks(path, baselineComposer);
-            long elapsedDt = System.currentTimeMillis() - start;
-            AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer)");
-            return;
-        }
-
-        waitForAttachmentVisible(ATTACH_VISIBLE_TIMEOUT_MS, baselineComposer);
-        long elapsed = System.currentTimeMillis() - start;
-        AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsed + "ms (dom)");
-    }
-
-
-
-    private Integer nodeIdOfDocument() {
+    
+public void attachFile(Path path) throws CdpAttachException {
+        if (path == null) {
+            throw new CdpAttachException("validate", "path is null", null);
+        }
+        if (!Files.isRegularFile(path)) {
+            throw new CdpAttachException("validate", "not a regular file: " + path, null);
+        }
+        if (activeTab == null) {
+            throw new CdpAttachException("state", "no active tab", null);
+        }
+        String abs = path.toAbsolutePath().toString();
+        long start = System.currentTimeMillis();
+        long bytes = -1L;
+        try { bytes = Files.size(path); } catch (Exception ignored) { }
+
+        // FIX28: composer blob-img baseline before attach
+        String baselineJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"total\":0,\"composer\":0}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}return JSON.stringify({total:total,composer:comp});})())");
+
+        AppLogger.info("FIX28: baseline blob-img = " + baselineJson);
+
+        int baselineComposer = 0;
+        try {
+            com.fasterxml.jackson.databind.JsonNode bj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(baselineJson);
+            baselineComposer = bj.path("composer").asInt(0);
+        } catch (Exception ignored) { }
+
+        Integer rootNodeId = nodeIdOfDocument();
+        if (rootNodeId == null) {
+            throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
+        }
+        Integer inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
+
+        int attempts = 0;
+        while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
+            attempts++;
+            try {
+                String rectJson = evaluate("String((function(){var b=document.querySelector('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]');if(!b)return '' ;var r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
+                if (rectJson != null && rectJson.contains("x")) {
+                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
+                    double cx = rj.path("x").asDouble();
+                    double cy = rj.path("y").asDouble();
+                    Map<String, Object> press = new HashMap<>();
+                    press.put("type", "mousePressed");
+                    press.put("x", cx);
+                    press.put("y", cy);
+                    press.put("button", "left");
+                    press.put("clickCount", 1);
+                    activeTab.send("Input.dispatchMouseEvent", press);
+                    Map<String, Object> release = new HashMap<>();
+                    release.put("type", "mouseReleased");
+                    release.put("x", cx);
+                    release.put("y", cy);
+                    release.put("button", "left");
+                    release.put("clickCount", 1);
+                    activeTab.send("Input.dispatchMouseEvent", release);
+                    AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
+                } else {
+                    AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
+                    String fix18Result = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+                    AppLogger.info("FIX18: input.click() result = " + fix18Result);
+                    if (!"input-clicked".equals(fix18Result)) {
+                        String cnResult = clickNearInput();
+                        AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
+                        if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
+                            String cnResult19 = clickNearInput();
+                            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
+                            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
+                                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+                                AppLogger.info("FIX19: input.click() result = " + icResult19);
+                                if (!"input-clicked".equals(icResult19)) {
+                                    clickAttachButton();
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception mce) {
+                AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
+                clickAttachButton();
+            }
+            sleep(300L);
+            rootNodeId = nodeIdOfDocument();
+            if (rootNodeId != null) {
+                inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
+            }
+        }
+
+        if (inputNodeId == null) {
+            attachFileViaChooser(abs, bytes, start);
+            return;
+        }
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("files", List.of(abs));
+        params.put("nodeId", inputNodeId);
+        JsonNode resp;
+        try {
+            resp = activeTab.send("DOM.setFileInputFiles", params);
+        } catch (Exception e) {
+            throw new CdpAttachException("set-files",
+                    "DOM.setFileInputFiles exception: " + e.getMessage(), e);
+        }
+        if (resp == null || resp.get("error") != null) {
+            throw new CdpAttachException("set-files",
+                    "DOM.setFileInputFiles error: " + resp, null);
+        }
+
+        // FIX110: The call was successful. Do NOT check input.files (React clears it).
+        // Just wait for the attachment to appear in the UI.
+        AppLogger.info("CdpDeepSeek.attachFile: setFileInputFiles sent, waiting for DOM...");
+        try {
+            waitForAttachmentVisible(5000L, baselineComposer);
+            AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (dom)");
+            return;
+        } catch (CdpAttachException e) {
+            AppLogger.warn("CdpDeepSeek.attachFile: attachment did not appear after setFileInputFiles, trying DataTransfer fallback");
+        }
+
+        attachFileViaFallbacks(path, baselineComposer);
+        long elapsedDt = System.currentTimeMillis() - start;
+        AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer-fallback)");
+    }
+
+    private Integer nodeIdOfDocument() {
 
         Map<String, Object> params = new HashMap<>();
 
