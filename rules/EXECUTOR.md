@@ -95,8 +95,7 @@ JUDGE и CODE_REVIEWER не передают работу друг другу и
 - Write-Output "USER_MSG: READY_FOR_RESULT_REVIEW"
 - Write-Output "USER_MSG: READY_FOR_CODE_REVIEW"
 
-Запрещено: "USER_MSG: План переписан, READY_FOR_PLAN_REVIEW" и любые вольные формулировки.
-Обычный USER_MSG — просто сообщение, продолжаем.
+Запрещено: "USER_MSG: План переписан, READY_FOR_PLAN_REVIEW" и любые вольные формулировки. Обычный USER_MSG — просто сообщение, продолжаем.
 AGENT_DONE — только на этапе 3 (ANALYST) для передачи управления PLANNER.
 
 ## WIP.md / MEMORY.md
