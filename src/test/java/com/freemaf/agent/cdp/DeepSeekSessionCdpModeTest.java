@@ -231,4 +231,34 @@ class DeepSeekSessionCdpModeTest {
         }
 
     }
+
+
+    @Test
+    void getValidResponseRegeneratesOnInvalidResponse() throws Exception {
+        Config config = Mockito.mock(Config.class);
+        InputSimulator inputSimulator = Mockito.mock(InputSimulator.class);
+        ClipboardService clipboardService = Mockito.mock(ClipboardService.class);
+        PixelColorService pixelColorService = Mockito.mock(PixelColorService.class);
+        WindowManager windowManager = Mockito.mock(WindowManager.class);
+        CdpBootstrap cdpBootstrap = Mockito.mock(CdpBootstrap.class);
+        CdpDeepSeek cdpDeepSeek = Mockito.mock(CdpDeepSeek.class);
+
+        when(cdpBootstrap.executor()).thenReturn(cdpDeepSeek);
+        String invalid = "garbage";
+        String valid = "[EXECUTOR]" + System.lineSeparator()
+                + "```" + System.lineSeparator()
+                + "Write-Output \"hi\"" + System.lineSeparator()
+                + "```";
+        when(cdpDeepSeek.waitForResponse(org.mockito.ArgumentMatchers.anyLong()))
+                .thenReturn(invalid, valid);
+        when(cdpDeepSeek.clickRegenerate()).thenReturn(true);
+
+        DeepSeekSession session = new DeepSeekSession(config, inputSimulator, clipboardService,
+                pixelColorService, windowManager, cdpBootstrap);
+        com.freemaf.agent.AgentResponse resp = session.getValidResponse("task");
+        org.junit.jupiter.api.Assertions.assertNotNull(resp);
+        org.mockito.Mockito.verify(cdpDeepSeek, org.mockito.Mockito.times(1)).sendMessage("task");
+        org.mockito.Mockito.verify(cdpDeepSeek, org.mockito.Mockito.times(1)).clickRegenerate();
+        org.mockito.Mockito.verifyNoInteractions(inputSimulator);
+    }
 }

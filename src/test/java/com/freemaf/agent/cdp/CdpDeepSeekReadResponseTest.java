@@ -48,4 +48,15 @@ class CdpDeepSeekReadResponseTest {
         when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(""));
         assertEquals("", dsWithTab(tab).readLastResponse());
     }
+
+
+    @Test
+    void readLastResponseFallsBackWhenCodeBlockEmpty() throws Exception {
+        // First evaluate (md-code-block pre) returns empty; second (fallback innerText) returns full text.
+        String fullText = "Write-Output \"ROLE: EXECUTOR\"";
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any()))
+                .thenReturn(nestedValue(""), nestedValue(fullText));
+        assertEquals(fullText, dsWithTab(tab).readLastResponse());
+    }
 }

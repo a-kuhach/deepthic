@@ -354,77 +354,45 @@ public AgentResponse getValidResponse(String prompt, List<File> files) throws Ex
 
             }
 
-            int maxCorrections = config.getInt("max_retries", 3);
 
-            String originalPrompt = prompt;
-
-            String currentPrompt = prompt;
-
-            int correctionCount = 0;
-
-            boolean firstSend = true;
-
-            while (true) {
-
-                if (firstSend && files != null && !files.isEmpty()) {
-
-                    try {
-
-                        for (File f : files) {
-
-                            ex.attachFile(f.toPath());
-
-                        }
-
-                        AppLogger.info("CDP mode: attached " + files.size() + " file(s) before send");
-
-                    } catch (CdpAttachException e) {
-
-                        AppLogger.warn("CDP attach failed: stage=" + e.getStage() + " detail=" + e.getDetail());
-
-                        throw new RuntimeException("CDP attach failed: stage=" + e.getStage()
-
-                                + " detail=" + e.getDetail(), e);
-
-                    }
-
-                }
-
-                firstSend = false;
-
-                applySpeedModeDelay();
-
-                ex.sendMessage(currentPrompt);
-
-                String raw = ex.waitForResponse(3L * 60L * 1000L);
-
-                HistoryService.savePrompt(currentPrompt);
-
-                HistoryService.saveResponse(raw);
-
-                AgentResponse parsed = tryParse(raw, originalPrompt);
-
-                if (parsed != null) return parsed;
-
-                correctionCount++;
-
-                if (correctionCount > maxCorrections) break;
-
-                debug("CDP correction prompt attempt " + correctionCount + "/" + maxCorrections);
-
-                currentPrompt = originalPrompt + System.lineSeparator() + System.lineSeparator()
-
-                        + "### CORRECTION" + System.lineSeparator()
-
-                        + "Предыдущий ответ был неверного формата." + System.lineSeparator()
-
-                        + "Ответь заново на исходную задачу." + System.lineSeparator()
-
-                        + PromptBuilder.FORMAT_REMINDER;
-
-            }
-
-            throw new IllegalStateException("CDP: ответ агента не распознан после " + maxCorrections + " корректирующих запросов");
+            int maxRegenAttempts = 3;
+            String originalPrompt = prompt;
+            int regenCount = 0;
+            boolean firstSend = true;
+            while (true) {
+                if (firstSend && files != null && !files.isEmpty()) {
+                    try {
+                        for (File f : files) {
+                            ex.attachFile(f.toPath());
+                        }
+                        AppLogger.info("CDP mode: attached " + files.size() + " file(s) before send");
+                    } catch (CdpAttachException e) {
+                        AppLogger.warn("CDP attach failed: stage=" + e.getStage() + " detail=" + e.getDetail());
+                        throw new RuntimeException("CDP attach failed: stage=" + e.getStage()
+                                + " detail=" + e.getDetail(), e);
+                    }
+                }
+                if (firstSend) {
+                    applySpeedModeDelay();
+                    ex.sendMessage(originalPrompt);
+                    firstSend = false;
+                }
+                String raw = ex.waitForResponse(3L * 60L * 1000L);
+                HistoryService.savePrompt(originalPrompt);
+                HistoryService.saveResponse(raw);
+                AgentResponse parsed = tryParse(raw, originalPrompt);
+                if (parsed != null) return parsed;
+                regenCount++;
+                if (regenCount > maxRegenAttempts) break;
+                debug("CDP regenerate attempt " + regenCount + "/" + maxRegenAttempts);
+                boolean clicked = ex.clickRegenerate();
+                if (!clicked) {
+                    AppLogger.warn("CDP: clickRegenerate returned false; aborting regeneration loop");
+                    break;
+                }
+                sleep(1000L);
+            }
+            throw new IllegalStateException("CDP: ответ агента не распознан после " + maxRegenAttempts + " регенераций");
 
         }
 

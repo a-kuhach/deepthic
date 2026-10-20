@@ -721,15 +721,24 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
-    public void clickRegenerate() {
 
-        String expr = "(function(){var r=document.querySelector('rect[id=\"重新生成\"]');if(r){var b=r.closest('div.ds-icon-button');if(b){b.click();return 'clicked';}}return 'not-found';})()";
-
-        String res = evaluate(expr);
-
-        AppLogger.info("clickRegenerate result = " + res);
-
-    }
+    public boolean clickRegenerate() {
+        String expr =
+                "(function(){" +
+                "var sel = ['rect[id=\"重新生成\"]', 'button[aria-label*=\"Regenerate\" i]', 'button[aria-label*=\"重新生成\" i]', '[data-testid*=\"regenerate\"]', '[class*=\"regenerate\"]'];" +
+                "for (var s = 0; s < sel.length; s++) {" +
+                "  var el = document.querySelector(sel[s]);" +
+                "  if (el) {" +
+                "    var b = el.closest('button, div[role=button], div.ds-icon-button');" +
+                "    if (b) { b.click(); return 'clicked-' + s; }" +
+                "  }" +
+                "}" +
+                "return 'not-found';" +
+                "})()";
+        String res = evaluate(expr);
+        AppLogger.info("clickRegenerate result = " + res);
+        return res != null && res.startsWith("clicked-");
+    }
 
 public boolean ensureDeepThinkAndSearchEnabled() {
 
@@ -936,115 +945,182 @@ private static String toJsonArray(String[] texts) {
 
 
 
-    public String readLastResponse() {
 
-        // Prefer innerText of the last assistant message; within it, prefer <pre> (script body).
+    public String readLastResponse() {
+        // 1) Prefer the last <pre> inside a DeepSeek code block (.md-code-block).
+        // 2) Fallback to the last global <pre>, excluding reasoning blocks.
+        String preExpr =
+                "(function(){" +
+                "var blocks = document.querySelectorAll('.md-code-block');" +
+                "for (var i = blocks.length - 1; i >= 0; i--) {" +
+                "  var pre = blocks[i].querySelector('pre');" +
+                "  if (pre) return pre.innerText;" +
+                "}" +
+                "var pres = document.querySelectorAll('pre');" +
+                "for (var j = pres.length - 1; j >= 0; j--) {" +
+                "  if (!pres[j].closest('[class*=\"ds-think-content\"]')) return pres[j].innerText;" +
+                "}" +
+                "return '';" +
+                "})()";
+        String v = evaluate(preExpr);
+        if (v != null && !v.isEmpty()) return v;
+
+        // 3) Last-resort fallback: innerText of the last assistant message (plain text).
+        String msgExpr =
+                "(function(){" +
+                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
+                "for (var i = msgs.length - 1; i >= 0; i--) {" +
+                "  var m = msgs[i];" +
+                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
+                "  var t = (m.innerText || '').trim();" +
+                "  if (t.length > 0) return t;" +
+                "}" +
+                "return '';" +
+                "})()";
+        String msg = evaluate(msgExpr);
+        return msg == null ? "" : msg;
+    }
 
-        // Exclude reasoning blocks (ds-think-content).
 
-        String expr =
 
-                "(function(){" +
+    public String waitForResponse(long timeoutMs) throws TimeoutException {
 
-                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
 
-                "for (var i = msgs.length - 1; i >= 0; i--) {" +
 
-                "  var m = msgs[i];" +
+        long deadline = System.currentTimeMillis() + timeoutMs;
 
-                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
+        int preCount = lastPreSendCount;
 
-                "  var pre = m.querySelector('pre');" +
+        String preText = lastPreSendText == null ? "" : lastPreSendText;
 
-                "  if (pre) return pre.innerText;" +
 
-                "  var t = (m.innerText || '').trim();" +
 
-                "  if (t.length > 0) return t;" +
+        int emptyEvalCount = 0;
 
-                "}" +
+        long lastDiagMs = 0L;
 
-                "return '';" +
+        String last = "";
 
-                "})()";
+        int stableCount = 0;
 
-        String v = evaluate(expr);
 
-        return v == null ? "" : v;
+
+        while (System.currentTimeMillis() < deadline) {
+
+
+
+            String tabAlive = evaluate("String(1)");
+
+            if (!"1".equals(tabAlive)) {
+
+                emptyEvalCount++;
+
+                if (emptyEvalCount >= 3) {
+
+                    throw new IllegalStateException("waitForResponse: active tab is closed or unresponsive");
+
+                }
+
+            } else {
+
+                emptyEvalCount = 0;
+
+            }
+
+
+
+            if (EmergencyStop.isStopped() || Thread.currentThread().isInterrupted()) {
+
+                throw new IllegalStateException("waitForResponse aborted by user stop or thread interrupt");
+
+            }
+
+
+
+            int curCount = countAssistantMessages();
+
+            if (curCount < preCount) {
+
+                throw new IllegalStateException("assistant count dropped from " + preCount + " to " + curCount + "; tab reset or closed");
+
+            }
+
+
+
+            long nowMs = System.currentTimeMillis();
+
+            if (nowMs - lastDiagMs >= 5000L) {
+
+                lastDiagMs = nowMs;
+
+                try {
+
+                    String btnC = evaluate("String(document.querySelectorAll('div.ds-flex button').length)");
+
+                    AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " pre=" + preCount + " preLen=" + preText.length() + " streaming=" + countStreaming() + " btns=" + btnC + " lastLen=" + (last == null ? 0 : last.length()));
+
+                } catch (Exception diagEx) {
+
+                    AppLogger.warn("CdpDeepSeek.waitForResponse diag error: " + diagEx.getMessage());
+
+                }
+
+            }
+
+
+
+            String cur = readLastResponse();
+
+            if (cur != null && !cur.isEmpty()) {
+
+                boolean isNew = curCount > preCount || !cur.equals(preText);
+
+                if (isNew) {
+
+                    boolean streaming = countStreaming() > 0L;
+
+                    boolean complete = isResponseComplete(cur);
+
+                    boolean buttonsPresent = "true".equals(evaluate("String(document.querySelectorAll('div.ds-flex button').length > 0)"));
+
+
+
+                    if (!streaming && complete && cur.equals(last)) {
+
+                        stableCount++;
+
+                        int required = buttonsPresent ? STABLE_ITERATIONS_WITH_BTN : STABLE_ITERATIONS;
+
+                        if (stableCount >= required) {
+
+                            return cur;
+
+                        }
+
+                    } else {
+
+                        stableCount = 0;
+
+                    }
+
+                    last = cur;
+
+                }
+
+            }
+
+
+
+            sleep(POLL_INTERVAL_MS);
+
+        }
+
+
+
+        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms [preCount=" + preCount + " cur=" + countAssistantMessages() + " streaming=" + countStreaming() + " lastLen=" + (last == null ? 0 : last.length()) + "]");
 
     }
 
-
-
-    public String waitForResponse(long timeoutMs) throws TimeoutException {
-
-        long deadline = System.currentTimeMillis() + timeoutMs;
-        int preCount = lastPreSendCount;
-        String preText = lastPreSendText == null ? "" : lastPreSendText;
-
-        int emptyEvalCount = 0;
-        long lastDiagMs = 0L;
-        String last = "";
-        int stableCount = 0;
-
-        while (System.currentTimeMillis() < deadline) {
-
-            String tabAlive = evaluate("String(1)");
-            if (!"1".equals(tabAlive)) {
-                emptyEvalCount++;
-                if (emptyEvalCount >= 3) {
-                    throw new IllegalStateException("waitForResponse: active tab is closed or unresponsive");
-                }
-            } else {
-                emptyEvalCount = 0;
-            }
-
-            if (EmergencyStop.isStopped() || Thread.currentThread().isInterrupted()) {
-                throw new IllegalStateException("waitForResponse aborted by user stop or thread interrupt");
-            }
-
-            int curCount = countAssistantMessages();
-            if (curCount < preCount) {
-                throw new IllegalStateException("assistant count dropped from " + preCount + " to " + curCount + "; tab reset or closed");
-            }
-
-            long nowMs = System.currentTimeMillis();
-            if (nowMs - lastDiagMs >= 5000L) {
-                lastDiagMs = nowMs;
-                try {
-                    String btnC = evaluate("String(document.querySelectorAll('div.ds-flex button').length)");
-                    AppLogger.info("CdpDeepSeek.waitForResponse diag: cur=" + curCount + " pre=" + preCount + " preLen=" + preText.length() + " streaming=" + countStreaming() + " btns=" + btnC + " lastLen=" + (last == null ? 0 : last.length()));
-                } catch (Exception diagEx) {
-                    AppLogger.warn("CdpDeepSeek.waitForResponse diag error: " + diagEx.getMessage());
-                }
-            }
-
-            String cur = readLastResponse();
-            if (cur != null && !cur.isEmpty()) {
-                boolean isNew = curCount > preCount || !cur.equals(preText);
-                if (isNew) {
-                    boolean streaming = countStreaming() > 0L;
-                    boolean complete = isResponseComplete(cur);
-                    boolean buttonsPresent = "true".equals(evaluate("String(document.querySelectorAll('div.ds-flex button').length > 0)"));
-
-                    if (!streaming && complete && cur.equals(last)) {
-                        stableCount++;
-                        int required = buttonsPresent ? STABLE_ITERATIONS_WITH_BTN : STABLE_ITERATIONS;
-                        if (stableCount >= required) {
-                            return cur;
-                        }
-                    } else {
-                        stableCount = 0;
-                    }
-                    last = cur;
-                }
-            }
-
-            sleep(POLL_INTERVAL_MS);
-        }
-
-        throw new TimeoutException("response did not stabilize within " + timeoutMs + " ms [preCount=" + preCount + " cur=" + countAssistantMessages() + " streaming=" + countStreaming() + " lastLen=" + (last == null ? 0 : last.length()) + "]");
-    }
 
 private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
