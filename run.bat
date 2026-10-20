@@ -3,13 +3,6 @@
 powershell -NoProfile -Command "$f='%~f0'; $c=[IO.File]::ReadAllText($f); $nl=[string][char]13+[string][char]10; $c2=$c.Replace($nl,[string][char]10).Replace([string][char]10,$nl); if ($c -ne $c2) { [IO.File]::WriteAllText($f,$c2,[Text.Encoding]::Default); Write-Host '[Deepthic] Fixed line endings for run.bat. Please run it again.'; Read-Host 'Press Enter to exit'; exit 1 }"
 if errorlevel 1 exit /b 0
 setlocal EnableExtensions
-powershell -NoProfile -Command "if ((Get-Content -Raw '%~f0') -match \"[^\r]\n\") { (Get-Content -Raw '%~f0') -replace \"(?<!\r)\n\", \"
-\" | Set-Content -NoNewline '%~f0' -Encoding Default; exit 1 }"
-if errorlevel 1 (
-    echo [Deepthic] Fixed line endings for run.bat. Please run it again.
-    pause
-    exit /b 0
-)
 
 set "RUN_DIR=%~dp0"
 if "%RUN_DIR:~-1%"=="\" set "RUN_DIR=%RUN_DIR:~0,-1%"
@@ -171,8 +164,7 @@ if exist "%BUILD_DIR%\src" rmdir /S /Q "%BUILD_DIR%\src"
 xcopy "%SRC%\src" "%BUILD_DIR%\src" /E /I /Q /Y >nul
 if exist "%BUILD_DIR%\rules" rmdir /S /Q "%BUILD_DIR%\rules"
 xcopy "%SRC%\rules" "%BUILD_DIR%\rules" /E /I /Q /Y >nul
-rem Explicit copies avoid "for %%F" ? quoted loop variables proved fragile under the cmd parser
-rem when run.bat is rewritten mid-execution (observed on project C, 2026-10-16).
+
 if exist "%SRC%\pom.xml"                  copy /Y "%SRC%\pom.xml"                  "%BUILD_DIR%\pom.xml"                  >nul
 if exist "%SRC%\ensure-prerequisites.ps1" copy /Y "%SRC%\ensure-prerequisites.ps1" "%BUILD_DIR%\ensure-prerequisites.ps1" >nul
 if exist "%SRC%\README.md"                copy /Y "%SRC%\README.md"                "%BUILD_DIR%\README.md"                >nul
@@ -181,9 +173,6 @@ if exist "%SRC%\.gitignore"               copy /Y "%SRC%\.gitignore"            
 if exist "%SRC%\.gitattributes"           copy /Y "%SRC%\.gitattributes"           "%BUILD_DIR%\.gitattributes"           >nul
 if exist "%SRC%\winrect.ps1"              copy /Y "%SRC%\winrect.ps1"              "%BUILD_DIR%\winrect.ps1"              >nul
 if exist "%SRC%\code_mutation.ps1"        copy /Y "%SRC%\code_mutation.ps1"        "%BUILD_DIR%\code_mutation.ps1"        >nul
-rem run.bat is intentionally NOT self-updated: cmd re-reads .bat from disk by byte offset,
-rem so moving a new file over the running one mid-execution corrupts the parser state.
-rem If run.bat ever changes in the repo, replace it in the install manually.
 
 rmdir /S /Q "%EXTRACT_DIR%" >nul 2>nul
 del "%ZIP%" >nul 2>nul
@@ -297,4 +286,4 @@ if not "%JAVA_RC%"=="0" (
     echo [Deepthic] Application exited with code %JAVA_RC%.
     pause
 )
-exit /b %JAVA_RC%
+exit /b %JAVA_RC%
