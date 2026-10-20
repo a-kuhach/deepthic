@@ -722,23 +722,40 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
-    public boolean clickRegenerate() {
-        String expr =
-                "(function(){" +
-                "var sel = ['rect[id=\"重新生成\"]', 'button[aria-label*=\"Regenerate\" i]', 'button[aria-label*=\"重新生成\" i]', '[data-testid*=\"regenerate\"]', '[class*=\"regenerate\"]'];" +
-                "for (var s = 0; s < sel.length; s++) {" +
-                "  var el = document.querySelector(sel[s]);" +
-                "  if (el) {" +
-                "    var b = el.closest('button, div[role=button], div.ds-icon-button');" +
-                "    if (b) { b.click(); return 'clicked-' + s; }" +
-                "  }" +
-                "}" +
-                "return 'not-found';" +
-                "})()";
-        String res = evaluate(expr);
-        AppLogger.info("clickRegenerate result = " + res);
-        return res != null && res.startsWith("clicked-");
-    }
+    public boolean clickRegenerate() {
+
+        String expr =
+
+                "(function(){" +
+
+                "var sel = ['rect[id=\"重新生成\"]', 'button[aria-label*=\"Regenerate\" i]', 'button[aria-label*=\"重新生成\" i]', '[data-testid*=\"regenerate\"]', '[class*=\"regenerate\"]'];" +
+
+                "for (var s = 0; s < sel.length; s++) {" +
+
+                "  var el = document.querySelector(sel[s]);" +
+
+                "  if (el) {" +
+
+                "    var b = el.closest('button, div[role=button], div.ds-icon-button');" +
+
+                "    if (b) { b.click(); return 'clicked-' + s; }" +
+
+                "  }" +
+
+                "}" +
+
+                "return 'not-found';" +
+
+                "})()";
+
+        String res = evaluate(expr);
+
+        AppLogger.info("clickRegenerate result = " + res);
+
+        return res != null && res.startsWith("clicked-");
+
+    }
+
 
 public boolean ensureDeepThinkAndSearchEnabled() {
 
@@ -946,40 +963,74 @@ private static String toJsonArray(String[] texts) {
 
 
 
-    public String readLastResponse() {
-        // 1) Prefer the last <pre> inside a DeepSeek code block (.md-code-block).
-        // 2) Fallback to the last global <pre>, excluding reasoning blocks.
-        String preExpr =
-                "(function(){" +
-                "var blocks = document.querySelectorAll('.md-code-block');" +
-                "for (var i = blocks.length - 1; i >= 0; i--) {" +
-                "  var pre = blocks[i].querySelector('pre');" +
-                "  if (pre) return pre.innerText;" +
-                "}" +
-                "var pres = document.querySelectorAll('pre');" +
-                "for (var j = pres.length - 1; j >= 0; j--) {" +
-                "  if (!pres[j].closest('[class*=\"ds-think-content\"]')) return pres[j].innerText;" +
-                "}" +
-                "return '';" +
-                "})()";
-        String v = evaluate(preExpr);
-        if (v != null && !v.isEmpty()) return v;
-
-        // 3) Last-resort fallback: innerText of the last assistant message (plain text).
-        String msgExpr =
-                "(function(){" +
-                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
-                "for (var i = msgs.length - 1; i >= 0; i--) {" +
-                "  var m = msgs[i];" +
-                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
-                "  var t = (m.innerText || '').trim();" +
-                "  if (t.length > 0) return t;" +
-                "}" +
-                "return '';" +
-                "})()";
-        String msg = evaluate(msgExpr);
-        return msg == null ? "" : msg;
-    }
+    public String readLastResponse() {
+
+        // 1) Prefer the last <pre> inside a DeepSeek code block (.md-code-block).
+
+        // 2) Fallback to the last global <pre>, excluding reasoning blocks.
+
+        String preExpr =
+
+                "(function(){" +
+
+                "var blocks = document.querySelectorAll('.md-code-block');" +
+
+                "for (var i = blocks.length - 1; i >= 0; i--) {" +
+
+                "  var pre = blocks[i].querySelector('pre');" +
+
+                "  if (pre) return pre.innerText;" +
+
+                "}" +
+
+                "var pres = document.querySelectorAll('pre');" +
+
+                "for (var j = pres.length - 1; j >= 0; j--) {" +
+
+                "  if (!pres[j].closest('[class*=\"ds-think-content\"]')) return pres[j].innerText;" +
+
+                "}" +
+
+                "return '';" +
+
+                "})()";
+
+        String v = evaluate(preExpr);
+
+        if (v != null && !v.isEmpty()) return v;
+
+
+
+        // 3) Last-resort fallback: innerText of the last assistant message (plain text).
+
+        String msgExpr =
+
+                "(function(){" +
+
+                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
+
+                "for (var i = msgs.length - 1; i >= 0; i--) {" +
+
+                "  var m = msgs[i];" +
+
+                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
+
+                "  var t = (m.innerText || '').trim();" +
+
+                "  if (t.length > 0) return t;" +
+
+                "}" +
+
+                "return '';" +
+
+                "})()";
+
+        String msg = evaluate(msgExpr);
+
+        return msg == null ? "" : msg;
+
+    }
+
 
 
 
@@ -1039,11 +1090,19 @@ private static String toJsonArray(String[] texts) {
 
             int curCount = countAssistantMessages();
 
-            if (curCount < preCount) {
 
-                throw new IllegalStateException("assistant count dropped from " + preCount + " to " + curCount + "; tab reset or closed");
-
-            }
+            if (curCount < preCount) {
+                // DOM virtualization in long chats: DeepSeek may drop old message nodes.
+                // This is NOT a tab reset. Update baseline and continue.
+                AppLogger.warn("CdpDeepSeek.waitForResponse: count dropped from " + preCount + " to " + curCount + "; treating as DOM virtualization, updating baseline");
+                preCount = curCount;
+                String newPre = readLastResponse();
+                if (newPre != null && !newPre.isEmpty()) {
+                    preText = newPre;
+                }
+                sleep(POLL_INTERVAL_MS);
+                continue;
+            }
 
 
 
