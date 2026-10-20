@@ -1,5 +1,13 @@
+
 @echo off
 setlocal EnableExtensions
+powershell -NoProfile -Command "if ((Get-Content -Raw '%~f0') -match \"[^\r]\n\") { (Get-Content -Raw '%~f0') -replace \"(?<!\r)\n\", \"
+\" | Set-Content -NoNewline '%~f0' -Encoding Default; exit 1 }"
+if errorlevel 1 (
+    echo [Deepthic] Fixed line endings for run.bat. Please run it again.
+    pause
+    exit /b 0
+)
 
 set "RUN_DIR=%~dp0"
 if "%RUN_DIR:~-1%"=="\" set "RUN_DIR=%RUN_DIR:~0,-1%"
@@ -161,7 +169,7 @@ if exist "%BUILD_DIR%\src" rmdir /S /Q "%BUILD_DIR%\src"
 xcopy "%SRC%\src" "%BUILD_DIR%\src" /E /I /Q /Y >nul
 if exist "%BUILD_DIR%\rules" rmdir /S /Q "%BUILD_DIR%\rules"
 xcopy "%SRC%\rules" "%BUILD_DIR%\rules" /E /I /Q /Y >nul
-rem Explicit copies avoid "for %%F" â€” quoted loop variables proved fragile under the cmd parser
+rem Explicit copies avoid "for %%F" — quoted loop variables proved fragile under the cmd parser
 rem when run.bat is rewritten mid-execution (observed on project C, 2026-10-16).
 if exist "%SRC%\pom.xml"                  copy /Y "%SRC%\pom.xml"                  "%BUILD_DIR%\pom.xml"                  >nul
 if exist "%SRC%\ensure-prerequisites.ps1" copy /Y "%SRC%\ensure-prerequisites.ps1" "%BUILD_DIR%\ensure-prerequisites.ps1" >nul
