@@ -45,7 +45,8 @@ public final class CdpDeepSeek {
 
     private static final long POLL_INTERVAL_MS = 500L;
 
-    private static final int STABLE_ITERATIONS = 6;
+    private static final int STABLE_ITERATIONS = 20;
+    private static final int STABLE_ITERATIONS_WITH_BTN = 8;
     private static final long ATTACH_POLL_MS = 200L;
     private static final long ATTACH_VISIBLE_TIMEOUT_MS = 20000L;
     private static final long CHOOSER_TIMEOUT_MS = 3000L;
@@ -238,10 +239,14 @@ public final class CdpDeepSeek {
         AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
         sleep(2000L);
         
-try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
-        // Ensure DeepThink and Search are enabled before sending any prompt
-        if (!ensureDeepThinkAndSearchEnabled()) {
-            throw new IllegalStateException("DeepThink/Search cannot be enabled; refusing to start work");
+try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
+
+        // Ensure DeepThink and Search are enabled before sending any prompt
+
+        if (!ensureDeepThinkAndSearchEnabled()) {
+
+            throw new IllegalStateException("DeepThink/Search cannot be enabled; refusing to start work");
+
         }
         String postUrl = evaluate("String(location.href)");
         int postCount = countAnyMessages();
@@ -710,114 +715,222 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
-    public void clickRegenerate() {
-        String expr = "(function(){var r=document.querySelector('rect[id=\"重新生成\"]');if(r){var b=r.closest('div.ds-icon-button');if(b){b.click();return 'clicked';}}return 'not-found';})()";
-        String res = evaluate(expr);
-        AppLogger.info("clickRegenerate result = " + res);
-    }
-public boolean ensureDeepThinkAndSearchEnabled() {
-        boolean ok1 = ensureButtonEnabled(DeepSeekSelectors.DEEP_THINK_TEXTS, "DeepThink");
-        boolean ok2 = ensureButtonEnabled(DeepSeekSelectors.SEARCH_TEXTS, "Search");
-        return ok1 && ok2;
-    }
-
-    private boolean ensureButtonEnabled(String[] texts, String label) {
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            String state = evaluateButtonState(texts);
-            AppLogger.info("CdpDeepSeek." + label + ": state=" + state + " (attempt " + attempt + ")");
-            if ("enabled".equals(state)) return true;
-            if ("not-found".equals(state)) {
-                AppLogger.warn("CdpDeepSeek." + label + " button not found");
-                return false;
-            }
-            String clickResult = clickButtonByText(texts);
-            AppLogger.info("CdpDeepSeek." + label + " click result = " + clickResult);
-            sleep(800L);
-        }
-        String finalState = evaluateButtonState(texts);
-        AppLogger.warn("CdpDeepSeek." + label + " still disabled after 3 attempts (state=" + finalState + ")");
-        return "enabled".equals(finalState);
-    }
-
+    public void clickRegenerate() {
+
+        String expr = "(function(){var r=document.querySelector('rect[id=\"重新生成\"]');if(r){var b=r.closest('div.ds-icon-button');if(b){b.click();return 'clicked';}}return 'not-found';})()";
+
+        String res = evaluate(expr);
+
+        AppLogger.info("clickRegenerate result = " + res);
+
+    }
+
+public boolean ensureDeepThinkAndSearchEnabled() {
+
+        boolean ok1 = ensureButtonEnabled(DeepSeekSelectors.DEEP_THINK_TEXTS, "DeepThink");
+
+        boolean ok2 = ensureButtonEnabled(DeepSeekSelectors.SEARCH_TEXTS, "Search");
+
+        return ok1 && ok2;
+
+    }
+
+
+
+    private boolean ensureButtonEnabled(String[] texts, String label) {
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+
+            String state = evaluateButtonState(texts);
+
+            AppLogger.info("CdpDeepSeek." + label + ": state=" + state + " (attempt " + attempt + ")");
+
+            if ("enabled".equals(state)) return true;
+
+            if ("not-found".equals(state)) {
+
+                AppLogger.warn("CdpDeepSeek." + label + " button not found");
+
+                return false;
+
+            }
+
+            String clickResult = clickButtonByText(texts);
+
+            AppLogger.info("CdpDeepSeek." + label + " click result = " + clickResult);
+
+            sleep(800L);
+
+        }
+
+        String finalState = evaluateButtonState(texts);
+
+        AppLogger.warn("CdpDeepSeek." + label + " still disabled after 3 attempts (state=" + finalState + ")");
+
+        return "enabled".equals(finalState);
+
+    }
+
+
+
     
-private String evaluateButtonState(String[] texts) {
-        String arr = toJsonArray(texts);
-        String expr =
-            "(function(){" +
-            "var texts = " + arr + ";" +
-            "var all = document.querySelectorAll('*');" +
-            "for (var i = 0; i < all.length; i++) {" +
-            "  var el = all[i];" +
-            "  var text = (el.textContent || '').trim();" +
-            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
-            "  for (var j = 0; j < texts.length; j++) {" +
-            "    var target = texts[j];" +
-            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
-            "      var p = el;" +
-            "      for (var k = 0; k < 8 && p; k++) {" +
-            "        var role = p.getAttribute && p.getAttribute('role');" +
-            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
-            "          var pressed = p.getAttribute('aria-pressed');" +
-            "          if (pressed === 'true') return 'enabled';" +
-            "          if (pressed === 'false') return 'disabled';" +
-            "          var cls = (p.className || '').toString();" +
-            "          if (/(primary|filled|active|selected)/i.test(cls)) return 'enabled';" +
-            "          var style = window.getComputedStyle(p);" +
-            "          var fg = (style && style.color) || '';" +
-            "          if (fg.indexOf('77, 107, 254') >= 0 || fg.indexOf('77,107,254') >= 0) return 'enabled';" +
-            "          return 'disabled';" +
-            "        }" +
-            "        p = p.parentElement;" +
-            "      }" +
-            "    }" +
-            "  }" +
-            "}" +
-            "return 'not-found';" +
-            "})()";
-        return evaluate(expr);
-    }
-
-    private String clickButtonByText(String[] texts) {
-        String arr = toJsonArray(texts);
-        String expr =
-            "(function(){" +
-            "var texts = " + arr + ";" +
-            "var all = document.querySelectorAll('*');" +
-            "for (var i = 0; i < all.length; i++) {" +
-            "  var el = all[i];" +
-            "  var text = (el.textContent || '').trim();" +
-            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
-            "  for (var j = 0; j < texts.length; j++) {" +
-            "    var target = texts[j];" +
-            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
-            "      var p = el;" +
-            "      for (var k = 0; k < 8 && p; k++) {" +
-            "        var role = p.getAttribute && p.getAttribute('role');" +
-            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
-            "          p.click();" +
-            "          return 'clicked-' + p.tagName;" +
-            "        }" +
-            "        p = p.parentElement;" +
-            "      }" +
-            "    }" +
-            "  }" +
-            "}" +
-            "return 'not-found';" +
-            "})()";
-        return evaluate(expr);
-    }
-
-    private static String toJsonArray(String[] texts) {
-        StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < texts.length; i++) {
-            if (i > 0) sb.append(",");
-            sb.append("\"").append(escapeJs(texts[i])).append("\"");
-        }
-        sb.append("]");
-        return sb.toString();
-    }
-
-    public String readLastResponse() {
+private String evaluateButtonState(String[] texts) {
+
+        String arr = toJsonArray(texts);
+
+        String expr =
+
+            "(function(){" +
+
+            "var texts = " + arr + ";" +
+
+            "var all = document.querySelectorAll('*');" +
+
+            "for (var i = 0; i < all.length; i++) {" +
+
+            "  var el = all[i];" +
+
+            "  var text = (el.textContent || '').trim();" +
+
+            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
+
+            "  for (var j = 0; j < texts.length; j++) {" +
+
+            "    var target = texts[j];" +
+
+            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
+
+            "      var p = el;" +
+
+            "      for (var k = 0; k < 8 && p; k++) {" +
+
+            "        var role = p.getAttribute && p.getAttribute('role');" +
+
+            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
+
+            "          var pressed = p.getAttribute('aria-pressed');" +
+
+            "          if (pressed === 'true') return 'enabled';" +
+
+            "          if (pressed === 'false') return 'disabled';" +
+
+            "          var cls = (p.className || '').toString();" +
+
+            "          if (/(primary|filled|active|selected)/i.test(cls)) return 'enabled';" +
+
+            "          var style = window.getComputedStyle(p);" +
+
+            "          var fg = (style && style.color) || '';" +
+
+            "          if (fg.indexOf('77, 107, 254') >= 0 || fg.indexOf('77,107,254') >= 0) return 'enabled';" +
+
+            "          return 'disabled';" +
+
+            "        }" +
+
+            "        p = p.parentElement;" +
+
+            "      }" +
+
+            "    }" +
+
+            "  }" +
+
+            "}" +
+
+            "return 'not-found';" +
+
+            "})()";
+
+        return evaluate(expr);
+
+    }
+
+
+
+    private String clickButtonByText(String[] texts) {
+
+        String arr = toJsonArray(texts);
+
+        String expr =
+
+            "(function(){" +
+
+            "var texts = " + arr + ";" +
+
+            "var all = document.querySelectorAll('*');" +
+
+            "for (var i = 0; i < all.length; i++) {" +
+
+            "  var el = all[i];" +
+
+            "  var text = (el.textContent || '').trim();" +
+
+            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
+
+            "  for (var j = 0; j < texts.length; j++) {" +
+
+            "    var target = texts[j];" +
+
+            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
+
+            "      var p = el;" +
+
+            "      for (var k = 0; k < 8 && p; k++) {" +
+
+            "        var role = p.getAttribute && p.getAttribute('role');" +
+
+            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
+
+            "          p.click();" +
+
+            "          return 'clicked-' + p.tagName;" +
+
+            "        }" +
+
+            "        p = p.parentElement;" +
+
+            "      }" +
+
+            "    }" +
+
+            "  }" +
+
+            "}" +
+
+            "return 'not-found';" +
+
+            "})()";
+
+        return evaluate(expr);
+
+    }
+
+
+
+    
+private static String toJsonArray(String[] texts) {
+
+        StringBuilder sb = new StringBuilder("[");
+
+        for (int i = 0; i < texts.length; i++) {
+
+            if (i > 0) sb.append(",");
+
+            sb.append("\"").append(escapeJs(texts[i])).append("\"");
+
+        }
+
+        sb.append("]");
+
+        return sb.toString();
+
+    }
+
+
+
+    public String readLastResponse() {
+
         // Directly query the last <pre> block globally, excluding think-content.
         String expr =
                 "(function(){" +
@@ -838,6 +951,7 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         int initialCount = countAssistantMessages();
+        String initialText = readLastResponse();
         int emptyEvalCount = 0;
         long lastDiagMs = 0L;
 
@@ -887,9 +1001,11 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
                 }
             }
 
-            if (curCount >= initialCount) {
+            String cur = readLastResponse();
+            boolean buttonsPresent = "true".equals(evaluate("String(document.querySelectorAll('div.ds-flex button').length > 0)"));
+            boolean newMessage = curCount > initialCount || (curCount == initialCount && !cur.equals(initialText));
+            if (newMessage && cur != null && !cur.isEmpty()) {
 
-                String cur = readLastResponse();
 
                 if (cur != null && !cur.isEmpty()) {
 
@@ -898,7 +1014,7 @@ public String waitForResponse(long timeoutMs) throws TimeoutException {
 
                     if (!streaming && complete && cur.equals(last)) {
                         stableCount++;
-                        if (stableCount >= STABLE_ITERATIONS) {
+                        if (stableCount >= (buttonsPresent ? STABLE_ITERATIONS_WITH_BTN : STABLE_ITERATIONS)) {
                             return cur;
                         }
                     } else {
@@ -1085,130 +1201,254 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
 
     
-public void attachFile(Path path) throws CdpAttachException {
-        if (path == null) {
-            throw new CdpAttachException("validate", "path is null", null);
-        }
-        if (!Files.isRegularFile(path)) {
-            throw new CdpAttachException("validate", "not a regular file: " + path, null);
-        }
-        if (activeTab == null) {
-            throw new CdpAttachException("state", "no active tab", null);
-        }
-        String abs = path.toAbsolutePath().toString();
-        long start = System.currentTimeMillis();
-        long bytes = -1L;
-        try { bytes = Files.size(path); } catch (Exception ignored) { }
-
-        // FIX28: composer blob-img baseline before attach
-        String baselineJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"total\":0,\"composer\":0}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}return JSON.stringify({total:total,composer:comp});})())");
-
-        AppLogger.info("FIX28: baseline blob-img = " + baselineJson);
-
-        int baselineComposer = 0;
-        try {
-            com.fasterxml.jackson.databind.JsonNode bj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(baselineJson);
-            baselineComposer = bj.path("composer").asInt(0);
-        } catch (Exception ignored) { }
-
-        Integer rootNodeId = nodeIdOfDocument();
-        if (rootNodeId == null) {
-            throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
-        }
-        Integer inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
-
-        int attempts = 0;
-        while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
-            attempts++;
-            try {
-                String rectJson = evaluate("String((function(){var b=document.querySelector('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]');if(!b)return '' ;var r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
-                if (rectJson != null && rectJson.contains("x")) {
-                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
-                    double cx = rj.path("x").asDouble();
-                    double cy = rj.path("y").asDouble();
-                    Map<String, Object> press = new HashMap<>();
-                    press.put("type", "mousePressed");
-                    press.put("x", cx);
-                    press.put("y", cy);
-                    press.put("button", "left");
-                    press.put("clickCount", 1);
-                    activeTab.send("Input.dispatchMouseEvent", press);
-                    Map<String, Object> release = new HashMap<>();
-                    release.put("type", "mouseReleased");
-                    release.put("x", cx);
-                    release.put("y", cy);
-                    release.put("button", "left");
-                    release.put("clickCount", 1);
-                    activeTab.send("Input.dispatchMouseEvent", release);
-                    AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
-                } else {
-                    AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
-                    String fix18Result = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
-                    AppLogger.info("FIX18: input.click() result = " + fix18Result);
-                    if (!"input-clicked".equals(fix18Result)) {
-                        String cnResult = clickNearInput();
-                        AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
-                        if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
-                            String cnResult19 = clickNearInput();
-                            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
-                            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
-                                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
-                                AppLogger.info("FIX19: input.click() result = " + icResult19);
-                                if (!"input-clicked".equals(icResult19)) {
-                                    clickAttachButton();
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (Exception mce) {
-                AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
-                clickAttachButton();
-            }
-            sleep(300L);
-            rootNodeId = nodeIdOfDocument();
-            if (rootNodeId != null) {
-                inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
-            }
-        }
-
-        if (inputNodeId == null) {
-            attachFileViaChooser(abs, bytes, start);
-            return;
-        }
-
-        Map<String, Object> params = new HashMap<>();
-        params.put("files", List.of(abs));
-        params.put("nodeId", inputNodeId);
-        JsonNode resp;
-        try {
-            resp = activeTab.send("DOM.setFileInputFiles", params);
-        } catch (Exception e) {
-            throw new CdpAttachException("set-files",
-                    "DOM.setFileInputFiles exception: " + e.getMessage(), e);
-        }
-        if (resp == null || resp.get("error") != null) {
-            throw new CdpAttachException("set-files",
-                    "DOM.setFileInputFiles error: " + resp, null);
-        }
-
-        // FIX110: The call was successful. Do NOT check input.files (React clears it).
-        // Just wait for the attachment to appear in the UI.
-        AppLogger.info("CdpDeepSeek.attachFile: setFileInputFiles sent, waiting for DOM...");
-        try {
-            waitForAttachmentVisible(5000L, baselineComposer);
-            AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (dom)");
-            return;
-        } catch (CdpAttachException e) {
-            AppLogger.warn("CdpDeepSeek.attachFile: attachment did not appear after setFileInputFiles, trying DataTransfer fallback");
-        }
-
-        attachFileViaFallbacks(path, baselineComposer);
-        long elapsedDt = System.currentTimeMillis() - start;
-        AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer-fallback)");
-    }
-
-    private Integer nodeIdOfDocument() {
+public void attachFile(Path path) throws CdpAttachException {
+
+        if (path == null) {
+
+            throw new CdpAttachException("validate", "path is null", null);
+
+        }
+
+        if (!Files.isRegularFile(path)) {
+
+            throw new CdpAttachException("validate", "not a regular file: " + path, null);
+
+        }
+
+        if (activeTab == null) {
+
+            throw new CdpAttachException("state", "no active tab", null);
+
+        }
+
+        String abs = path.toAbsolutePath().toString();
+
+        long start = System.currentTimeMillis();
+
+        long bytes = -1L;
+
+        try { bytes = Files.size(path); } catch (Exception ignored) { }
+
+
+
+        // FIX28: composer blob-img baseline before attach
+
+        String baselineJson = evaluate("String((function(){var t=document.querySelector('textarea[name=search]');if(!t)return '{\"total\":0,\"composer\":0}';function inComposer(el){var p=el;for(var i=0;i<8&&p;i++){if(p.querySelector&&p.querySelector('textarea[name=search]'))return true;p=p.parentElement;}return false;}var imgs=document.querySelectorAll('img[src^=\"blob:\"]');var total=imgs.length;var comp=0;for(var k=0;k<imgs.length;k++){if(inComposer(imgs[k]))comp++;}return JSON.stringify({total:total,composer:comp});})())");
+
+
+
+        AppLogger.info("FIX28: baseline blob-img = " + baselineJson);
+
+
+
+        int baselineComposer = 0;
+
+        try {
+
+            com.fasterxml.jackson.databind.JsonNode bj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(baselineJson);
+
+            baselineComposer = bj.path("composer").asInt(0);
+
+        } catch (Exception ignored) { }
+
+
+
+        Integer rootNodeId = nodeIdOfDocument();
+
+        if (rootNodeId == null) {
+
+            throw new CdpAttachException("query-input", "DOM.getDocument returned no root nodeId", null);
+
+        }
+
+        Integer inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
+
+
+
+        int attempts = 0;
+
+        while (inputNodeId == null && attempts < ATTACH_CLICK_ATTEMPTS) {
+
+            attempts++;
+
+            try {
+
+                String rectJson = evaluate("String((function(){var b=document.querySelector('[class*='icon-button'], [class*='paperclip'], button[aria-label*='attach' i], button[aria-label*='file' i]');if(!b)return '' ;var r=b.getBoundingClientRect();return JSON.stringify({x:r.left+r.width/2,y:r.top+r.height/2});})())");
+
+                if (rectJson != null && rectJson.contains("x")) {
+
+                    com.fasterxml.jackson.databind.JsonNode rj = new com.fasterxml.jackson.databind.ObjectMapper().readTree(rectJson);
+
+                    double cx = rj.path("x").asDouble();
+
+                    double cy = rj.path("y").asDouble();
+
+                    Map<String, Object> press = new HashMap<>();
+
+                    press.put("type", "mousePressed");
+
+                    press.put("x", cx);
+
+                    press.put("y", cy);
+
+                    press.put("button", "left");
+
+                    press.put("clickCount", 1);
+
+                    activeTab.send("Input.dispatchMouseEvent", press);
+
+                    Map<String, Object> release = new HashMap<>();
+
+                    release.put("type", "mouseReleased");
+
+                    release.put("x", cx);
+
+                    release.put("y", cy);
+
+                    release.put("button", "left");
+
+                    release.put("clickCount", 1);
+
+                    activeTab.send("Input.dispatchMouseEvent", release);
+
+                    AppLogger.info("CdpDeepSeek.attachFileViaChooser: dispatched CDP mouse click at " + cx + "," + cy);
+
+                } else {
+
+                    AppLogger.warn("CdpDeepSeek.attachFileViaChooser: attach button rect not found, falling back to element.click()");
+
+                    String fix18Result = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+
+                    AppLogger.info("FIX18: input.click() result = " + fix18Result);
+
+                    if (!"input-clicked".equals(fix18Result)) {
+
+                        String cnResult = clickNearInput();
+
+                        AppLogger.info("FIX18: clickNearInput() result = " + cnResult);
+
+                        if ("not-found".equals(cnResult) || "no-input".equals(cnResult)) {
+
+                            String cnResult19 = clickNearInput();
+
+                            AppLogger.info("FIX19: clickNearInput() result = " + cnResult19);
+
+                            if ("not-found".equals(cnResult19) || "no-input".equals(cnResult19)) {
+
+                                String icResult19 = evaluate("(function(){var i=document.querySelector('input[type=file]');if(!i)return 'no-input';i.click();return 'input-clicked';})()");
+
+                                AppLogger.info("FIX19: input.click() result = " + icResult19);
+
+                                if (!"input-clicked".equals(icResult19)) {
+
+                                    clickAttachButton();
+
+                                }
+
+                            }
+
+                        }
+
+                    }
+
+                }
+
+            } catch (Exception mce) {
+
+                AppLogger.warn("CdpDeepSeek.attachFileViaChooser: CDP mouse click failed: " + mce.getMessage());
+
+                clickAttachButton();
+
+            }
+
+            sleep(300L);
+
+            rootNodeId = nodeIdOfDocument();
+
+            if (rootNodeId != null) {
+
+                inputNodeId = querySelectorNodeId(rootNodeId, DeepSeekSelectors.FILE_INPUT);
+
+            }
+
+        }
+
+
+
+        if (inputNodeId == null) {
+
+            attachFileViaChooser(abs, bytes, start);
+
+            return;
+
+        }
+
+
+
+        Map<String, Object> params = new HashMap<>();
+
+        params.put("files", List.of(abs));
+
+        params.put("nodeId", inputNodeId);
+
+        JsonNode resp;
+
+        try {
+
+            resp = activeTab.send("DOM.setFileInputFiles", params);
+
+        } catch (Exception e) {
+
+            throw new CdpAttachException("set-files",
+
+                    "DOM.setFileInputFiles exception: " + e.getMessage(), e);
+
+        }
+
+        if (resp == null || resp.get("error") != null) {
+
+            throw new CdpAttachException("set-files",
+
+                    "DOM.setFileInputFiles error: " + resp, null);
+
+        }
+
+
+
+        // FIX110: The call was successful. Do NOT check input.files (React clears it).
+
+        // Just wait for the attachment to appear in the UI.
+
+        AppLogger.info("CdpDeepSeek.attachFile: setFileInputFiles sent, waiting for DOM...");
+
+        try {
+
+            waitForAttachmentVisible(5000L, baselineComposer);
+
+            AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + (System.currentTimeMillis() - start) + "ms (dom)");
+
+            return;
+
+        } catch (CdpAttachException e) {
+
+            AppLogger.warn("CdpDeepSeek.attachFile: attachment did not appear after setFileInputFiles, trying DataTransfer fallback");
+
+        }
+
+
+
+        attachFileViaFallbacks(path, baselineComposer);
+
+        long elapsedDt = System.currentTimeMillis() - start;
+
+        AppLogger.info("attachFile: file=" + abs + ", bytes=" + bytes + ", elapsed=" + elapsedDt + "ms (datatransfer-fallback)");
+
+    }
+
+
+
+    private Integer nodeIdOfDocument() {
+
 
         Map<String, Object> params = new HashMap<>();
 

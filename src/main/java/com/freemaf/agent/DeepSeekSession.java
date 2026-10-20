@@ -72,6 +72,8 @@ public final class DeepSeekSession {
 
     private volatile CdpBootstrap cdpBootstrap;
     private volatile boolean useReviewer = false;
+    private volatile long lastSendTimeMs = 0L;
+    private volatile SpeedMode speedMode = SpeedMode.INSTANT;
 
 
 
@@ -132,6 +134,7 @@ public final class DeepSeekSession {
 
 
     public void setCdpBootstrap(CdpBootstrap bootstrap) { this.cdpBootstrap = bootstrap; }
+    public void setSpeedMode(SpeedMode mode) { this.speedMode = mode; }
 
 
 
@@ -175,14 +178,26 @@ public final class DeepSeekSession {
 
 
     
-    private void applySpeedModeDelay() {
-        SpeedMode mode = inputSimulator.getSpeedMode();
-        long delay = mode.getRandomMs();
-        if (delay > 0) {
-            AppLogger.info("SpeedMode " + mode.name() + ": waiting " + delay + " ms before sending prompt");
-            try { Thread.sleep(delay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }
-    }
+    private void applySpeedModeDelay() {
+        SpeedMode mode = this.speedMode;
+        if (mode == null) { return; }
+        long delay = mode.getRandomMs();
+        if (delay <= 0) {
+            lastSendTimeMs = System.currentTimeMillis();
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (lastSendTimeMs > 0) {
+            long elapsed = now - lastSendTimeMs;
+            if (elapsed < delay) {
+                long sleepMs = delay - elapsed;
+                AppLogger.info("SpeedMode " + mode.name() + ": waiting " + sleepMs + " ms (interval " + delay + " ms)");
+                try { Thread.sleep(sleepMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+        }
+        lastSendTimeMs = System.currentTimeMillis();
+    }
+
 
     public WindowInfo openNewWindow(java.util.List<com.sun.jna.Pointer> excludes) throws Exception {
 
