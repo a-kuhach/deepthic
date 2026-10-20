@@ -176,8 +176,7 @@ public final class DeepSeekSession {
 
     
     private void applySpeedModeDelay() {
-        String modeStr = config.get("speed.mode", "NORMAL");
-        SpeedMode mode = SpeedMode.fromName(modeStr);
+        SpeedMode mode = inputSimulator.getSpeedMode();
         long delay = mode.getRandomMs();
         if (delay > 0) {
             AppLogger.info("SpeedMode " + mode.name() + ": waiting " + delay + " ms before sending prompt");
