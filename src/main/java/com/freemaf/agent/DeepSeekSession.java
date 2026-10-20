@@ -377,6 +377,8 @@ public AgentResponse getValidResponse(String prompt, List<File> files) throws Ex
 
                 firstSend = false;
 
+                applySpeedModeDelay();
+
                 ex.sendMessage(currentPrompt);
 
                 String raw = ex.waitForResponse(3L * 60L * 1000L);
@@ -720,6 +722,8 @@ public void sendPrompt(String prompt, List<File> files) throws InterruptedExcept
                     AppLogger.info("CDP mode: attached " + nFiles + " file(s) before send");
 
                 }
+
+                applySpeedModeDelay();
 
                 ex.sendMessage(prompt);
 
