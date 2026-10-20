@@ -70,4 +70,9 @@ public final class DeepSeekSelectors {
     /** Text label of the New chat button (leaf node); used to enforce a fresh chat. */
 
     public static final String NEW_CHAT_TEXT = "New chat";
+
+/** Text labels for the DeepThink toggle button (multiple locales). */
+    public static final String[] DEEP_THINK_TEXTS = {"DeepThink", "Deep Think", "Глубокое мышление", "深度思考"};
+    /** Text labels for the Search toggle button (multiple locales). */
+    public static final String[] SEARCH_TEXTS = {"Search", "Умный поиск", "智能搜索", "联网搜索"};
 }

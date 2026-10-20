@@ -237,7 +237,12 @@ public final class CdpDeepSeek {
         String clickResult = clickNewChat();
         AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
         sleep(2000L);
-        try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
+        
+try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
+        // Ensure DeepThink and Search are enabled before sending any prompt
+        if (!ensureDeepThinkAndSearchEnabled()) {
+            throw new IllegalStateException("DeepThink/Search cannot be enabled; refusing to start work");
+        }
         String postUrl = evaluate("String(location.href)");
         int postCount = countAnyMessages();
         AppLogger.info("CdpDeepSeek.open: post-click URL=" + postUrl + " count=" + postCount);
@@ -710,7 +715,104 @@ public final class CdpDeepSeek {
         String res = evaluate(expr);
         AppLogger.info("clickRegenerate result = " + res);
     }
-    public String readLastResponse() {
+public boolean ensureDeepThinkAndSearchEnabled() {
+        boolean ok1 = ensureButtonEnabled(DeepSeekSelectors.DEEP_THINK_TEXTS, "DeepThink");
+        boolean ok2 = ensureButtonEnabled(DeepSeekSelectors.SEARCH_TEXTS, "Search");
+        return ok1 && ok2;
+    }
+
+    private boolean ensureButtonEnabled(String[] texts, String label) {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            String state = evaluateButtonState(texts);
+            AppLogger.info("CdpDeepSeek." + label + ": state=" + state + " (attempt " + attempt + ")");
+            if ("enabled".equals(state)) return true;
+            if ("not-found".equals(state)) {
+                AppLogger.warn("CdpDeepSeek." + label + " button not found");
+                return false;
+            }
+            String clickResult = clickButtonByText(texts);
+            AppLogger.info("CdpDeepSeek." + label + " click result = " + clickResult);
+            sleep(800L);
+        }
+        String finalState = evaluateButtonState(texts);
+        AppLogger.warn("CdpDeepSeek." + label + " still disabled after 3 attempts (state=" + finalState + ")");
+        return "enabled".equals(finalState);
+    }
+
+    private String evaluateButtonState(String[] texts) {
+        String arr = toJsonArray(texts);
+        String expr =
+            "(function(){" +
+            "var texts = " + arr + ";" +
+            "var all = document.querySelectorAll('*');" +
+            "for (var i = 0; i < all.length; i++) {" +
+            "  var el = all[i];" +
+            "  var t = (el.textContent || '').trim();" +
+            "  for (var j = 0; j < texts.length; j++) {" +
+            "    if (t === texts[j]) {" +
+            "      var p = el;" +
+            "      for (var k = 0; k < 8 && p; k++) {" +
+            "        var role = p.getAttribute && p.getAttribute('role');" +
+            "        if (role === 'button' || p.tagName === 'BUTTON') {" +
+            "          var pressed = p.getAttribute('aria-pressed');" +
+            "          if (pressed === 'true') return 'enabled';" +
+            "          if (pressed === 'false') return 'disabled';" +
+            "          var cls = (p.className || '').toString();" +
+            "          if (/(ds-button--primary|ds-button--filled|ds-button--active|ds-button--selected)\\b/.test(cls)) return 'enabled';" +
+            "          var style = window.getComputedStyle(p);" +
+            "          var fg = (style && style.color) || '';" +
+            "          if (fg.indexOf('77, 107, 254') >= 0 || fg.indexOf('77,107,254') >= 0) return 'enabled';" +
+            "          return 'disabled';" +
+            "        }" +
+            "        p = p.parentElement;" +
+            "      }" +
+            "    }" +
+            "  }" +
+            "}" +
+            "return 'not-found';" +
+            "})()";
+        return evaluate(expr);
+    }
+
+    private String clickButtonByText(String[] texts) {
+        String arr = toJsonArray(texts);
+        String expr =
+            "(function(){" +
+            "var texts = " + arr + ";" +
+            "var all = document.querySelectorAll('*');" +
+            "for (var i = 0; i < all.length; i++) {" +
+            "  var el = all[i];" +
+            "  var t = (el.textContent || '').trim();" +
+            "  for (var j = 0; j < texts.length; j++) {" +
+            "    if (t === texts[j]) {" +
+            "      var p = el;" +
+            "      for (var k = 0; k < 8 && p; k++) {" +
+            "        var role = p.getAttribute && p.getAttribute('role');" +
+            "        if (role === 'button' || p.tagName === 'BUTTON') {" +
+            "          p.click();" +
+            "          return 'clicked-' + p.tagName;" +
+            "        }" +
+            "        p = p.parentElement;" +
+            "      }" +
+            "    }" +
+            "  }" +
+            "}" +
+            "return 'not-found';" +
+            "})()";
+        return evaluate(expr);
+    }
+
+    private static String toJsonArray(String[] texts) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < texts.length; i++) {
+            if (i > 0) sb.append(",");
+            sb.append("\"").append(escapeJs(texts[i])).append("\"");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+
+    public String readLastResponse() {
         // Directly query the last <pre> block globally, excluding think-content.
         String expr =
                 "(function(){" +
