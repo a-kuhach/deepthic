@@ -107,7 +107,7 @@ if errorlevel 1 (
 echo [Deepthic] Checking for updates from GitHub...
 set "REMOTE_POM=%TEMP%\freemaf-remote-pom.xml"
 del "%REMOTE_POM%" >nul 2>nul
-curl.exe -s -L --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.com/a-kuhach/deepthic/main/pom.xml"
+curl.exe -s -L --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.com/a-kuhach/deepthic/main/pom.xml?t=%RANDOM%"
 if not exist "%REMOTE_POM%" goto :zip_update_skip
 
 set "LOCAL_VER="
