@@ -8,6 +8,8 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -58,5 +60,42 @@ class CdpDeepSeekReadResponseTest {
         when(tab.send(eq("Runtime.evaluate"), any()))
                 .thenReturn(nestedValue(""), nestedValue(fullText));
         assertEquals(fullText, dsWithTab(tab).readLastResponse());
+    }
+
+
+    // ---- FIX141: computeIsNew unit tests ----
+
+    @Test
+    void computeIsNewAcceptsNewTextResponse() {
+        // Different text => new, regardless of counts.
+        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 5, 5, false));
+        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 20, 5, true));
+    }
+
+    @Test
+    void computeIsNewAcceptsIdenticalTextWhenCountGrewWithoutVirtualization() {
+        // Identical text, count grew, no virtualization => new (deterministic short answers).
+        assertTrue(CdpDeepSeek.computeIsNew("A", "A", 6, 5, false));
+    }
+
+    @Test
+    void computeIsNewRejectsIdenticalTextWhenVirtualizationOccurred() {
+        // Identical text, count recovered after virtualization => NOT new (regression guard for FIX140).
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 65, 5, true));
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, true));
+    }
+
+    @Test
+    void computeIsNewRejectsIdenticalTextWithoutCountGrowth() {
+        // Identical text, count unchanged => NOT new (still waiting).
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, false));
+    }
+
+    @Test
+    void computeIsNewHandlesNullInputsSafely() {
+        assertFalse(CdpDeepSeek.computeIsNew(null, "A", 5, 5, false));
+        // null preText treated as empty string
+        assertTrue(CdpDeepSeek.computeIsNew("A", null, 5, 5, false));
+        assertFalse(CdpDeepSeek.computeIsNew("", null, 5, 5, false));
     }
 }

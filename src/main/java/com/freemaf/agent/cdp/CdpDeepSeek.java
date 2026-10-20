@@ -1041,6 +1041,8 @@ private static String toJsonArray(String[] texts) {
         long deadline = System.currentTimeMillis() + timeoutMs;
 
         int preCount = lastPreSendCount;
+        final int originalPreCount = preCount;
+        boolean virtualizationOccurred = false;
 
         String preText = lastPreSendText == null ? "" : lastPreSendText;
 
@@ -1091,18 +1093,31 @@ private static String toJsonArray(String[] texts) {
             int curCount = countAssistantMessages();
 
 
-            if (curCount < preCount) {
-                // DOM virtualization in long chats: DeepSeek may drop old message nodes.
-                // This is NOT a tab reset. Update baseline and continue.
-                AppLogger.warn("CdpDeepSeek.waitForResponse: count dropped from " + preCount + " to " + curCount + "; treating as DOM virtualization, updating baseline");
-                preCount = curCount;
-                String newPre = readLastResponse();
-                if (newPre != null && !newPre.isEmpty()) {
-                    preText = newPre;
-                }
-                sleep(POLL_INTERVAL_MS);
-                continue;
-            }
+            if (curCount < preCount) {
+
+                // DOM virtualization in long chats: DeepSeek may drop old message nodes.
+
+                // This is NOT a tab reset. Update baseline and continue.
+
+                AppLogger.warn("CdpDeepSeek.waitForResponse: count dropped from " + preCount + " to " + curCount + "; treating as DOM virtualization, updating baseline");
+
+                preCount = curCount;
+                virtualizationOccurred = true;
+
+                String newPre = readLastResponse();
+
+                if (newPre != null && !newPre.isEmpty() && !newPre.equals(preText)) {
+
+                    preText = newPre;
+
+                }
+
+                sleep(POLL_INTERVAL_MS);
+
+                continue;
+
+            }
+
 
 
 
@@ -1132,7 +1147,7 @@ private static String toJsonArray(String[] texts) {
 
             if (cur != null && !cur.isEmpty()) {
 
-                boolean isNew = curCount > preCount || !cur.equals(preText);
+                boolean isNew = computeIsNew(cur, preText, curCount, originalPreCount, virtualizationOccurred);
 
                 if (isNew) {
 
@@ -1181,6 +1196,27 @@ private static String toJsonArray(String[] texts) {
     }
 
 
+
+    /**
+     * Decides whether the current DOM text represents a genuinely new assistant response.
+     *
+     * Rules:
+     *  - Text differs from preText: new (covers normal answers, edits in place, regenerate output).
+     *  - Text equals preText, curCount grew beyond originalPreCount, and no virtualization happened
+     *    since sendMessage: new (covers deterministic identical answers, e.g. short fixed scripts).
+     *  - Text equals preText, curCount grew but virtualization happened: NOT new (the count recovery
+     *    after DOM pruning is not evidence of a new message).
+     *  - Text equals preText and curCount did not grow: NOT new (still waiting).
+     *
+     * Package-private static for unit testing.
+     */
+    static boolean computeIsNew(String cur, String preText, int curCount, int originalPreCount, boolean virtualizationOccurred) {
+        if (cur == null) return false;
+        String base = preText == null ? "" : preText;
+        if (!cur.equals(base)) return true;
+        return curCount > originalPreCount && !virtualizationOccurred;
+    }
+
 private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
             java.util.regex.Pattern.compile(
