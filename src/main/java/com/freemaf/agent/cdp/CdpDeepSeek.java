@@ -739,7 +739,8 @@ public boolean ensureDeepThinkAndSearchEnabled() {
         return "enabled".equals(finalState);
     }
 
-    private String evaluateButtonState(String[] texts) {
+    
+private String evaluateButtonState(String[] texts) {
         String arr = toJsonArray(texts);
         String expr =
             "(function(){" +
@@ -747,18 +748,20 @@ public boolean ensureDeepThinkAndSearchEnabled() {
             "var all = document.querySelectorAll('*');" +
             "for (var i = 0; i < all.length; i++) {" +
             "  var el = all[i];" +
-            "  var t = (el.textContent || '').trim();" +
+            "  var text = (el.textContent || '').trim();" +
+            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
             "  for (var j = 0; j < texts.length; j++) {" +
-            "    if (t === texts[j]) {" +
+            "    var target = texts[j];" +
+            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
             "      var p = el;" +
             "      for (var k = 0; k < 8 && p; k++) {" +
             "        var role = p.getAttribute && p.getAttribute('role');" +
-            "        if (role === 'button' || p.tagName === 'BUTTON') {" +
+            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
             "          var pressed = p.getAttribute('aria-pressed');" +
             "          if (pressed === 'true') return 'enabled';" +
             "          if (pressed === 'false') return 'disabled';" +
             "          var cls = (p.className || '').toString();" +
-            "          if (/(ds-button--primary|ds-button--filled|ds-button--active|ds-button--selected)\\b/.test(cls)) return 'enabled';" +
+            "          if (/(primary|filled|active|selected)/i.test(cls)) return 'enabled';" +
             "          var style = window.getComputedStyle(p);" +
             "          var fg = (style && style.color) || '';" +
             "          if (fg.indexOf('77, 107, 254') >= 0 || fg.indexOf('77,107,254') >= 0) return 'enabled';" +
@@ -782,13 +785,15 @@ public boolean ensureDeepThinkAndSearchEnabled() {
             "var all = document.querySelectorAll('*');" +
             "for (var i = 0; i < all.length; i++) {" +
             "  var el = all[i];" +
-            "  var t = (el.textContent || '').trim();" +
+            "  var text = (el.textContent || '').trim();" +
+            "  var aria = (el.getAttribute('aria-label') || '').trim();" +
             "  for (var j = 0; j < texts.length; j++) {" +
-            "    if (t === texts[j]) {" +
+            "    var target = texts[j];" +
+            "    if (text.indexOf(target) >= 0 || aria.indexOf(target) >= 0) {" +
             "      var p = el;" +
             "      for (var k = 0; k < 8 && p; k++) {" +
             "        var role = p.getAttribute && p.getAttribute('role');" +
-            "        if (role === 'button' || p.tagName === 'BUTTON') {" +
+            "        if (role === 'button' || p.tagName === 'BUTTON' || (p.getAttribute && p.getAttribute('tabindex') === '0')) {" +
             "          p.click();" +
             "          return 'clicked-' + p.tagName;" +
             "        }" +
@@ -802,7 +807,7 @@ public boolean ensureDeepThinkAndSearchEnabled() {
         return evaluate(expr);
     }
 
-    private static String toJsonArray(String[] texts) {
+    private static String toJsonArray(String[] texts) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < texts.length; i++) {
             if (i > 0) sb.append(",");
