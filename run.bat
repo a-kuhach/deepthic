@@ -1,6 +1,6 @@
 
 @echo off
-powershell -NoProfile -Command "$f = '%~f0'; $c = [IO.File]::ReadAllText($f); if ($c -match '(?<!\r)\n') { $c = $c -replace '(?<!\r)\n', [char]13 + [char]10; [IO.File]::WriteAllText($f, $c, [Text.Encoding]::Default); Write-Host '[Deepthic] Fixed line endings for run.bat. Please run it again.'; Read-Host 'Press Enter to exit'; exit 1 }"
+powershell -NoProfile -Command "$f = '%~f0'; $c = [IO.File]::ReadAllText($f); if ($c -match '(?<!\r)\n') { $c = $c -replace '(?<!\r)\n', [Environment]::NewLine; [IO.File]::WriteAllText($f, $c, [Text.Encoding]::Default); Write-Host '[Deepthic] Fixed line endings for run.bat. Please run it again.'; Read-Host 'Press Enter to exit'; exit 1 }"
 if errorlevel 1 exit /b 0
 setlocal EnableExtensions
 powershell -NoProfile -Command "if ((Get-Content -Raw '%~f0') -match \"[^\r]\n\") { (Get-Content -Raw '%~f0') -replace \"(?<!\r)\n\", \"
