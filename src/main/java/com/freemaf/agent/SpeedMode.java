@@ -35,6 +35,11 @@ public enum SpeedMode {
 
     public long getMaxMs() { return maxMs; }
 
+    public long getRandomMs() {
+        if (maxMs <= minMs) return minMs;
+        return minMs + (long)(Math.random() * (maxMs - minMs));
+    }
+
     public static SpeedMode fromName(String name) {
 
         if (name == null) return INSTANT;

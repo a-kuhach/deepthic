@@ -174,6 +174,17 @@ public final class DeepSeekSession {
 
 
 
+    
+    private void applySpeedModeDelay() {
+        String modeStr = config.get("speed.mode", "NORMAL");
+        SpeedMode mode = SpeedMode.fromName(modeStr);
+        long delay = mode.getRandomMs();
+        if (delay > 0) {
+            AppLogger.info("SpeedMode " + mode.name() + ": waiting " + delay + " ms before sending prompt");
+            try { Thread.sleep(delay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+    }
+
     public WindowInfo openNewWindow(java.util.List<com.sun.jna.Pointer> excludes) throws Exception {
 
 
