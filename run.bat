@@ -107,7 +107,7 @@ if errorlevel 1 (
 echo [Deepthic] Checking for updates from GitHub...
 set "REMOTE_POM=%TEMP%\freemaf-remote-pom.xml"
 del "%REMOTE_POM%" >nul 2>nul
-curl.exe -s -L --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.com/a-kuhach/deepthic/main/pom.xml?t=%RANDOM%"
+curl.exe -s -L -H "Cache-Control: no-cache" -H "Pragma: no-cache" --max-time 20 -o "%REMOTE_POM%" "https://raw.githubusercontent.com/a-kuhach/deepthic/main/pom.xml?t=%RANDOM%"
 if not exist "%REMOTE_POM%" goto :zip_update_skip
 
 set "LOCAL_VER="
@@ -121,7 +121,11 @@ for /f "tokens=3 delims=<>" %%V in ('findstr /c:"<version>" "%REMOTE_POM%"') do 
 del "%REMOTE_POM%" >nul 2>nul
 
 if not defined LOCAL_VER goto :zip_update_skip
-if not defined REMOTE_VER goto :zip_update_skip
+if not defined REMOTE_VER (
+    echo [Deepthic] Failed to parse remote version. Remote POM contents:
+    type "%REMOTE_POM%"
+    goto :zip_update_skip
+)
 
 echo [Deepthic] Local version:  %LOCAL_VER%
 echo [Deepthic] Remote version: %REMOTE_VER%
