@@ -33,7 +33,7 @@ public final class DeepSeekSelectors {
 
     public static final String ASSISTANT_MESSAGE =
 
-            "div.ds-markdown, [data-message-author-role='assistant'], [class*='ds-markdown'], [data-chat-flow-kind='assistant-step']";
+            "div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']";
 
 
 
@@ -41,7 +41,7 @@ public final class DeepSeekSelectors {
 
     public static final String ANY_MESSAGE_OR_CODE =
 
-            "div.ds-markdown, [data-message-author-role], pre, [class*='ds-markdown']";
+            "div.ds-markdown, [data-message-author-role], pre, [class~='ds-markdown']";
 
 
 

@@ -722,39 +722,54 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
-    public boolean clickRegenerate() {
 
-        String expr =
-
-                "(function(){" +
-
-                "var sel = ['rect[id=\"重新生成\"]', 'button[aria-label*=\"Regenerate\" i]', 'button[aria-label*=\"重新生成\" i]', '[data-testid*=\"regenerate\"]', '[class*=\"regenerate\"]'];" +
-
-                "for (var s = 0; s < sel.length; s++) {" +
-
-                "  var el = document.querySelector(sel[s]);" +
-
-                "  if (el) {" +
-
-                "    var b = el.closest('button, div[role=button], div.ds-icon-button');" +
-
-                "    if (b) { b.click(); return 'clicked-' + s; }" +
-
-                "  }" +
-
-                "}" +
-
-                "return 'not-found';" +
-
-                "})()";
-
-        String res = evaluate(expr);
-
-        AppLogger.info("clickRegenerate result = " + res);
-
-        return res != null && res.startsWith("clicked-");
-
-    }
+    public boolean clickRegenerate() {
+        long deadline = System.currentTimeMillis() + 10000L;
+        long lastLog = 0L;
+        while (System.currentTimeMillis() < deadline) {
+            String expr =
+                    "(function(){" +
+                    "var paths = document.querySelectorAll('div.ds-flex svg path');" +
+                    "for (var i = paths.length - 1; i >= 0; i--) {" +
+                    "  var d = paths[i].getAttribute('d') || '';" +
+                    "  if (d.indexOf('M7.92136 0.349152') === 0) {" +
+                    "    var btn = paths[i].closest('div[role=button], button');" +
+                    "    if (btn && btn.getAttribute('aria-disabled') !== 'true') {" +
+                    "      btn.click();" +
+                    "      return 'clicked-svg';" +
+                    "    }" +
+                    "  }" +
+                    "}" +
+                    "var bars = document.querySelectorAll('div.ds-flex');" +
+                    "for (var j = bars.length - 1; j >= 0; j--) {" +
+                    "  var btns = bars[j].querySelectorAll('[role=button].ds-button--iconLabelTertiary');" +
+                    "  if (btns.length < 5) continue;" +
+                    "  var hasReadAloud = false;" +
+                    "  for (var k = 0; k < btns.length; k++) {" +
+                    "    if ((btns[k].getAttribute('aria-label') || '').indexOf('Read aloud') >= 0) { hasReadAloud = true; break; }" +
+                    "  }" +
+                    "  if (hasReadAloud && btns.length >= 2) {" +
+                    "    btns[1].click();" +
+                    "    return 'clicked-bar-pos1';" +
+                    "  }" +
+                    "}" +
+                    "return 'not-found';" +
+                    "})()";
+            String res = evaluate(expr);
+            long now = System.currentTimeMillis();
+            if (now - lastLog >= 2000L) {
+                AppLogger.info("clickRegenerate attempt: " + res);
+                lastLog = now;
+            }
+            if (res != null && res.startsWith("clicked-")) {
+                AppLogger.info("clickRegenerate succeeded: " + res);
+                return true;
+            }
+            sleep(500L);
+        }
+        AppLogger.warn("clickRegenerate: button not found after 10s");
+        return false;
+    }
 
 
 public boolean ensureDeepThinkAndSearchEnabled() {
@@ -963,73 +978,35 @@ private static String toJsonArray(String[] texts) {
 
 
 
-    public String readLastResponse() {
 
-        // 1) Prefer the last <pre> inside a DeepSeek code block (.md-code-block).
-
-        // 2) Fallback to the last global <pre>, excluding reasoning blocks.
-
-        String preExpr =
-
-                "(function(){" +
-
-                "var blocks = document.querySelectorAll('.md-code-block');" +
-
-                "for (var i = blocks.length - 1; i >= 0; i--) {" +
-
-                "  var pre = blocks[i].querySelector('pre');" +
-
-                "  if (pre) return pre.innerText;" +
-
-                "}" +
-
-                "var pres = document.querySelectorAll('pre');" +
-
-                "for (var j = pres.length - 1; j >= 0; j--) {" +
-
-                "  if (!pres[j].closest('[class*=\"ds-think-content\"]')) return pres[j].innerText;" +
-
-                "}" +
-
-                "return '';" +
-
-                "})()";
-
-        String v = evaluate(preExpr);
-
-        if (v != null && !v.isEmpty()) return v;
-
-
-
-        // 3) Last-resort fallback: innerText of the last assistant message (plain text).
-
-        String msgExpr =
-
-                "(function(){" +
-
-                "var msgs = document.querySelectorAll(\"" + escapeJs(DeepSeekSelectors.ASSISTANT_MESSAGE) + "\");" +
-
-                "for (var i = msgs.length - 1; i >= 0; i--) {" +
-
-                "  var m = msgs[i];" +
-
-                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
-
-                "  var t = (m.innerText || '').trim();" +
-
-                "  if (t.length > 0) return t;" +
-
-                "}" +
-
-                "return '';" +
-
-                "})()";
-
-        String msg = evaluate(msgExpr);
-
-        return msg == null ? "" : msg;
-
-    }
+    public String readLastResponse() {
+        // Find the LAST assistant message container and extract its code/pre content.
+        // Only return content that is a valid response (from <pre> or with a marker).
+        // NEVER fall back to bare paragraph text: an empty return means "keep waiting".
+        String expr =
+                "(function(){" +
+                "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
+                "for (var i = msgs.length - 1; i >= 0; i--) {" +
+                "  var m = msgs[i];" +
+                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
+                "  var cb = m.querySelector('.md-code-block pre');" +
+                "  if (cb) return cb.innerText;" +
+                "  var pre = m.querySelector('pre');" +
+                "  if (pre) return pre.innerText;" +
+                "  var t = (m.innerText || '').trim();" +
+                "  if (t.indexOf('USER_CHAT:') >= 0) return t;" +
+                "  if (t.indexOf('AGENT_PAUSE:') >= 0) return t;" +
+                "  if (t.indexOf('AGENT_STOP:') >= 0) return t;" +
+                "  if (t.indexOf('AGENT_DONE:') >= 0) return t;" +
+                "  if (t.indexOf('AGENT_SESSION_MIGRATE_START') >= 0) return t;" +
+                "  if (t.indexOf('AGENT_SESSION_MIGRATE_CONFIRM') >= 0) return t;" +
+                "  return '';" +
+                "}" +
+                "return '';" +
+                "})()";
+        String v = evaluate(expr);
+        return v == null ? "" : v;
+    }
 
 
 
@@ -1197,26 +1174,46 @@ private static String toJsonArray(String[] texts) {
 
 
 
-    /**
-     * Decides whether the current DOM text represents a genuinely new assistant response.
-     *
-     * Rules:
-     *  - Text differs from preText: new (covers normal answers, edits in place, regenerate output).
-     *  - Text equals preText, curCount grew beyond originalPreCount, and no virtualization happened
-     *    since sendMessage: new (covers deterministic identical answers, e.g. short fixed scripts).
-     *  - Text equals preText, curCount grew but virtualization happened: NOT new (the count recovery
-     *    after DOM pruning is not evidence of a new message).
-     *  - Text equals preText and curCount did not grow: NOT new (still waiting).
-     *
-     * Package-private static for unit testing.
-     */
-    static boolean computeIsNew(String cur, String preText, int curCount, int originalPreCount, boolean virtualizationOccurred) {
-        if (cur == null) return false;
-        String base = preText == null ? "" : preText;
-        if (!cur.equals(base)) return true;
-        return curCount > originalPreCount && !virtualizationOccurred;
-    }
-
+    /**
+
+     * Decides whether the current DOM text represents a genuinely new assistant response.
+
+     *
+
+     * Rules:
+
+     *  - Text differs from preText: new (covers normal answers, edits in place, regenerate output).
+
+     *  - Text equals preText, curCount grew beyond originalPreCount, and no virtualization happened
+
+     *    since sendMessage: new (covers deterministic identical answers, e.g. short fixed scripts).
+
+     *  - Text equals preText, curCount grew but virtualization happened: NOT new (the count recovery
+
+     *    after DOM pruning is not evidence of a new message).
+
+     *  - Text equals preText and curCount did not grow: NOT new (still waiting).
+
+     *
+
+     * Package-private static for unit testing.
+
+     */
+
+    static boolean computeIsNew(String cur, String preText, int curCount, int originalPreCount, boolean virtualizationOccurred) {
+
+        if (cur == null) return false;
+
+        String base = preText == null ? "" : preText;
+
+        if (!cur.equals(base)) return true;
+
+        return curCount > originalPreCount && !virtualizationOccurred;
+
+    }
+
+
+
 private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
             java.util.regex.Pattern.compile(
@@ -1226,19 +1223,18 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
 
 
-    private static boolean isResponseComplete(String raw) {
 
-        if (raw == null || raw.isEmpty()) return false;
-
-        // Completion is determined by DOM state in waitForResponse (stable text + no stop button).
-
-        // Here we only reject obviously truncated text: an unclosed double quote at the very end.
-
-        // Do NOT use global quote parity: PowerShell strings legitimately contain escaped quotes.
-
-        return true;
-
-    }
+    static boolean isResponseComplete(String raw) {
+        if (raw == null || raw.isEmpty()) return false;
+        if (raw.contains("Write-Output")) return true;
+        if (raw.contains("USER_CHAT:")) return true;
+        if (raw.contains("AGENT_PAUSE:")) return true;
+        if (raw.contains("AGENT_STOP:")) return true;
+        if (raw.contains("AGENT_DONE:")) return true;
+        if (raw.contains("AGENT_SESSION_MIGRATE_")) return true;
+        if (raw.length() > 100) return true;
+        return false;
+    }
 
 
 

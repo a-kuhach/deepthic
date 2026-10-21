@@ -377,7 +377,14 @@ public AgentResponse getValidResponse(String prompt, List<File> files) throws Ex
                     ex.sendMessage(originalPrompt);
                     firstSend = false;
                 }
-                String raw = ex.waitForResponse(3L * 60L * 1000L);
+                
+String raw;
+                try {
+                    raw = ex.waitForResponse(3L * 60L * 1000L);
+                } catch (java.util.concurrent.TimeoutException te) {
+                    AppLogger.warn("CDP waitForResponse timeout: " + te.getMessage());
+                    raw = "";
+                }
                 HistoryService.savePrompt(originalPrompt);
                 HistoryService.saveResponse(raw);
                 AgentResponse parsed = tryParse(raw, originalPrompt);

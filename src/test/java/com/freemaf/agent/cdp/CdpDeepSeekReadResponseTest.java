@@ -52,15 +52,7 @@ class CdpDeepSeekReadResponseTest {
     }
 
 
-    @Test
-    void readLastResponseFallsBackWhenCodeBlockEmpty() throws Exception {
-        // First evaluate (md-code-block pre) returns empty; second (fallback innerText) returns full text.
-        String fullText = "Write-Output \"ROLE: EXECUTOR\"";
-        TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any()))
-                .thenReturn(nestedValue(""), nestedValue(fullText));
-        assertEquals(fullText, dsWithTab(tab).readLastResponse());
-    }
+    
 
 
     // ---- FIX141: computeIsNew unit tests ----
@@ -97,5 +89,41 @@ class CdpDeepSeekReadResponseTest {
         // null preText treated as empty string
         assertTrue(CdpDeepSeek.computeIsNew("A", null, 5, 5, false));
         assertFalse(CdpDeepSeek.computeIsNew("", null, 5, 5, false));
+    }
+
+
+    @Test
+    void isResponseCompleteRejectsShortGarbage() {
+        assertFalse(CdpDeepSeek.isResponseComplete(""));
+        assertFalse(CdpDeepSeek.isResponseComplete(null));
+        assertFalse(CdpDeepSeek.isResponseComplete("[ROLE] EXECUTOR"));
+        assertFalse(CdpDeepSeek.isResponseComplete("abc"));
+    }
+
+    @Test
+    void isResponseCompleteAcceptsScriptMarkers() {
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"ROLE: EXECUTOR\"" + System.lineSeparator() + "$ErrorActionPreference = 'Continue'"));
+        assertTrue(CdpDeepSeek.isResponseComplete("USER_CHAT: hello"));
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_PAUSE: waiting"));
+    }
+
+    @Test
+    void isResponseCompleteAcceptsLongContentWithoutMarkers() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 30; i++) sb.append("line ").append(i).append(System.lineSeparator());
+        assertTrue(CdpDeepSeek.isResponseComplete(sb.toString()));
+    }
+
+    @Test
+    void isResponseCompleteAcceptsMigrationMarkers() {
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_START: prep"));
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_CONFIRM: ok"));
+    }
+
+    @Test
+    void clickRegenerateReturnsTrueOnSvgMatch() throws Exception {
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue("clicked-svg"));
+        assertTrue(dsWithTab(tab).clickRegenerate());
     }
 }
