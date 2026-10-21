@@ -126,4 +126,12 @@ class CdpDeepSeekReadResponseTest {
         when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue("clicked-svg"));
         assertTrue(dsWithTab(tab).clickRegenerate());
     }
+
+
+    @Test
+    void isResponseCompleteAcceptsInvalidResponseMarker() {
+        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_250"));
+        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_1000"));
+        assertFalse(CdpDeepSeek.isResponseComplete("something else"));
+    }
 }

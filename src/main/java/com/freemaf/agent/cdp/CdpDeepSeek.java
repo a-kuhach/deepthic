@@ -723,53 +723,100 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
-    public boolean clickRegenerate() {
-        long deadline = System.currentTimeMillis() + 10000L;
-        long lastLog = 0L;
-        while (System.currentTimeMillis() < deadline) {
-            String expr =
-                    "(function(){" +
-                    "var paths = document.querySelectorAll('div.ds-flex svg path');" +
-                    "for (var i = paths.length - 1; i >= 0; i--) {" +
-                    "  var d = paths[i].getAttribute('d') || '';" +
-                    "  if (d.indexOf('M7.92136 0.349152') === 0) {" +
-                    "    var btn = paths[i].closest('div[role=button], button');" +
-                    "    if (btn && btn.getAttribute('aria-disabled') !== 'true') {" +
-                    "      btn.click();" +
-                    "      return 'clicked-svg';" +
-                    "    }" +
-                    "  }" +
-                    "}" +
-                    "var bars = document.querySelectorAll('div.ds-flex');" +
-                    "for (var j = bars.length - 1; j >= 0; j--) {" +
-                    "  var btns = bars[j].querySelectorAll('[role=button].ds-button--iconLabelTertiary');" +
-                    "  if (btns.length < 5) continue;" +
-                    "  var hasReadAloud = false;" +
-                    "  for (var k = 0; k < btns.length; k++) {" +
-                    "    if ((btns[k].getAttribute('aria-label') || '').indexOf('Read aloud') >= 0) { hasReadAloud = true; break; }" +
-                    "  }" +
-                    "  if (hasReadAloud && btns.length >= 2) {" +
-                    "    btns[1].click();" +
-                    "    return 'clicked-bar-pos1';" +
-                    "  }" +
-                    "}" +
-                    "return 'not-found';" +
-                    "})()";
-            String res = evaluate(expr);
-            long now = System.currentTimeMillis();
-            if (now - lastLog >= 2000L) {
-                AppLogger.info("clickRegenerate attempt: " + res);
-                lastLog = now;
-            }
-            if (res != null && res.startsWith("clicked-")) {
-                AppLogger.info("clickRegenerate succeeded: " + res);
-                return true;
-            }
-            sleep(500L);
-        }
-        AppLogger.warn("clickRegenerate: button not found after 10s");
-        return false;
-    }
+    public boolean clickRegenerate() {
+
+        long deadline = System.currentTimeMillis() + 10000L;
+
+        long lastLog = 0L;
+
+        while (System.currentTimeMillis() < deadline) {
+
+            String expr =
+
+                    "(function(){" +
+
+                    "var paths = document.querySelectorAll('div.ds-flex svg path');" +
+
+                    "for (var i = paths.length - 1; i >= 0; i--) {" +
+
+                    "  var d = paths[i].getAttribute('d') || '';" +
+
+                    "  if (d.indexOf('M7.92136 0.349152') === 0) {" +
+
+                    "    var btn = paths[i].closest('div[role=button], button');" +
+
+                    "    if (btn && btn.getAttribute('aria-disabled') !== 'true') {" +
+
+                    "      btn.click();" +
+
+                    "      return 'clicked-svg';" +
+
+                    "    }" +
+
+                    "  }" +
+
+                    "}" +
+
+                    "var bars = document.querySelectorAll('div.ds-flex');" +
+
+                    "for (var j = bars.length - 1; j >= 0; j--) {" +
+
+                    "  var btns = bars[j].querySelectorAll('[role=button].ds-button--iconLabelTertiary');" +
+
+                    "  if (btns.length < 5) continue;" +
+
+                    "  var hasReadAloud = false;" +
+
+                    "  for (var k = 0; k < btns.length; k++) {" +
+
+                    "    if ((btns[k].getAttribute('aria-label') || '').indexOf('Read aloud') >= 0) { hasReadAloud = true; break; }" +
+
+                    "  }" +
+
+                    "  if (hasReadAloud && btns.length >= 2) {" +
+
+                    "    btns[1].click();" +
+
+                    "    return 'clicked-bar-pos1';" +
+
+                    "  }" +
+
+                    "}" +
+
+                    "return 'not-found';" +
+
+                    "})()";
+
+            String res = evaluate(expr);
+
+            long now = System.currentTimeMillis();
+
+            if (now - lastLog >= 2000L) {
+
+                AppLogger.info("clickRegenerate attempt: " + res);
+
+                lastLog = now;
+
+            }
+
+            if (res != null && res.startsWith("clicked-")) {
+
+                AppLogger.info("clickRegenerate succeeded: " + res);
+
+                return true;
+
+            }
+
+            sleep(500L);
+
+        }
+
+        AppLogger.warn("clickRegenerate: button not found after 10s");
+
+        return false;
+
+    }
+
 
 
 public boolean ensureDeepThinkAndSearchEnabled() {
@@ -979,34 +1026,43 @@ private static String toJsonArray(String[] texts) {
 
 
 
+
     public String readLastResponse() {
-        // Find the LAST assistant message container and extract its code/pre content.
-        // Only return content that is a valid response (from <pre> or with a marker).
-        // NEVER fall back to bare paragraph text: an empty return means "keep waiting".
+        // Look at the LAST assistant message ONLY (do not search backwards).
+        // - If it is a reasoning step (.ds-think-content): return "" -> wait.
+        // - If it is an answer with pre and no trailing text: return pre.innerText.
+        // - If it is an answer with pre and >100 trailing chars (not markers): return INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>.
+        //   Downstream: isResponseComplete -> true, tryParse fails -> clickRegenerate.
+        // - If it is an answer without pre but with markers (USER_CHAT:, AGENT_*): return innerText.
+        // - Otherwise: return "" -> wait.
         String expr =
                 "(function(){" +
                 "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
-                "for (var i = msgs.length - 1; i >= 0; i--) {" +
-                "  var m = msgs[i];" +
-                "  if (m.closest('[class*=\"ds-think-content\"]')) continue;" +
-                "  var cb = m.querySelector('.md-code-block pre');" +
-                "  if (cb) return cb.innerText;" +
-                "  var pre = m.querySelector('pre');" +
-                "  if (pre) return pre.innerText;" +
-                "  var t = (m.innerText || '').trim();" +
-                "  if (t.indexOf('USER_CHAT:') >= 0) return t;" +
-                "  if (t.indexOf('AGENT_PAUSE:') >= 0) return t;" +
-                "  if (t.indexOf('AGENT_STOP:') >= 0) return t;" +
-                "  if (t.indexOf('AGENT_DONE:') >= 0) return t;" +
-                "  if (t.indexOf('AGENT_SESSION_MIGRATE_START') >= 0) return t;" +
-                "  if (t.indexOf('AGENT_SESSION_MIGRATE_CONFIRM') >= 0) return t;" +
+                "if (msgs.length === 0) return '';" +
+                "var m = msgs[msgs.length - 1];" +
+                "if (m.closest('[class*=\"ds-think-content\"]')) return '';" +
+                "var pre = m.querySelector('.md-code-block pre') || m.querySelector('pre');" +
+                "var text = (m.innerText || '').trim();" +
+                "if (!pre) {" +
+                "  if (text.indexOf('USER_CHAT:') >= 0 || text.indexOf('AGENT_PAUSE:') >= 0 || text.indexOf('AGENT_STOP:') >= 0 || text.indexOf('AGENT_DONE:') >= 0 || text.indexOf('AGENT_SESSION_MIGRATE_') >= 0) return text;" +
                 "  return '';" +
                 "}" +
-                "return '';" +
+                "var preText = pre.innerText;" +
+                "var idx = text.indexOf(preText);" +
+                "if (idx >= 0) {" +
+                "  var after = text.substring(idx + preText.length).trim();" +
+                "  if (after.length > 100) {" +
+                "    if (!(after.indexOf('USER_MSG:') >= 0 || after.indexOf('AGENT_PAUSE:') >= 0 || after.indexOf('AGENT_STOP:') >= 0 || after.indexOf('AGENT_DONE:') >= 0)) {" +
+                "      return 'INVALID_RESPONSE_TEXT_AFTER_BLOCK_' + after.length;" +
+                "    }" +
+                "  }" +
+                "}" +
+                "return preText;" +
                 "})()";
         String v = evaluate(expr);
         return v == null ? "" : v;
     }
+
 
 
 
@@ -1224,8 +1280,10 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
 
 
+
     static boolean isResponseComplete(String raw) {
         if (raw == null || raw.isEmpty()) return false;
+        if (raw.startsWith("INVALID_RESPONSE_")) return true;
         if (raw.contains("Write-Output")) return true;
         if (raw.contains("USER_CHAT:")) return true;
         if (raw.contains("AGENT_PAUSE:")) return true;
@@ -1235,6 +1293,7 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
         if (raw.length() > 100) return true;
         return false;
     }
+
 
 
 
