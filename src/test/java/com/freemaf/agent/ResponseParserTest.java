@@ -164,4 +164,100 @@ class ResponseParserTest {
     void isValidScriptRejectsRawMigrationConfirm() {
         assertFalse(ResponseParser.isValidScript("AGENT_SESSION_MIGRATE_CONFIRM: done"));
     }
+
+    @Test
+    void rawMarkerInsideSingleHereStringIsExempt() {
+        String r = "```" + System.lineSeparator()
+                + "@'" + System.lineSeparator()
+                + "USER_MSG: inside" + System.lineSeparator()
+                + "'@" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void rawMarkerInsideDoubleHereStringIsExempt() {
+        String r = "```" + System.lineSeparator()
+                + "@\"" + System.lineSeparator()
+                + "AGENT_STOP: inside" + System.lineSeparator()
+                + "\"@" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void rawMarkerInsideSingleLineCommentIsExempt() {
+        String r = "```" + System.lineSeparator()
+                + "# USER_MSG: note" + System.lineSeparator()
+                + "Write-Output 1" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void rawMarkerOnSameLineAsBlockCommentIsNotDetected() {
+        String r = "```" + System.lineSeparator()
+                + "<# USER_MSG: hidden #>" + System.lineSeparator()
+                + "Write-Output 1" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void rawMarkerOnOwnLineInsideBlockCommentIsDetected() {
+        String r = "```" + System.lineSeparator()
+                + "<#" + System.lineSeparator()
+                + "USER_MSG: visible" + System.lineSeparator()
+                + "#>" + System.lineSeparator()
+                + "```";
+        assertFalse(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void bareUserMsgMarkerIsDetected() {
+        assertFalse(ResponseParser.isValidScript("USER_MSG: ready"));
+    }
+
+    @Test
+    void writeOutputUserMsgMarkerIsNotRawMarker() {
+        String r = "```" + System.lineSeparator()
+                + "Write-Output \"USER_MSG: ready\"" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void unclosedHereStringIsExemptToEof() {
+        String r = "```" + System.lineSeparator()
+                + "@'" + System.lineSeparator()
+                + "USER_MSG: never closed" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void hereStringNotClosedWithLeadingWhitespace() {
+        String r = "```" + System.lineSeparator()
+                + "@'" + System.lineSeparator()
+                + "USER_MSG: inside" + System.lineSeparator()
+                + "  '@" + System.lineSeparator()
+                + "```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void midlineAtQuoteDoesNotOpenHereString() {
+        String r = "```" + System.lineSeparator()
+                + "Write-Output \"use @' symbol\"" + System.lineSeparator()
+                + "USER_MSG: ready" + System.lineSeparator()
+                + "```";
+        assertFalse(ResponseParser.isValidScript(r));
+    }
+
+    @Test
+    void bareAgentStopMarkerIsDetected() {
+        assertFalse(ResponseParser.isValidScript("AGENT_STOP: done"));
+    }
 }
+
+

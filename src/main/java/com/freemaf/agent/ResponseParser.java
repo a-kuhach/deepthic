@@ -140,29 +140,63 @@ public final class ResponseParser {
         }
         return false;
     }
-    private static boolean containsRawMarkers(String text) {
 
-        for (String line : text.split("\\R", -1)) {
-
-            String t = line.strip();
-
-            if (t.startsWith("USER_MSG:") || t.startsWith("AGENT_PAUSE:")
-
-                    || t.startsWith("AGENT_STOP:") || t.startsWith("AGENT_DONE:")
-                    || t.startsWith("AGENT_SESSION_MIGRATE_START:")
-                    || t.startsWith("AGENT_SESSION_MIGRATE_CONFIRM:")) {
-
-                return true;
-
-            }
-
-        }
-
-        return false;
-
-    }
-
-    private static boolean looksLikePowerShell(String text) {
+    /**
+     * Detects top-level raw marker lines (USER_MSG:/AGENT_PAUSE:/AGENT_STOP:/AGENT_DONE:/
+     * AGENT_SESSION_MIGRATE_START/AGENT_SESSION_MIGRATE_CONFIRM) that are not escaped by
+     * PowerShell here-strings or single-line comments.
+     *
+     * <p>Detection rule (unchanged from the pre-S1 implementation): a stripped line starts
+     * with any marker key. The only behavioral change is the exempt-line filter applied
+     * BEFORE the detection rule:</p>
+     * <ul>
+     *   <li>Here-string openers: a line whose LAST occurrence of {@code @'} or {@code @"}
+     *       is at end-of-operator position (nothing but whitespace after it) opens a here-string.
+     *       Mid-line occurrences (e.g. inside a double-quoted string) do NOT open a here-string.</li>
+     *   <li>Here-string terminators: a line whose FIRST two chars are {@code '@} (single-here)
+     *       or {@code "@} (double-here) closes the current here-string. Leading whitespace
+     *       prevents termination.</li>
+     *   <li>Content of an open here-string (including its terminator line) is exempt from
+     *       detection. An unclosed here-string is exempt to EOF.</li>
+     *   <li>Single-line comment: a stripped line starting with {@code #} is exempt.</li>
+     *   <li>Block comment {@code <# ... #>} is NOT exempt by state; however, its own {@code <#}
+     *       prefix means a marker embedded on the same line does not start with the marker,
+     *       so startsWith detection does not fire. A multi-line block comment whose marker
+     *       line begins at column 0 WILL fire (detection is startsWith).</li>
+     * </ul>
+     */
+    private static boolean containsRawMarkers(String text) {
+        if (text == null) return false;
+        int hereState = 0;
+        for (String line : text.split("\\R", -1)) {
+            String stripped = line.strip();
+            if (hereState != 0) {
+                if (hereState == 1 && line.startsWith("'@")) {
+                    hereState = 0;
+                } else if (hereState == 2 && line.startsWith("\"@")) {
+                    hereState = 0;
+                }
+                continue;
+            }
+            if (stripped.startsWith("#")) {
+                continue;
+            }
+            int p1 = line.lastIndexOf("@'");
+            int p2 = line.lastIndexOf("@\"");
+            int pos = Math.max(p1, p2);
+            if (pos >= 0 && line.substring(pos + 2).strip().isEmpty()) {
+                hereState = line.charAt(pos + 1) == '\'' ? 1 : 2;
+            }
+            if (stripped.startsWith("USER_MSG:") || stripped.startsWith("AGENT_PAUSE:")
+                    || stripped.startsWith("AGENT_STOP:") || stripped.startsWith("AGENT_DONE:")
+                    || stripped.startsWith("AGENT_SESSION_MIGRATE_START")
+                    || stripped.startsWith("AGENT_SESSION_MIGRATE_CONFIRM")) {
+                return true;
+            }
+        }
+        return false;
+    }
+    private static boolean looksLikePowerShell(String text) {
 
         if (text.length() < 3) return false;
 
@@ -191,3 +225,4 @@ public final class ResponseParser {
     }
 
 }
+
