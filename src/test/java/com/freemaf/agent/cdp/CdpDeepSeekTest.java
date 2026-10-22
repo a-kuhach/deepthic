@@ -4,6 +4,7 @@ package com.freemaf.agent.cdp;
 
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Disabled;
 
 import org.junit.jupiter.api.BeforeAll;
 
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 
 
+@Disabled("Requires live DeepSeek session with fresh chat; excluded from automated suite")
 class CdpDeepSeekTest {
 
 
@@ -322,3 +324,4 @@ class CdpDeepSeekTest {
     }
 
 }
+

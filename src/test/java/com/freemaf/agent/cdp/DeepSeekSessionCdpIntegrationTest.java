@@ -8,13 +8,15 @@ import com.freemaf.agent.DeepSeekSession;
 import com.freemaf.agent.InputSimulator;
 import com.freemaf.agent.PixelColorService;
 import com.freemaf.agent.WindowManager;
-import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+@Disabled("Requires live DeepSeek session with fresh chat; excluded from automated suite")
 class DeepSeekSessionCdpIntegrationTest {
 
     private static final int PORT = 9225;
