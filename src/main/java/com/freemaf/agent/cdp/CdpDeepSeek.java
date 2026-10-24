@@ -237,7 +237,20 @@ public final class CdpDeepSeek {
         }
 
         // FIX15: unconditionally force fresh chat via clickNewChat (DOM is virtualized, history not visible)
-        AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat()");
+        
+        // Fix-E (C6, N-62): diagnostic — record the caller of open() so we can identify
+        // unexpected invocation paths (e.g. after async start completes).
+        String callerTrace = "";
+        try {
+            StackTraceElement[] st = Thread.currentThread().getStackTrace();
+            for (int ci = 2; ci < st.length && ci < 10; ci++) {
+                String cn = st[ci].getClassName();
+                if (cn.startsWith("java.") || cn.startsWith("com.freemaf.agent.cdp.CdpDeepSeek")) continue;
+                callerTrace = cn + "." + st[ci].getMethodName() + ":" + st[ci].getLineNumber();
+                break;
+            }
+        } catch (Throwable ignored) { }
+        AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat() [caller=" + callerTrace + "]");
         String clickResult = clickNewChat();
         AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
         sleep(2000L);

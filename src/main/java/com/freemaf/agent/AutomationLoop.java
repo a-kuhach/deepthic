@@ -66,6 +66,13 @@ public final class AutomationLoop implements Runnable {
     private volatile boolean warningInjected = false;
     private volatile String pendingPauseOutput = null;
 
+    private volatile String lastObservedRole = "EXECUTOR";
+
+    private static final java.util.Set<String> VALID_ROLES =
+
+            java.util.Set.of("ANALYST", "PLANNER", "EXECUTOR", "JUDGE", "CODE_REVIEWER");
+
+
 
 
     
@@ -267,7 +274,31 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
     public boolean isReviewerActive() {
         return activeReviewerRole != null;
     }
+
+    /**
+
+     * Fix-A (C1, N-60): role to be reused for resume-after-stop.
+
+     * Returns activeReviewerRole when non-null; otherwise the last observed
+
+     * role from a successful script response; EXECUTOR as final default.
+
+     */
+
+    public String getActiveRole() {
+
+        if (activeReviewerRole != null) return activeReviewerRole;
+
+        String v = lastObservedRole;
+
+        return (v == null || v.isEmpty()) ? "EXECUTOR" : v;
+
+    }
+
+
+
     public boolean isPaused() {
+
 
         return paused;
 
@@ -314,19 +345,63 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
     public void performSessionMigration(String commitLog) {
+        
         if (cdpBootstrap != null) {
-            try {
-                cdpBootstrap.closeReviewer();
-                cdpBootstrap.closeExecutor();
-                cdpBootstrap.openExecutor();
-                cdpBootstrap.activateExecutor();
-            } catch (Exception cex) {
-                AppLogger.warn("performSessionMigration(CDP) failed: " + cex.getMessage());
-                appendSystem("Session migration failed: " + cex.getMessage());
-                statusMarker.setState(StatusMarker.State.STOPPED);
-                return;
+
+            try { cdpBootstrap.closeReviewer(); }
+
+            catch (Exception cex) { AppLogger.warn("performSessionMigration(CDP): closeReviewer failed: " + cex.getMessage()); }
+
+            int maxRetries = 3;
+
+            long[] backoffMs = { 1000L, 2000L, 4000L };
+
+            Exception last = null;
+
+            for (int attempt = 1; attempt <= maxRetries; attempt++) {
+
+                try {
+
+                    cdpBootstrap.closeExecutor();
+
+                    cdpBootstrap.openExecutor();
+
+                    cdpBootstrap.activateExecutor();
+
+                    last = null;
+
+                    break;
+
+                } catch (Exception cex) {
+
+                    last = cex;
+
+                    AppLogger.warn("performSessionMigration(CDP) attempt " + attempt + "/" + maxRetries + " failed: " + cex.getMessage());
+
+                    if (attempt < maxRetries) {
+
+                        try { Thread.sleep(backoffMs[attempt - 1]); }
+
+                        catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+
+                    }
+
+                }
+
             }
-            config.setExecutorMessageCount(0L);
+
+            if (last != null) {
+
+                AppLogger.warn("performSessionMigration(CDP) exhausted " + maxRetries + " attempts: " + last.getMessage());
+
+                appendSystem("Session migration failed after " + maxRetries + " attempts: " + last.getMessage());
+
+                statusMarker.setState(StatusMarker.State.PAUSED);
+
+                return;
+
+            }
+config.setExecutorMessageCount(0L);
             StringBuilder initC = new StringBuilder();
             if (commitLog != null && !commitLog.isBlank()) {
                 initC.append("Результат завершающего коммита:").append(System.lineSeparator());
@@ -867,6 +942,56 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
                 String psScript = response.content();
                 AppLogger.info("AutomationLoop: saving script.ps1, length=" + psScript.length());
 
+
+                // Fix-B (C2): validate ROLE marker BEFORE executing the script.
+
+                // An invalid marker is a loud format failure, not a silent fall-through.
+
+                String rawRole = extractRawRoleMarker(psScript);
+
+                String expectedRole = activeReviewerRole != null
+
+                        ? activeReviewerRole
+
+                        : (lastObservedRole == null || lastObservedRole.isEmpty() ? "EXECUTOR" : lastObservedRole);
+
+                if (rawRole != null && !rawRole.isEmpty() && !VALID_ROLES.contains(rawRole)) {
+
+                    AppLogger.warn("role-marker rejected: observed=[" + rawRole + "] not in " + VALID_ROLES
+
+                            + "; script NOT executed; re-requesting");
+
+                    StringBuilder corr = new StringBuilder();
+
+                    corr.append("### ROLE_TO_ACT: ").append(expectedRole).append(System.lineSeparator());
+
+                    corr.append("Your previous response contained an invalid ROLE marker: ").append(rawRole).append(System.lineSeparator());
+
+                    corr.append("The first line of the PS-block MUST be: Write-Output \"ROLE: <X>\" (in double quotes) ")
+
+                            .append("where <X> is one of: ANALYST, PLANNER, EXECUTOR, JUDGE, CODE_REVIEWER.").append(System.lineSeparator());
+
+                    corr.append("Expected role for this turn: ").append(expectedRole).append(".").append(System.lineSeparator());
+
+                    corr.append("Nothing before the block and nothing after. The previous script was NOT executed.").append(System.lineSeparator());
+
+                    promptQueue.add(corr.toString());
+
+                    continue;
+
+                }
+
+                if (rawRole != null && !rawRole.isEmpty()) {
+
+                    responseRole = rawRole;
+
+                    lastObservedRole = rawRole;
+
+                    AppLogger.info("AutomationLoop: pre-exec role marker accepted: " + rawRole);
+
+                }
+
+
                 try {
 
                     ScriptSaver.save(psScript);
@@ -928,7 +1053,7 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
                 String scriptRole = MarkerProcessor.extractRole(events);
 
-                if (!scriptRole.isEmpty()) responseRole = scriptRole;
+                if (!scriptRole.isEmpty()) { responseRole = scriptRole; lastObservedRole = scriptRole; }
 
                 debug("effective role=[" + responseRole + "]");
 
@@ -1337,7 +1462,37 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
 
+                
+                // Fix-B / C3: empty role with no active reviewer -> loud re-request, not fall-through.
+
+                if ((responseRole == null || responseRole.isEmpty()) && activeReviewerRole == null) {
+
+                    AppLogger.warn("empty role marker with no active reviewer; re-requesting with expected role=" + expectedRole);
+
+                    StringBuilder retryNoRev = new StringBuilder();
+
+                    retryNoRev.append("### ROLE_TO_ACT: ").append(expectedRole).append(System.lineSeparator());
+
+                    retryNoRev.append("Your previous response did not contain a ROLE marker on the first line of the PS-block.")
+
+                            .append(System.lineSeparator());
+
+                    retryNoRev.append("Reply with ONE fenced PowerShell block. The FIRST line inside the block MUST be: ")
+
+                            .append("Write-Output \"ROLE: ").append(expectedRole).append("\" (in double quotes).").append(System.lineSeparator());
+
+                    retryNoRev.append("Nothing before the block and nothing after.").append(System.lineSeparator());
+
+                    promptQueue.add(retryNoRev.toString());
+
+                    continue;
+
+                }
+
+
+
                 // FIX8c: role-less response while a reviewer is active. This is a
+
 
                 // reviewer whose ROLE marker was absent (truncated or model ignored).
 
@@ -1411,8 +1566,11 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
                     continue;
                 }
                 chatConsole.appendSystem("Agent paused: " + e.getMessage());
+                paused = true; // Fix-C (C4): keep internal paused flag consistent with UI
                 statusMarker.setState(StatusMarker.State.PAUSED);
+                synchronized (pauseMonitor) { pauseMonitor.notifyAll(); }
                 continue;
+
             } catch (InterruptedException e) {
 
                 Thread.currentThread().interrupt();
@@ -1421,7 +1579,10 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
             } catch (Exception e) {
 
-                chatConsole.appendSystem("Error - " + e.getMessage());
+                chatConsole.appendSystem("Error - " + e.getMessage() + System.lineSeparator()
+                        + "Pipeline stopped. Press Play to restart with a fresh session.");
+
+                paused = false; // Fix-C (C4): never leave status=STOPPED with paused=true
 
                 statusMarker.setState(StatusMarker.State.STOPPED);
 
@@ -1435,7 +1596,51 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
 
 
+
+    /**
+
+     * Fix-B (C2, N-61/N-63): best-effort role-marker extraction from the raw
+
+     * PS-script text BEFORE execution. Returns the marker value (uppercased)
+
+     * or null if no ROLE marker is present in the first 15 non-empty lines.
+
+     * Accepted forms: ROLE: X / Write-Output "ROLE: X" / Write-Output 'ROLE: X'.
+
+     */
+
+    private static String extractRawRoleMarker(String psScript) {
+
+        if (psScript == null || psScript.isEmpty()) return null;
+
+        String[] lines = psScript.split("\\R", 16);
+
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+
+                "(?i)^(?:Write-Output\\s+)?[\"'`]?\\s*ROLE\\s*:\\s*\\[?([A-Za-z_]+)\\]?[\"'`]?[\\s;]*$");
+
+        for (String raw : lines) {
+
+            if (raw == null) continue;
+
+            String t = raw.strip();
+
+            if (t.isEmpty()) continue;
+
+            java.util.regex.Matcher m = p.matcher(t);
+
+            if (m.matches()) return m.group(1).toUpperCase();
+
+        }
+
+        return null;
+
+    }
+
+
+
     private static String filterPauseOutput(String log) {
+
         if (log == null || log.isBlank()) return null;
         StringBuilder sb = new StringBuilder();
         for (String line : log.split("\\R")) {

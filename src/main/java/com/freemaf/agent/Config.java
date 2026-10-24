@@ -195,6 +195,7 @@ DEFAULTS.put("config.migrated.v5", "false");
         DEFAULTS.put("session.executorMessageCount", "0");
         DEFAULTS.put("session.ignoredHwnds", "");
         DEFAULTS.put("session.resumeAfterStop", "false");
+        DEFAULTS.put("session.resumeAfterStopRole", "EXECUTOR");
         DEFAULTS.put("marker.input_area.dy_offset", "0");
         DEFAULTS.put("config.migrated.v2", "no");
         DEFAULTS.put("config.migrated.v3", "no");
@@ -660,6 +661,17 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
         props.setProperty("session.resumeAfterStop", String.valueOf(value));
         persist();
     }
+
+
+    public String getResumeAfterStopRole() {
+        String v = get("session.resumeAfterStopRole", "EXECUTOR");
+        return (v == null || v.isBlank()) ? "EXECUTOR" : v;
+    }
+
+    public void setResumeAfterStopRole(String role) {
+        props.setProperty("session.resumeAfterStopRole", (role == null || role.isBlank()) ? "EXECUTOR" : role);
+        persist();
+    }
 
     @Deprecated
     public int getInputAreaDyOffset() {

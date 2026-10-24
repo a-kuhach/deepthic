@@ -34,6 +34,7 @@ import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 
 import javax.swing.SwingUtilities;
+import javax.swing.WindowConstants;
 
 import java.awt.BorderLayout;
 
@@ -70,6 +71,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 
 
 
@@ -147,6 +153,10 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private volatile boolean calibrationRunning;
 
+    private static final boolean RECONNECT_FAIL_ONCE = Boolean.getBoolean("freemaf.reconnect.failOnce");
+    private boolean injectedFailureConsumed = false;
+    private static final long START_DEBUG_DELAY_MS = Long.getLong("freemaf.start.delayMs", 0L);
+    private volatile CompletableFuture<Void> pendingCdpStart;
     private volatile AutomationLoop currentLoop;
 
     private final com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap;
@@ -227,7 +237,31 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         });
 
-        setDefaultCloseOperation(EXIT_ON_CLOSE);
+
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+
+        addWindowListener(new WindowAdapter() {
+
+            @Override public void windowClosing(WindowEvent e) {
+
+                CompletableFuture<Void> p = pendingCdpStart;
+
+                if (p != null && !p.isDone()) {
+
+                    try { p.get(5, TimeUnit.SECONDS); }
+
+                    catch (Exception ignore) { }
+
+                }
+
+                dispose();
+
+                System.exit(0);
+
+            }
+
+        });
+
 
         setSize(1200, 800);
 
@@ -1057,6 +1091,11 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private void handleStartButtonClick() {
 
+        if (pendingCdpStart != null && !pendingCdpStart.isDone()) {
+            setStatus(StatusMarker.State.PLANNING);
+            return;
+        }
+
         if (currentLoop != null && currentLoop.isPaused()) {
 
             appendSystem("Resuming session...");
@@ -1105,31 +1144,102 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+
+
     private void reconnectAction() {
+
         if (cdpBootstrap != null) {
-            appendSystem("Reconnecting CDP tabs: closing reviewer + executor, then reopening executor...");
+
+            
+                // Fix-D (C5, N-64/N-69): refuse Reconnect while the pipeline is active.
+                // Closing/opening CDP tabs mid-prompt loses the in-flight prompt (silently).
+                // User must press Play/Stop first; that nulls currentLoop.
+                if (currentLoop != null) {
+                    AppLogger.warn("reconnectAction: refusing — pipeline active (currentLoop != null)");
+                    appendSystem("Pipeline is active. Stop the pipeline (Play/Stop button) before reconnecting.");
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+                            "Pipeline is active. Stop the pipeline (Play/Stop button) before reconnecting.",
+                            "Reconnect", JOptionPane.WARNING_MESSAGE));
+                    return;
+                }
+                appendSystem("Reconnecting CDP tabs: closing reviewer + executor, then reopening executor...");
+
             new Thread(() -> {
+
                 try {
+
                     cdpBootstrap.closeReviewer();
+
                     cdpBootstrap.closeExecutor();
+
+                    if (RECONNECT_FAIL_ONCE && !injectedFailureConsumed) {
+
+                        injectedFailureConsumed = true;
+
+                        throw new IllegalStateException("injected failure (freemaf.reconnect.failOnce)");
+
+                    }
+
                     cdpBootstrap.openExecutor();
+
                     cdpBootstrap.activateExecutor();
+
                     appendSystem("Reconnected in CDP mode.");
+
                     SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+
                             "Reconnected in CDP mode.", "Reconnect", JOptionPane.INFORMATION_MESSAGE));
-                } catch (Exception ex) {
-                    AppLogger.warn("reconnectAction failed: " + ex.getMessage());
-                    appendSystem("Reconnect failed: " + ex.getMessage());
+
+                } catch (Exception firstError) {
+
+                    AppLogger.error("reconnect: first openExecutor failed: " + firstError.getMessage());
+
+                    try {
+
+                        cdpBootstrap.openExecutor();
+
+                        cdpBootstrap.activateExecutor();
+
+                    } catch (Exception secondError) {
+
+                        AppLogger.error("reconnect: rollback openExecutor failed: " + secondError.getMessage());
+
+                        appendSystem("Reconnect failed: " + secondError.getMessage());
+
+                        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+
+                                "Reconnect failed. See agent/app.log.", "Reconnect", JOptionPane.ERROR_MESSAGE));
+
+                        return;
+
+                    }
+
+                    appendSystem("Reconnect recovered from a transient error.");
+
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+
+                            "Reconnect recovered from a transient error.", "Reconnect", JOptionPane.WARNING_MESSAGE));
+
                 }
+
             }, "ReconnectSequence").start();
+
             return;
+
         }
+
         appendSystem("Calibration is deprecated since S5; use Reconnect in CDP mode.");
+
         SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+
                 "Calibration is deprecated since S5; it is kept only for cdp.enabled=false compatibility." + System.lineSeparator()
+
                         + "Switch cdp.enabled=true and use Reconnect.",
+
                 "Reconnect", JOptionPane.INFORMATION_MESSAGE));
+
     }
+
 
     private void calibrationAction() {
 
@@ -1292,6 +1402,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private void startSequence() {
 
+        startSequenceRunning = true;
+
         boolean userAlreadyQueued = userMessageQueuedForStart;
 
         userMessageQueuedForStart = false;
@@ -1308,55 +1420,99 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             }
 
+
             if (cdpBootstrap != null) {
-                AppLogger.info("startSequence: CDP mode, starting bootstrap");
+
+                AppLogger.info("startSequence: CDP mode, async bootstrap start");
+
                 // FIX73: kill any orphan framework chrome processes before starting a new session.
+
                 try {
+
                     int killed = com.freemaf.agent.cdp.ChromeProcessLauncher.killFrameworkChromiumProcesses(
+
                         com.freemaf.agent.cdp.ChromeProcessLauncher.resolveProfilePath(), 0L);
+
                     if (killed > 0) AppLogger.info("startSequence: killed " + killed + " orphan framework chrome process(es)");
+
                 } catch (Exception ignored) { }
-                                try {
-                    appendSystem("Запуск CDP-сессии, ожидайте...");
-                    cdpBootstrap.start(true, true, true);
-                    appendSystem("Запуск сессии агента, ожидайте...");
-                    cdpBootstrap.openExecutor();
-                } catch (com.freemaf.agent.cdp.ChromeProcessLauncher.PortBusyException pbe) {
-                    final boolean[] restart = {false};
+
+                appendSystem("Запуск CDP-сессии, ожидайте...");
+
+                final MainFrame selfForDialog = this;
+
+                pendingCdpStart = CompletableFuture.runAsync(() -> {
+
                     try {
-                        SwingUtilities.invokeAndWait(() -> {
-                            int r = JOptionPane.showConfirmDialog(MainFrame.this,
-                                    "Порт 9222 занят Chrome (PID " + pbe.pid() + ").\n" +
-                                    "Перезапустить сторонний Chrome?",
-                                    "Порт 9222 занят", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                            restart[0] = (r == JOptionPane.YES_OPTION);
-                        });
+
+                        if (START_DEBUG_DELAY_MS > 0) {
+
+                            try { Thread.sleep(START_DEBUG_DELAY_MS); }
+
+                            catch (InterruptedException ie) {
+
+                                Thread.currentThread().interrupt();
+
+                                throw new CompletionException(ie);
+
+                            }
+
+                        }
+
+                        try {
+
+                            cdpBootstrap.start(true, true, true);
+
+                        } catch (com.freemaf.agent.cdp.ChromeProcessLauncher.PortBusyException pbe) {
+
+                            final int[] choice = new int[1];
+
+                            try {
+
+                                SwingUtilities.invokeAndWait(() -> choice[0] = JOptionPane.showConfirmDialog(selfForDialog,
+
+                                        "Порт 9222 занят Chrome (PID " + pbe.pid() + ").\nПерезапустить сторонний Chrome?",
+
+                                        "Порт 9222 занят", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE));
+
+                            } catch (Exception ex) {
+
+                                AppLogger.warn("port busy dialog failed: " + ex.getMessage());
+
+                            }
+
+                            if (choice[0] != JOptionPane.YES_OPTION) { throw new CompletionException(pbe); }
+
+                            com.freemaf.agent.cdp.ChromeProcessLauncher.killPidTree(pbe.pid());
+
+                            try { Thread.sleep(500L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new CompletionException(ie); }
+
+                            cdpBootstrap.start(true, true, true);
+
+                        }
+
+                        cdpBootstrap.ensureExecutorTabFresh();
+
+                    } catch (CompletionException ce) {
+
+                        throw ce;
+
                     } catch (Exception ex) {
-                        AppLogger.warn("port busy dialog failed: " + ex.getMessage());
+
+                        throw new CompletionException(ex);
+
                     }
-                    if (!restart[0]) {
-                        appendSystem("Порт 9222 занят; запуск отменён.");
-                        setStatus(StatusMarker.State.STOPPED);
-                        return;
-                    }
-                    try {
-                        com.freemaf.agent.cdp.ChromeProcessLauncher.killPidTree(pbe.pid());
-                        Thread.sleep(500L);
-                        appendSystem("Запуск CDP-сессии, ожидайте...");
-                        cdpBootstrap.start(true, true, true);
-                        appendSystem("Запуск сессии агента, ожидайте...");
-                        cdpBootstrap.openExecutor();
-                    } catch (Exception retryEx) {
-                        appendSystem("Порт 9222 всё ещё занят: " + retryEx.getMessage());
-                        setStatus(StatusMarker.State.STOPPED);
-                        return;
-                    }
-                } catch (Exception cex) {
-                    appendSystem("CDP bootstrap failed: " + cex.getMessage());
-                appendSystem("Нажмите Play, чтобы повторить попытку.");
-                    setStatus(StatusMarker.State.STOPPED);
-                    return;
-                }
+
+                });
+
+                pendingCdpStart.whenComplete((v, t) -> SwingUtilities.invokeLater(() -> {
+
+                    if (t != null) showStartError(t); else onCdpStarted();
+
+                }));
+
+                return;
+
             }
 
             AutomationLoop loop = new AutomationLoop(chatConsole, psConsolePanel, statusMarkerProxy(), promptQueue,
@@ -1441,11 +1597,14 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                         || decision.decision() == SessionDetector.Decision.OPEN_NEW_CHAT) {
 
-                    String resumeMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
+                    String resumeRole = config.getResumeAfterStopRole();
+                    if (resumeRole == null || resumeRole.isBlank()) resumeRole = "EXECUTOR";
+                    String resumeMsg = "### ROLE_TO_ACT: " + resumeRole + System.lineSeparator()
 
                             + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью.";
 
                     promptQueue.addUser(resumeMsg, java.util.List.of());
+                    try { loop.resetExecutorContext(); } catch (Exception ignored) { }
 
                     appendSystem("Resume-after-stop: queued continuation prompt.");
 
@@ -1513,11 +1672,201 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
         } finally {
 
-            this.currentLoop = null;
+            if (cdpBootstrap == null || pendingCdpStart == null) {
+                this.currentLoop = null;
+                startSequenceRunning = false;
+                updateStartButton();
+            }
 
-            startSequenceRunning = false;
+        }
+
+    }
+
+
+
+
+    /**
+
+     * Step 2.1.8a (N-38): narrow guard helper for testing.
+
+     * Note (N-44): the `b != null` check is redundant because isRunning()
+
+     * short-circuits on session != null; kept for testability parity.
+
+     */
+
+    public static boolean evaluateCdpStartedGuardForTest(com.freemaf.agent.cdp.CdpBootstrap b) {
+
+        return b != null && b.isRunning();
+
+    }
+
+
+
+    private void showStartError(Throwable t) {
+
+        AppLogger.error("startSequence: CDP start failed: " + (t == null ? "null" : t.getMessage()));
+
+        final String msg = (t == null || t.getMessage() == null) ? "CDP start failed. See agent/app.log for details." : t.getMessage();
+
+        SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
+
+                "CDP start failed. See agent/app.log for details." + System.lineSeparator() + msg,
+
+                "Start failed", JOptionPane.ERROR_MESSAGE));
+
+        setStatus(StatusMarker.State.STOPPED);
+
+        startSequenceRunning = false;
+
+        currentLoop = null;
+
+        pendingCdpStart = null;
+
+        updateStartButton();
+
+    }
+
+
+
+    private void onCdpStarted() {
+
+        if (!evaluateCdpStartedGuardForTest(cdpBootstrap)) {
+
+            AppLogger.warn("onCdpStarted: bootstrap not running (stopped before loop start); failing fast");
+
+            showStartError(new IllegalStateException("bootstrap stopped before loop start"));
+
+            return;
+
+        }
+
+        boolean userAlreadyQueued = userMessageQueuedForStart;
+
+        userMessageQueuedForStart = false;
+
+        try {
+
+            AutomationLoop loop = new AutomationLoop(chatConsole, psConsolePanel, statusMarkerProxy(), promptQueue,
+
+                    deepSeekSession, powerShellExecutor, config, windowManager, cdpBootstrap);
+
+            SessionDetector.SessionDecision decision = loop.bootstrapSession();
+
+            WindowInfo activeWindow = decision.activeWindow() != null
+
+                    ? decision.activeWindow()
+
+                    : (decision.executorWindow() != null ? decision.executorWindow() : decision.reviewerWindow());
+
+            if (activeWindow == null) {
+
+                AppLogger.warn("onCdpStarted: no active window from bootstrapSession");
+
+                showStartError(new IllegalStateException("no active window in CDP mode"));
+
+                return;
+
+            }
+
+            this.currentLoop = loop;
 
             updateStartButton();
+
+            if (config.getResumeAfterStop()) {
+
+                config.setResumeAfterStop(false);
+
+                if (decision.decision() == SessionDetector.Decision.CONTINUE_OLD_SESSION
+
+                        || decision.decision() == SessionDetector.Decision.OPEN_NEW_CHAT) {
+
+                    String resumeRole = config.getResumeAfterStopRole();
+                    if (resumeRole == null || resumeRole.isBlank()) resumeRole = "EXECUTOR";
+                    String resumeMsg = "### ROLE_TO_ACT: " + resumeRole + System.lineSeparator()
+
+                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью.";
+
+                    promptQueue.addUser(resumeMsg, java.util.List.of());
+                    try { loop.resetExecutorContext(); } catch (Exception ignored) { }
+
+                    appendSystem("Resume-after-stop: queued continuation prompt.");
+
+                }
+
+                setStatus(StatusMarker.State.WORKING);
+
+            } else {
+
+                boolean hasPriorSession = decision.decision() != SessionDetector.Decision.OPEN_NEW_CHAT;
+
+                if (hasPriorSession && decision.decision() == SessionDetector.Decision.CONTINUE_OLD_SESSION) {
+
+                    if (userAlreadyQueued) {
+
+                        appendSystem("Continuing prior session with user-supplied message.");
+
+                    } else {
+
+                        String continueMsg = "### ROLE_TO_ACT: EXECUTOR" + System.lineSeparator()
+
+                                + "Пользователь нажал Play без нового сообщения. Если у тебя остался незакрытый вопрос к пользователю — задай его заново через USER_MSG + AGENT_PAUSE. Иначе продолжи работу с того места, где остановился, либо пришли краткий статус.";
+
+                        promptQueue.addUser(continueMsg, java.util.List.of());
+
+                        appendSystem("Continuing prior session without a user message.");
+
+                    }
+
+                } else if (hasPriorSession) {
+
+                    appendSystem("Resuming prior session; starting loop.");
+
+                } else {
+
+                    appendSystem("Waiting for a user message in the input field below.");
+
+                }
+
+                setStatus(hasPriorSession ? StatusMarker.State.WORKING : StatusMarker.State.PAUSED);
+
+            }
+
+            final AutomationLoop runLoop = loop;
+
+            Thread loopThread = new Thread(() -> {
+
+                try {
+
+                    runLoop.run();
+
+                } finally {
+
+                    SwingUtilities.invokeLater(() -> {
+
+                        startSequenceRunning = false;
+
+                        currentLoop = null;
+
+                        pendingCdpStart = null;
+
+                        updateStartButton();
+
+                    });
+
+                }
+
+            }, "CdpAutomationLoop");
+
+            loopThread.setDaemon(true);
+
+            loopThread.start();
+
+        } catch (Exception e) {
+
+            AppLogger.error("onCdpStarted: " + e.getMessage());
+
+            showStartError(e);
 
         }
 
@@ -1526,6 +1875,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
     private StatusMarker statusMarkerProxy() {
+
 
         return new StatusMarker() {
 
@@ -2476,10 +2826,47 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
     private void stopAction() {
 
+
         EmergencyStop.stop();
+
         if (cdpBootstrap != null) {
-            try { cdpBootstrap.stop(); } catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
+
+            // Step 2.1.8b (N-34): defer stop off EDT. If async start is still in
+
+            // flight, wait for it to finish before stopping; a stop that lands
+
+            // before onCdpStarted leads to fail-fast via showStartError.
+
+            CompletableFuture<Void> start = pendingCdpStart;
+
+            final MainFrame selfForStop = this;
+
+            if (start == null || start.isDone()) {
+
+                CompletableFuture.runAsync(() -> {
+
+                    try { selfForStop.cdpBootstrap.stop(); }
+
+                    catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
+
+                });
+
+            } else {
+
+                start.whenComplete((v, t) -> CompletableFuture.runAsync(() -> {
+
+                    try { selfForStop.cdpBootstrap.stop(); }
+
+                    catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
+
+                }));
+
+            }
+
+            AppLogger.info("stopAction: cdpBootstrap.stop deferred (pendingCdpStart in-flight=" + (start != null && !start.isDone()) + ")");
+
         }
+
 
         lastStopAtMs = System.currentTimeMillis();
 
@@ -2507,7 +2894,16 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             }
 
-            config.setResumeAfterStop(true);
+            
+try {
+                String activeRole = currentLoop.getActiveRole();
+                config.setResumeAfterStopRole((activeRole == null || activeRole.isBlank()) ? "EXECUTOR" : activeRole);
+                AppLogger.info("stopAction: recorded active role=" + config.getResumeAfterStopRole() + " for resume-after-stop");
+            } catch (Exception roleEx) {
+                AppLogger.warn("stopAction: failed to record active role: " + roleEx.getMessage());
+                config.setResumeAfterStopRole("EXECUTOR");
+            }
+            config.setResumeAfterStop(true);
 
         }
 

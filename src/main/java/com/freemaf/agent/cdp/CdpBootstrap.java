@@ -42,6 +42,8 @@ public final class CdpBootstrap {
     private FileChannel lockChannel;
     private FileLock lock;
     private boolean allowReuseSession = false;
+    private long adoptedChromePid = 0L;
+    private boolean chromeAdopted = false;
     private volatile java.util.function.Consumer<String> statusSink = null;
 
     public CdpBootstrap(Config config) { this(config, DEFAULT_PORT); }
@@ -75,30 +77,54 @@ public final class CdpBootstrap {
     public int port() { return port; }
 
 
-    private static final String ACTIVE_PIDS_FILE = "agent/cache/active_pids.txt";
-
-    private synchronized void registerActivePid(long pid) {
-        try {
-            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
-            java.nio.file.Files.createDirectories(path.getParent());
-            java.util.Set<String> lines = new java.util.HashSet<>();
-            if (java.nio.file.Files.exists(path)) lines.addAll(java.nio.file.Files.readAllLines(path));
-            lines.add(String.valueOf(pid));
-            java.nio.file.Files.write(path, lines);
-        } catch (Exception e) { AppLogger.warn("registerActivePid failed: " + e.getMessage()); }
-    }
-
-    private synchronized void unregisterActivePid(long pid) {
-        try {
-            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
-            if (!java.nio.file.Files.exists(path)) return;
-            java.util.Set<String> lines = new java.util.HashSet<>(java.nio.file.Files.readAllLines(path));
-            lines.remove(String.valueOf(pid));
-            if (lines.isEmpty()) java.nio.file.Files.deleteIfExists(path);
-            else java.nio.file.Files.write(path, lines);
-        } catch (Exception e) { AppLogger.warn("unregisterActivePid failed: " + e.getMessage()); }
-    }
-
+    private static final String ACTIVE_PIDS_FILE = "agent/cache/active_pids.txt";
+
+
+
+    private synchronized void registerActivePid(long pid) {
+
+        try {
+
+            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
+
+            java.nio.file.Files.createDirectories(path.getParent());
+
+            java.util.Set<String> lines = new java.util.HashSet<>();
+
+            if (java.nio.file.Files.exists(path)) lines.addAll(java.nio.file.Files.readAllLines(path));
+
+            lines.add(String.valueOf(pid));
+
+            java.nio.file.Files.write(path, lines);
+
+        } catch (Exception e) { AppLogger.warn("registerActivePid failed: " + e.getMessage()); }
+
+    }
+
+
+
+    private synchronized void unregisterActivePid(long pid) {
+
+        try {
+
+            java.nio.file.Path path = java.nio.file.Path.of(ACTIVE_PIDS_FILE);
+
+            if (!java.nio.file.Files.exists(path)) return;
+
+            java.util.Set<String> lines = new java.util.HashSet<>(java.nio.file.Files.readAllLines(path));
+
+            lines.remove(String.valueOf(pid));
+
+            if (lines.isEmpty()) java.nio.file.Files.deleteIfExists(path);
+
+            else java.nio.file.Files.write(path, lines);
+
+        } catch (Exception e) { AppLogger.warn("unregisterActivePid failed: " + e.getMessage()); }
+
+    }
+
+
+
     public synchronized void start(boolean headless) throws IOException { start(headless, false, false); }
 
     public synchronized void start(boolean headless, boolean ensureLogin) throws IOException { start(headless, ensureLogin, false); }
@@ -127,6 +153,8 @@ public final class CdpBootstrap {
                 this.chromeProcess = null;
                 this.session = new CdpSession(port);
                 this.loginHandler = new LoginFallbackHandler(port, profile.toString());
+                this.adoptedChromePid = owner.pid();
+                this.chromeAdopted = true;
                 ChromeProcessLauncher.killFrameworkChromiumProcesses(profile, owner.pid());
                 return;
             }
@@ -134,6 +162,8 @@ public final class CdpBootstrap {
             config.setCdpExecutorTabId("");
             config.setCdpReviewerTabId("");
         }
+        this.adoptedChromePid = 0L;
+        this.chromeAdopted = false;
 
         if (owner.kind() == PortOwner.Kind.FOREIGN) {
             throw new PortBusyException(
@@ -521,68 +551,62 @@ public final class CdpBootstrap {
     }
 
 
-    public synchronized void stop() {
 
-        try { closeReviewer(); } catch (Exception ignored) { }
-
-        try { closeExecutor(); } catch (Exception ignored) { }
-
-        try {
-
-            if (session != null && chromeProcess != null) {
-
-                CdpHttpClient http = new CdpHttpClient(port);
-
-                int forcedClosed = 0;
-
-                List<CdpTabInfo> remaining = http.list();
-
-                for (CdpTabInfo t : remaining) {
-
-                    String url = t.url() == null ? "" : t.url();
-
-                    if (url.contains(DEEPSEEK_HOST)) { if (http.closeTab(t.id())) forcedClosed++; }
-
-                }
-
-                if (forcedClosed > 0) AppLogger.info("CdpBootstrap.stop: force-closed " + forcedClosed + " leftover deepseek tab(s)");
-
-                else AppLogger.info("CdpBootstrap.stop: no leftover deepseek tabs");
-
-            } else if (session != null) {
-
-                AppLogger.info("CdpBootstrap.stop: adopted Chrome left running (no owned process)");
-
-            }
-
-        } catch (Exception e) {
-
-            AppLogger.warn("CdpBootstrap.stop: leftover scan failed: " + e.getMessage());
-
-        }
-
-
-
-        if (chromeProcess != null) {
-
-            // Owned Chrome: graceful close (Browser.close) + force fallback + orphan cleanup.
-
-            stopChromeAndSession();
-
-        } else {
-
-            // Adopted Chrome: only close the WebSocket; leave the external process running.
-
-            if (session != null) { try { session.close(); } catch (Exception ignored) { } session = null; }
-
-        }
-
-        releaseLock();
-
-    }
-
-
-    public synchronized boolean isReviewerTabOpen() {
+    public synchronized void stop() {
+
+        try { closeReviewer(); } catch (Exception ignored) { }
+
+        try { closeExecutor(); } catch (Exception ignored) { }
+
+        try {
+            if (session != null && chromeProcess != null) {
+                CdpHttpClient http = new CdpHttpClient(port);
+                int forcedClosed = 0;
+                List<CdpTabInfo> remaining = http.list();
+                for (CdpTabInfo t : remaining) {
+                    String url = t.url() == null ? "" : t.url();
+                    if (url.contains(DEEPSEEK_HOST)) { if (http.closeTab(t.id())) forcedClosed++; }
+                }
+                if (forcedClosed > 0) AppLogger.info("CdpBootstrap.stop: force-closed " + forcedClosed + " leftover deepseek tab(s)");
+                else AppLogger.info("CdpBootstrap.stop: no leftover deepseek tabs");
+            } else if (session != null) {
+                AppLogger.info("CdpBootstrap.stop: adopted Chrome left running (no owned process)");
+            }
+        } catch (Exception e) {
+            AppLogger.warn("CdpBootstrap.stop: leftover scan failed: " + e.getMessage());
+        }
+
+        if (chromeProcess != null) {
+            // Owned Chrome: graceful close (Browser.close) + force fallback + orphan cleanup.
+            stopChromeAndSession();
+        } else {
+            // Step 2.1.5 (AUD-57): adopted Chrome must also be gracefully closed.
+            if (chromeAdopted && session != null) {
+                try {
+                    session.browserClose();
+                    AppLogger.info("CdpBootstrap.stop: Browser.close sent for adopted Chrome pid=" + adoptedChromePid);
+                } catch (Exception e) {
+                    AppLogger.warn("CdpBootstrap.stop: Browser.close failed for adopted Chrome: " + e.getMessage());
+                }
+                if (!session.waitForDisconnect(5000L)) {
+                    try {
+                        ChromeProcessLauncher.killPidTree(adoptedChromePid);
+                        AppLogger.warn("CdpBootstrap.stop: adopted Chrome pid=" + adoptedChromePid + " did not exit within 5s; killed");
+                    } catch (Exception e) {
+                        AppLogger.warn("CdpBootstrap.stop: fallback kill failed: " + e.getMessage());
+                    }
+                }
+            }
+            if (session != null) { try { session.close(); } catch (Exception ignored) { } session = null; }
+        }
+
+        adoptedChromePid = 0L;
+        chromeAdopted = false;
+
+        releaseLock();
+
+    }
+    public synchronized boolean isReviewerTabOpen() {
         if (reviewerTabInfo == null || session == null) return false;
         String id = reviewerTabInfo.id();
         for (CdpTabInfo t : session.listTabs()) if (id.equals(t.id())) return true;
@@ -604,10 +628,56 @@ public final class CdpBootstrap {
         if (reviewerTabInfo != null && session != null) session.activateTab(reviewerTabInfo);
     }
 
+    /**
+     * AUD-56 partial fix: ensures the tracked executor tab exists, closes the previous
+     * tracked tab first, then opens a fresh executor. Verify confirms only tracked-tab
+     * presence; it does NOT poll listTabs for actual tab closure and does NOT count
+     * executor tabs. Full one-tab-per-role invariant is deferred (N-25/N-29).
+     */
+    public synchronized void ensureExecutorTabFresh() throws Exception {
+        try {
+            if (isExecutorTabOpen()) { closeExecutor(); }
+        } catch (Exception e) {
+            AppLogger.warn("ensureExecutorTabFresh: close old executor failed: " + e.getMessage());
+        }
+        openExecutor();
+        if (!isExecutorTabOpen()) {
+            throw new IllegalStateException("ensureExecutorTabFresh: executor tab not opened");
+        }
+    }
+
     public CdpDeepSeek executor() { return executor; }
     public CdpDeepSeek reviewer() { return reviewer; }
 
+
+    /**
+
+     * Step 2.1.5 (R-18 variant B): "running" means we have a live session and
+
+     * either an owned, alive chromeProcess OR an adopted Chrome (chromeProcess == null).
+
+     * A null chromeProcess is the marker of the adopt-path (reuse-branch of doStart);
+
+     * non-adopted paths always have a live process. Any doubt -> false.
+
+     */
+
+    public synchronized boolean isRunning() {
+
+        if (session == null) return false;
+
+        if (!session.isConnected()) return false;
+
+        if (chromeProcess == null) return true;
+
+        return chromeProcess.isAlive();
+
+    }
+
+
+
     public synchronized CdpTabInfo executorTabInfo() { return executorTabInfo; }
+
     public synchronized CdpTabInfo reviewerTabInfo() { return reviewerTabInfo; }
 
     private void ensureStarted() throws IOException {
