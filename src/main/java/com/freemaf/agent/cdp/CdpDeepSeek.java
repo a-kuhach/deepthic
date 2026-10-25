@@ -4,6 +4,7 @@ package com.freemaf.agent.cdp;
 
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 
 
@@ -42,6 +43,7 @@ public final class CdpDeepSeek {
 
 
     private static final String DEEPSEEK_URL = "https://chat.deepseek.com/";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private static final long POLL_INTERVAL_MS = 500L;
 
@@ -1071,40 +1073,60 @@ private static String toJsonArray(String[] texts) {
 
 
 
+    
     static final String READ_LAST_RESPONSE_EXPR =
                 "(function(){" +
                 "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
-                "if (msgs.length === 0) return '';" +
+                "if (msgs.length === 0) return JSON.stringify({t:'',p:'',r:false});" +
                 "var m = msgs[msgs.length - 1];" +
-                "if (m.closest('[class*=\"ds-think-content\"]')) return '';" +
+                "if (m.closest('[class*=\"ds-think-content\"]')) return JSON.stringify({t:'',p:'',r:true});" +
                 "var pre = m.querySelector('.md-code-block pre') || m.querySelector('pre');" +
                 "var text = (m.innerText || '').trim();" +
-                "if (!pre) {" +
-                "  if (text.indexOf('USER_CHAT:') >= 0 || text.indexOf('AGENT_PAUSE:') >= 0 || text.indexOf('AGENT_STOP:') >= 0 || text.indexOf('AGENT_DONE:') >= 0 || text.indexOf('AGENT_SESSION_MIGRATE_') >= 0) return text;" +
-                "  return '';" +
-                "}" +
-                "var preText = pre.innerText;" +
-                "var idx = text.indexOf(preText);" +
-                "if (idx >= 0) {" +
-                "  var after = text.substring(idx + preText.length).trim();" +
-                "  if (after.length > 100) {" +
-                "    if (!(after.indexOf('USER_MSG:') >= 0 || after.indexOf('AGENT_PAUSE:') >= 0 || after.indexOf('AGENT_STOP:') >= 0 || after.indexOf('AGENT_DONE:') >= 0)) {" +
-                "      return 'INVALID_RESPONSE_TEXT_AFTER_BLOCK_' + after.length;" +
-                "    }" +
-                "  }" +
-                "}" +
-                "return preText;" +
-                "})()";
-    public String readLastResponse() {
-        // Contract (S2.2 / AUD-39):
-        // - Reasoning (.ds-think-content) -> "" (wait).
-        // - Answer with pre, no trailing text -> pre.innerText.
-        // - Answer with pre + >100 trailing non-marker chars -> INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>.
-        // - Answer without pre but with USER_CHAT:/AGENT_* markers -> FULL innerText (no truncation at marker).
-        // - Otherwise -> "".
-        String v = evaluate(READ_LAST_RESPONSE_EXPR);
-        return v == null ? "" : v;
+                "var preText = pre ? (pre.innerText || '') : '';" +
+                "return JSON.stringify({t:text,p:preText,r:false});" +
+                "})()";
+
+    public String readLastResponse() {
+        String raw = evaluate(READ_LAST_RESPONSE_EXPR);
+        if (raw == null || raw.isEmpty()) return "";
+        try {
+            JsonNode n = MAPPER.readTree(raw);
+            return decideResponseText(n.path("t").asText(""), n.path("p").asText(""), n.path("r").asBoolean(false));
+        } catch (Exception e) {
+            return "";
+        }
     }
+
+    /**
+     * S2.2 / AUD-39 (JUDGE REJECT-CORRECTION, plan Step 4.1 contract):
+     * - reasoning step -> ""
+     * - any of USER_CHAT:/USER_MSG:/AGENT_PAUSE:/AGENT_STOP:/AGENT_DONE:/AGENT_SESSION_MIGRATE_* anywhere in text -> full text
+     * - marker absent + no pre -> ""
+     * - marker absent + pre + after>100 chars -> INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>
+     * - marker absent + pre + after<=100 chars -> preText
+     * Package-private static for unit testing.
+     */
+    static String decideResponseText(String text, String preText, boolean reasoning) {
+        if (reasoning) return "";
+        String t = text == null ? "" : text;
+        String p = preText == null ? "" : preText;
+        if (t.isEmpty()) return "";
+        boolean hasMarker = t.contains("USER_CHAT:")
+                || t.contains("USER_MSG:")
+                || t.contains("AGENT_PAUSE:")
+                || t.contains("AGENT_STOP:")
+                || t.contains("AGENT_DONE:")
+                || t.contains("AGENT_SESSION_MIGRATE_");
+        if (hasMarker) return t;
+        if (p.isEmpty()) return "";
+        int idx = t.indexOf(p);
+        if (idx < 0) return p;
+        String after = t.substring(idx + p.length()).trim();
+        if (after.length() > 100) {
+            return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length();
+        }
+        return p;
+    }
 
 
 

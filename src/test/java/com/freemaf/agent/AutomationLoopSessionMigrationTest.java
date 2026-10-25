@@ -7,7 +7,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 
-import java.lang.reflect.Field;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -264,4 +265,47 @@ class AutomationLoopSessionMigrationTest {
             assertEquals(0L, c.getExecutorMessageCount());
         }
     }
+
+    // ---- S2.2 REJECT-CORRECTION / JUDGE 2c: R8 layering (Fix-B role guard must survive AUD-39 fix) ----
+
+    private static String extractRawRoleMarkerReflect(String script) throws Exception {
+        Method m = AutomationLoop.class.getDeclaredMethod("extractRawRoleMarker", String.class);
+        m.setAccessible(true);
+        return (String) m.invoke(null, script);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.Set<String> validRolesReflect() throws Exception {
+        Field f = AutomationLoop.class.getDeclaredField("VALID_ROLES");
+        f.setAccessible(true);
+        return (java.util.Set<String>) f.get(null);
+    }
+
+    @Test
+    void fixBRoleGuard_preOnlyInvalidRoleRejected() throws Exception {
+        String script = "Write-Output \"ROLE: WIZARD\"";
+        String role = extractRawRoleMarkerReflect(script);
+        assertEquals("WIZARD", role);
+        assertFalse(validRolesReflect().contains(role));
+    }
+
+    @Test
+    void fixBRoleGuard_prePlusMarkerInvalidRoleRejected() throws Exception {
+        String script = "Write-Output \"ROLE: WIZARD\"" + "\n"
+                + "Write-Output \"USER_MSG: start\"" + "\n"
+                + "Write-Output 1";
+        String role = extractRawRoleMarkerReflect(script);
+        assertEquals("WIZARD", role);
+        assertFalse(validRolesReflect().contains(role));
+    }
+
+    @Test
+    void fixBRoleGuard_prePlusMarkerValidRoleAccepted() throws Exception {
+        String script = "Write-Output \"ROLE: EXECUTOR\"" + "\n"
+                + "Write-Output \"USER_MSG: start\"" + "\n"
+                + "Write-Output 1";
+        String role = extractRawRoleMarkerReflect(script);
+        assertEquals("EXECUTOR", role);
+        assertTrue(validRolesReflect().contains(role));
+    }
 }

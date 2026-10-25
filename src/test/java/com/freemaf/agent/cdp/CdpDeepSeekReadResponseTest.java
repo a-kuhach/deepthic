@@ -37,11 +37,18 @@ class CdpDeepSeekReadResponseTest {
     }
 
     @Test
-    void readLastResponsePassesThroughPreExtractedValue() throws Exception {
-        String script = "Write-Output \"ROLE: ANALYST\"\r\nWrite-Output \"CWD: X\"";
+    void readLastResponseDelegatesToDecide() throws Exception {
+        String json = "{\"t\":\"hello\",\"p\":\"hello\",\"r\":false}";
         TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(script));
-        assertEquals(script, dsWithTab(tab).readLastResponse());
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(json));
+        assertEquals("hello", dsWithTab(tab).readLastResponse());
+    }
+
+    @Test
+    void readLastResponseReturnsEmptyOnInvalidJson() throws Exception {
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue("not valid json"));
+        assertEquals("", dsWithTab(tab).readLastResponse());
     }
 
     @Test
@@ -138,39 +145,57 @@ class CdpDeepSeekReadResponseTest {
     // ---- S2.2 / AUD-39: readLastResponse after-marker preservation ----
 
     @Test
-    void markerTailSurvivesJavaWrapperWithoutTruncation() throws Exception {
-        String raw = "Write-Output \"USER_MSG: start\"\r\nextra tail after marker";
-        TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(raw));
-        assertEquals(raw, dsWithTab(tab).readLastResponse());
+    void decideResponseTextMarkerInAfterReturnsFullText() {
+        // Step 4.3 / JUDGE 2b: EXACT fixture -- pre + Write-Output "USER_MSG: start" + trailing "extra".
+        String pre = "Write-Output \"USER_MSG: start\"";
+        String full = pre + "\nextra";
+        String result = CdpDeepSeek.decideResponseText(full, pre, false);
+        assertTrue(result.contains(pre), "must contain preText");
+        assertTrue(result.contains("extra"), "must contain extra tail");
+        assertEquals(full, result);
     }
 
     @Test
-    void invalidResponseDiagnosticMarkerSurvivesJavaWrapper() throws Exception {
-        String raw = "INVALID_RESPONSE_TEXT_AFTER_BLOCK_250";
-        TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(raw));
-        assertEquals(raw, dsWithTab(tab).readLastResponse());
+    void decideResponseTextMarkerInPreTextReturnsFullText() {
+        String pre = "Write-Output \"USER_MSG: ok\"";
+        assertEquals(pre, CdpDeepSeek.decideResponseText(pre, pre, false));
     }
 
     @Test
-    void emptyReasoningResultSurvivesJavaWrapper() throws Exception {
-        TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(""));
-        assertEquals("", dsWithTab(tab).readLastResponse());
+    void decideResponseTextMarkerAbsentLargeAfterReturnsInvalid() {
+        String pre = "Write-Output 1";
+        String after = "x".repeat(150);
+        String full = pre + "\n" + after;
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
+                CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextMarkerAbsentSmallAfterReturnsPreText() {
+        String pre = "Write-Output 1";
+        String full = pre + "\ntail";
+        assertEquals(pre, CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextMarkerAbsentNoPreReturnsEmpty() {
+        assertEquals("", CdpDeepSeek.decideResponseText("plain text no marker", "", false));
+    }
+
+    @Test
+    void decideResponseTextReasoningReturnsEmpty() {
+        assertEquals("", CdpDeepSeek.decideResponseText("whatever", "whatever", true));
     }
 
     @Test
     void readLastResponseExprContractGuard() {
-        // Cheap guard against accidental edits to the JS contract.
-        // Full JS semantics (DOM interaction) are covered by manual run / waiver (see WIP.md S2.2).
+        // S2.2 REJECT-CORRECTION: JS now returns JSON; decision moved to decideResponseText (Java).
         String expr = CdpDeepSeek.READ_LAST_RESPONSE_EXPR;
         assertTrue(expr.contains("ds-think-content"), "reasoning guard missing");
-        assertTrue(expr.contains("INVALID_RESPONSE_TEXT_AFTER_BLOCK_"), "diagnostic path missing");
-        assertTrue(expr.contains("USER_CHAT:"), "USER_CHAT marker detection missing");
-        assertTrue(expr.contains("AGENT_SESSION_MIGRATE_"), "migration marker detection missing");
-        assertTrue(expr.contains("return text;"), "marker-present branch must return full text");
-        assertFalse(expr.contains("return text.substring"), "marker-present branch must not truncate");
+        assertTrue(expr.contains("JSON.stringify"), "must return JSON contract");
+        assertTrue(expr.contains("md-code-block pre"), "pre extraction missing");
+        assertFalse(expr.contains("INVALID_RESPONSE_TEXT_AFTER_BLOCK_"), "decision moved to Java, not JS");
+        assertFalse(expr.contains("USER_CHAT:"), "marker checks moved to Java, not JS");
     }
 
     @Test
