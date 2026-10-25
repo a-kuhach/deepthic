@@ -67,7 +67,7 @@ public final class ResponseParser {
 
                 .filter(line -> line.strip().startsWith(FENCE)).count();
 
-        if (fenceCount == 2L) return trimmed.startsWith(FENCE) && trimmed.endsWith(FENCE);
+        if (fenceCount == 2L) { if (!trimmed.startsWith(FENCE) || !trimmed.endsWith(FENCE)) return false; String body = extractScript(trimmed); return body != null && !body.isBlank(); }
 
         if (fenceCount != 0L) return false;
 

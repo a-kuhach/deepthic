@@ -102,7 +102,7 @@ class CdpDeepSeekReadResponseTest {
 
     @Test
     void isResponseCompleteAcceptsScriptMarkers() {
-        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"ROLE: EXECUTOR\"" + System.lineSeparator() + "$ErrorActionPreference = 'Continue'"));
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"USER_MSG: ok\"" + System.lineSeparator() + "$ErrorActionPreference = 'Continue'"));
         assertTrue(CdpDeepSeek.isResponseComplete("USER_CHAT: hello"));
         assertTrue(CdpDeepSeek.isResponseComplete("AGENT_PAUSE: waiting"));
     }
@@ -134,4 +134,55 @@ class CdpDeepSeekReadResponseTest {
         assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_1000"));
         assertFalse(CdpDeepSeek.isResponseComplete("something else"));
     }
+
+    // ---- S2.2 / AUD-39: readLastResponse after-marker preservation ----
+
+    @Test
+    void markerTailSurvivesJavaWrapperWithoutTruncation() throws Exception {
+        String raw = "Write-Output \"USER_MSG: start\"\r\nextra tail after marker";
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(raw));
+        assertEquals(raw, dsWithTab(tab).readLastResponse());
+    }
+
+    @Test
+    void invalidResponseDiagnosticMarkerSurvivesJavaWrapper() throws Exception {
+        String raw = "INVALID_RESPONSE_TEXT_AFTER_BLOCK_250";
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(raw));
+        assertEquals(raw, dsWithTab(tab).readLastResponse());
+    }
+
+    @Test
+    void emptyReasoningResultSurvivesJavaWrapper() throws Exception {
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue(""));
+        assertEquals("", dsWithTab(tab).readLastResponse());
+    }
+
+    @Test
+    void readLastResponseExprContractGuard() {
+        // Cheap guard against accidental edits to the JS contract.
+        // Full JS semantics (DOM interaction) are covered by manual run / waiver (see WIP.md S2.2).
+        String expr = CdpDeepSeek.READ_LAST_RESPONSE_EXPR;
+        assertTrue(expr.contains("ds-think-content"), "reasoning guard missing");
+        assertTrue(expr.contains("INVALID_RESPONSE_TEXT_AFTER_BLOCK_"), "diagnostic path missing");
+        assertTrue(expr.contains("USER_CHAT:"), "USER_CHAT marker detection missing");
+        assertTrue(expr.contains("AGENT_SESSION_MIGRATE_"), "migration marker detection missing");
+        assertTrue(expr.contains("return text;"), "marker-present branch must return full text");
+        assertFalse(expr.contains("return text.substring"), "marker-present branch must not truncate");
+    }
+
+    @Test
+    void isResponseCompleteAcceptsShortWriteOutputWithMarker() {
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"USER_MSG: ok\""));
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"AGENT_PAUSE: waiting\""));
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: ok\""));
+    }
+
+    @Test
+    void isResponseCompleteRejectsShortWriteOutputWithoutMarker() {
+        assertFalse(CdpDeepSeek.isResponseComplete("Write-Output \"hi\""));
+        assertFalse(CdpDeepSeek.isResponseComplete("Write-Output \"ROLE: EXECUTOR\""));
+    }
 }

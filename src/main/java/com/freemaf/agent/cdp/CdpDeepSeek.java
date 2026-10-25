@@ -251,8 +251,12 @@ public final class CdpDeepSeek {
             }
         } catch (Throwable ignored) { }
         AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat() [caller=" + callerTrace + "]");
-        String clickResult = clickNewChat();
+        String clickResult = clickNewChatWithRetry();
         AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
+        if ("NOT_FOUND".equals(clickResult)) {
+            AppLogger.warn("CdpDeepSeek.open: clickNewChat NOT_FOUND after retries; failing fast");
+            throw new IllegalStateException("CdpDeepSeek.open: clickNewChat NOT_FOUND");
+        }
         sleep(2000L);
         
 try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
@@ -436,6 +440,30 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
 
+    /**
+     * S2.2 / AUD-52: bounded retry around clickNewChat().
+     * clickNewChat() has no internal retry; the DOM may not be ready immediately
+     * after navigation. Up to 4 attempts with 500 ms gaps (max 2 s) before open()
+     * fails fast on NOT_FOUND. InterruptedException is flagged and the loop aborts.
+     */
+    private String clickNewChatWithRetry() {
+        String lastResult = "NOT_FOUND";
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            lastResult = clickNewChat();
+            if (!"NOT_FOUND".equals(lastResult)) {
+                AppLogger.info("CdpDeepSeek.clickNewChatWithRetry: succeeded on attempt " + attempt + " result=" + lastResult);
+                return lastResult;
+            }
+            if (attempt < 4) {
+                AppLogger.info("CdpDeepSeek.clickNewChatWithRetry: attempt " + attempt + " NOT_FOUND, retrying in 500ms");
+                sleep(500L);
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new IllegalStateException("CdpDeepSeek.clickNewChatWithRetry: interrupted");
+                }
+            }
+        }
+        return lastResult;
+    }
     public void navigate(String url) {
 
         if (activeTab == null) throw new IllegalStateException("no active tab");
@@ -616,6 +644,9 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
 
     public void sendMessage(String text) {
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("CdpDeepSeek.sendMessage: prompt is null or blank");
+        }
         lastPreSendCount = countAssistantMessages();
         String snapText = readLastResponse();
         lastPreSendText = (snapText == null) ? "" : snapText;
@@ -1040,15 +1071,7 @@ private static String toJsonArray(String[] texts) {
 
 
 
-    public String readLastResponse() {
-        // Look at the LAST assistant message ONLY (do not search backwards).
-        // - If it is a reasoning step (.ds-think-content): return "" -> wait.
-        // - If it is an answer with pre and no trailing text: return pre.innerText.
-        // - If it is an answer with pre and >100 trailing chars (not markers): return INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>.
-        //   Downstream: isResponseComplete -> true, tryParse fails -> clickRegenerate.
-        // - If it is an answer without pre but with markers (USER_CHAT:, AGENT_*): return innerText.
-        // - Otherwise: return "" -> wait.
-        String expr =
+    static final String READ_LAST_RESPONSE_EXPR =
                 "(function(){" +
                 "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
                 "if (msgs.length === 0) return '';" +
@@ -1071,8 +1094,15 @@ private static String toJsonArray(String[] texts) {
                 "  }" +
                 "}" +
                 "return preText;" +
-                "})()";
-        String v = evaluate(expr);
+                "})()";
+    public String readLastResponse() {
+        // Contract (S2.2 / AUD-39):
+        // - Reasoning (.ds-think-content) -> "" (wait).
+        // - Answer with pre, no trailing text -> pre.innerText.
+        // - Answer with pre + >100 trailing non-marker chars -> INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>.
+        // - Answer without pre but with USER_CHAT:/AGENT_* markers -> FULL innerText (no truncation at marker).
+        // - Otherwise -> "".
+        String v = evaluate(READ_LAST_RESPONSE_EXPR);
         return v == null ? "" : v;
     }
 
@@ -1297,7 +1327,7 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
     static boolean isResponseComplete(String raw) {
         if (raw == null || raw.isEmpty()) return false;
         if (raw.startsWith("INVALID_RESPONSE_")) return true;
-        if (raw.contains("Write-Output")) return true;
+        if (raw.contains("Write-Output") && (raw.contains("USER_MSG:") || raw.contains("AGENT_PAUSE:") || raw.contains("AGENT_STOP:") || raw.contains("AGENT_DONE:") || raw.contains("AGENT_SESSION_MIGRATE_START") || raw.contains("AGENT_SESSION_MIGRATE_CONFIRM"))) return true;
         if (raw.contains("USER_CHAT:")) return true;
         if (raw.contains("AGENT_PAUSE:")) return true;
         if (raw.contains("AGENT_STOP:")) return true;

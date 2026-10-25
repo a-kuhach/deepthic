@@ -115,11 +115,11 @@ class ResponseParserTest {
 
     @Test
 
-    void emptyFencedBlockIsAcceptedByOriginal() {
+    void emptyFencedBlockIsRejected() {
 
-        // Original isValidScript("```\n```") returns true (no content check when exactly two fences present).
+        // S2.2 / AUD-69: empty / whitespace-only fenced body is rejected.
 
-        assertTrue(ResponseParser.isValidScript("```\n```"));
+        assertFalse(ResponseParser.isValidScript("```\n```"));
 
     }
 
@@ -258,6 +258,17 @@ class ResponseParserTest {
     void bareAgentStopMarkerIsDetected() {
         assertFalse(ResponseParser.isValidScript("AGENT_STOP: done"));
     }
+
+    @Test
+    void whitespaceOnlyFencedBlockIsRejected() {
+        assertFalse(ResponseParser.isValidScript("```\n   \n```"));
+    }
+
+    @Test
+    void validFencedBlockWithUserMsgIsAccepted() {
+        String r = "```\nWrite-Output \"USER_MSG: ok\"\n```";
+        assertTrue(ResponseParser.isValidScript(r));
+    }
 }
 
 
