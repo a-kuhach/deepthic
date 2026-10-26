@@ -172,6 +172,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         super(resolveWindowTitle());
 
         this.config = config;
+        HistoryService.setMaxFilesPerSubfolder(config.getHistoryMaxFilesPerSubfolder());
 
         this.clipboardService = new ClipboardService();
 

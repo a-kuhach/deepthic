@@ -36,6 +36,8 @@ class CdpDeepSeekReadResponseTest {
         return root;
     }
 
+    // ---- readLastResponse wrapper tests ----
+
     @Test
     void readLastResponseDelegatesToDecide() throws Exception {
         String json = "{\"t\":\"hello\",\"p\":\"hello\",\"r\":false}";
@@ -58,144 +60,72 @@ class CdpDeepSeekReadResponseTest {
         assertEquals("", dsWithTab(tab).readLastResponse());
     }
 
-
-    
-
-
-    // ---- FIX141: computeIsNew unit tests ----
-
-    @Test
-    void computeIsNewAcceptsNewTextResponse() {
-        // Different text => new, regardless of counts.
-        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 5, 5, false));
-        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 20, 5, true));
-    }
-
-    @Test
-    void computeIsNewAcceptsIdenticalTextWhenCountGrewWithoutVirtualization() {
-        // Identical text, count grew, no virtualization => new (deterministic short answers).
-        assertTrue(CdpDeepSeek.computeIsNew("A", "A", 6, 5, false));
-    }
-
-    @Test
-    void computeIsNewRejectsIdenticalTextWhenVirtualizationOccurred() {
-        // Identical text, count recovered after virtualization => NOT new (regression guard for FIX140).
-        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 65, 5, true));
-        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, true));
-    }
-
-    @Test
-    void computeIsNewRejectsIdenticalTextWithoutCountGrowth() {
-        // Identical text, count unchanged => NOT new (still waiting).
-        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, false));
-    }
-
-    @Test
-    void computeIsNewHandlesNullInputsSafely() {
-        assertFalse(CdpDeepSeek.computeIsNew(null, "A", 5, 5, false));
-        // null preText treated as empty string
-        assertTrue(CdpDeepSeek.computeIsNew("A", null, 5, 5, false));
-        assertFalse(CdpDeepSeek.computeIsNew("", null, 5, 5, false));
-    }
-
-
-    @Test
-    void isResponseCompleteRejectsShortGarbage() {
-        assertFalse(CdpDeepSeek.isResponseComplete(""));
-        assertFalse(CdpDeepSeek.isResponseComplete(null));
-        assertFalse(CdpDeepSeek.isResponseComplete("[ROLE] EXECUTOR"));
-        assertFalse(CdpDeepSeek.isResponseComplete("abc"));
-    }
-
-    @Test
-    void isResponseCompleteAcceptsScriptMarkers() {
-        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"USER_MSG: ok\"" + System.lineSeparator() + "$ErrorActionPreference = 'Continue'"));
-        assertTrue(CdpDeepSeek.isResponseComplete("USER_CHAT: hello"));
-        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_PAUSE: waiting"));
-    }
-
-    @Test
-    void isResponseCompleteAcceptsLongContentWithoutMarkers() {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < 30; i++) sb.append("line ").append(i).append(System.lineSeparator());
-        assertTrue(CdpDeepSeek.isResponseComplete(sb.toString()));
-    }
-
-    @Test
-    void isResponseCompleteAcceptsMigrationMarkers() {
-        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_START: prep"));
-        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_CONFIRM: ok"));
-    }
-
-    @Test
-    void clickRegenerateReturnsTrueOnSvgMatch() throws Exception {
-        TabSession tab = mock(TabSession.class);
-        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue("clicked-svg"));
-        assertTrue(dsWithTab(tab).clickRegenerate());
-    }
-
-
-    @Test
-    void isResponseCompleteAcceptsInvalidResponseMarker() {
-        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_250"));
-        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_1000"));
-        assertFalse(CdpDeepSeek.isResponseComplete("something else"));
-    }
-
-    // ---- S2.2 / AUD-39: readLastResponse after-marker preservation ----
+    // ---- FIX141: computeIsNew unit tests ----
 
     @Test
-    void decideResponseTextMarkerInAfterReturnsFullText() {
-        // Step 4.3 / JUDGE 2b: EXACT fixture -- pre + Write-Output "USER_MSG: start" + trailing "extra".
-        String pre = "Write-Output \"USER_MSG: start\"";
-        String full = pre + "\nextra";
-        String result = CdpDeepSeek.decideResponseText(full, pre, false);
-        assertTrue(result.contains(pre), "must contain preText");
-        assertTrue(result.contains("extra"), "must contain extra tail");
-        assertEquals(full, result);
+    void computeIsNewAcceptsNewTextResponse() {
+        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 5, 5, false));
+        assertTrue(CdpDeepSeek.computeIsNew("B", "A", 20, 5, true));
     }
 
     @Test
-    void decideResponseTextMarkerInPreTextReturnsFullText() {
-        String pre = "Write-Output \"USER_MSG: ok\"";
-        assertEquals(pre, CdpDeepSeek.decideResponseText(pre, pre, false));
+    void computeIsNewAcceptsIdenticalTextWhenCountGrewWithoutVirtualization() {
+        assertTrue(CdpDeepSeek.computeIsNew("A", "A", 6, 5, false));
     }
 
     @Test
-    void decideResponseTextMarkerAbsentLargeAfterReturnsInvalid() {
-        String pre = "Write-Output 1";
-        String after = "x".repeat(150);
-        String full = pre + "\n" + after;
-        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
-                CdpDeepSeek.decideResponseText(full, pre, false));
+    void computeIsNewRejectsIdenticalTextWhenVirtualizationOccurred() {
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 65, 5, true));
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, true));
     }
 
     @Test
-    void decideResponseTextMarkerAbsentSmallAfterReturnsPreText() {
-        String pre = "Write-Output 1";
-        String full = pre + "\ntail";
-        assertEquals(pre, CdpDeepSeek.decideResponseText(full, pre, false));
+    void computeIsNewRejectsIdenticalTextWithoutCountGrowth() {
+        assertFalse(CdpDeepSeek.computeIsNew("A", "A", 5, 5, false));
     }
 
     @Test
-    void decideResponseTextMarkerAbsentNoPreReturnsEmpty() {
-        assertEquals("", CdpDeepSeek.decideResponseText("plain text no marker", "", false));
+    void computeIsNewHandlesNullInputsSafely() {
+        assertFalse(CdpDeepSeek.computeIsNew(null, "A", 5, 5, false));
+        assertTrue(CdpDeepSeek.computeIsNew("A", null, 5, 5, false));
+        assertFalse(CdpDeepSeek.computeIsNew("", null, 5, 5, false));
+    }
+
+    // ---- isResponseComplete ----
+
+    @Test
+    void isResponseCompleteRejectsShortGarbage() {
+        assertFalse(CdpDeepSeek.isResponseComplete(""));
+        assertFalse(CdpDeepSeek.isResponseComplete(null));
+        assertFalse(CdpDeepSeek.isResponseComplete("[ROLE] EXECUTOR"));
+        assertFalse(CdpDeepSeek.isResponseComplete("abc"));
     }
 
     @Test
-    void decideResponseTextReasoningReturnsEmpty() {
-        assertEquals("", CdpDeepSeek.decideResponseText("whatever", "whatever", true));
+    void isResponseCompleteAcceptsScriptMarkers() {
+        assertTrue(CdpDeepSeek.isResponseComplete("Write-Output \"USER_MSG: ok\"" + System.lineSeparator() + "$ErrorActionPreference = 'Continue'"));
+        assertTrue(CdpDeepSeek.isResponseComplete("USER_CHAT: hello"));
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_PAUSE: waiting"));
     }
 
     @Test
-    void readLastResponseExprContractGuard() {
-        // S2.2 REJECT-CORRECTION: JS now returns JSON; decision moved to decideResponseText (Java).
-        String expr = CdpDeepSeek.READ_LAST_RESPONSE_EXPR;
-        assertTrue(expr.contains("ds-think-content"), "reasoning guard missing");
-        assertTrue(expr.contains("JSON.stringify"), "must return JSON contract");
-        assertTrue(expr.contains("md-code-block pre"), "pre extraction missing");
-        assertFalse(expr.contains("INVALID_RESPONSE_TEXT_AFTER_BLOCK_"), "decision moved to Java, not JS");
-        assertFalse(expr.contains("USER_CHAT:"), "marker checks moved to Java, not JS");
+    void isResponseCompleteAcceptsLongContentWithoutMarkers() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 30; i++) sb.append("line ").append(i).append(System.lineSeparator());
+        assertTrue(CdpDeepSeek.isResponseComplete(sb.toString()));
+    }
+
+    @Test
+    void isResponseCompleteAcceptsMigrationMarkers() {
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_START: prep"));
+        assertTrue(CdpDeepSeek.isResponseComplete("AGENT_SESSION_MIGRATE_CONFIRM: ok"));
+    }
+
+    @Test
+    void isResponseCompleteAcceptsInvalidResponseMarker() {
+        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_250"));
+        assertTrue(CdpDeepSeek.isResponseComplete("INVALID_RESPONSE_TEXT_AFTER_BLOCK_1000"));
+        assertFalse(CdpDeepSeek.isResponseComplete("something else"));
     }
 
     @Test
@@ -209,5 +139,104 @@ class CdpDeepSeekReadResponseTest {
     void isResponseCompleteRejectsShortWriteOutputWithoutMarker() {
         assertFalse(CdpDeepSeek.isResponseComplete("Write-Output \"hi\""));
         assertFalse(CdpDeepSeek.isResponseComplete("Write-Output \"ROLE: EXECUTOR\""));
+    }
+
+    @Test
+    void clickRegenerateReturnsTrueOnSvgMatch() throws Exception {
+        TabSession tab = mock(TabSession.class);
+        when(tab.send(eq("Runtime.evaluate"), any())).thenReturn(nestedValue("clicked-svg"));
+        assertTrue(dsWithTab(tab).clickRegenerate());
+    }
+
+    // ---- S2.3-fix1 / AUD-76: decideResponseText contract ----
+    // Rejected semantics (S2.2 REJECT-CORRECTION 2a/2b): marker in after returned full text.
+    // Correct semantics: marker is valid ONLY inside pre; marker in after -> INVALID + regenerate.
+    // UI chrome in after (Copy / Download / language banner) is discarded when short and marker-free.
+
+    @Test
+    void decideResponseTextReasoningReturnsEmpty() {
+        assertEquals("", CdpDeepSeek.decideResponseText("whatever", "whatever", true));
+    }
+
+    @Test
+    void decideResponseTextEmptyReturnsEmpty() {
+        assertEquals("", CdpDeepSeek.decideResponseText("", "", false));
+        assertEquals("", CdpDeepSeek.decideResponseText(null, null, false));
+    }
+
+    @Test
+    void decideResponseTextMarkerInsidePreReturnsPreText() {
+        String pre = "Write-Output \"USER_MSG: start\"";
+        assertEquals(pre, CdpDeepSeek.decideResponseText(pre, pre, false));
+    }
+
+    @Test
+    void decideResponseTextMarkerInAfterReturnsInvalid() {
+        String pre = "Write-Output 1";
+        String after = "Write-Output \"USER_MSG: start\"";
+        String full = pre + "\n" + after;
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
+                CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextAgentDoneInAfterReturnsInvalid() {
+        String pre = "Write-Output 1";
+        String after = "AGENT_DONE: done";
+        String full = pre + "\n" + after;
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
+                CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextUserChatInAfterReturnsInvalid() {
+        String pre = "Write-Output 1";
+        String after = "USER_CHAT: hi";
+        String full = pre + "\n" + after;
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
+                CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextPreWithChromeAfterReturnsPreText() {
+        String pre = "Write-Output 1";
+        String chrome = "Copy\npowershell\nDownload";
+        String full = pre + "\n" + chrome;
+        assertEquals(pre, CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextPreWithLongAfterReturnsInvalid() {
+        String pre = "Write-Output 1";
+        String after = "x".repeat(150);
+        String full = pre + "\n" + after;
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length(),
+                CdpDeepSeek.decideResponseText(full, pre, false));
+    }
+
+    @Test
+    void decideResponseTextPreLessUserChatReturnsText() {
+        assertEquals("USER_CHAT: hello", CdpDeepSeek.decideResponseText("USER_CHAT: hello", "", false));
+    }
+
+    @Test
+    void decideResponseTextPreLessAgentDoneReturnsInvalid() {
+        assertEquals("INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + "AGENT_DONE: done".length(),
+                CdpDeepSeek.decideResponseText("AGENT_DONE: done", "", false));
+    }
+
+    @Test
+    void decideResponseTextPreLessUnrelatedReturnsEmpty() {
+        assertEquals("", CdpDeepSeek.decideResponseText("plain text no marker", "", false));
+    }
+
+    @Test
+    void readLastResponseExprContractGuard() {
+        String expr = CdpDeepSeek.READ_LAST_RESPONSE_EXPR;
+        assertTrue(expr.contains("ds-think-content"), "reasoning guard missing");
+        assertTrue(expr.contains("JSON.stringify"), "must return JSON contract");
+        assertTrue(expr.contains("md-code-block pre"), "pre extraction missing");
+        assertFalse(expr.contains("INVALID_RESPONSE_TEXT_AFTER_BLOCK_"), "decision moved to Java, not JS");
+        assertFalse(expr.contains("USER_CHAT:"), "marker checks moved to Java, not JS");
     }
 }

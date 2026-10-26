@@ -211,6 +211,8 @@ DEFAULTS.put("config.migrated.v5", "false");
         DEFAULTS.put("config.migrated.v7", "false");
         DEFAULTS.put("cdp.executor.tabId", "");
         DEFAULTS.put("cdp.reviewer.tabId", "");
+        DEFAULTS.put("context.pack.max.chars", "100000");
+        DEFAULTS.put("history.max.files.per.subfolder", "100");
 
     }
 
@@ -899,6 +901,16 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
         }
         props.setProperty("window.size.max.height", String.valueOf(height));
         persist();
+    }
+
+    public int getContextPackMaxChars() {
+        int v = getInt("context.pack.max.chars", 100000);
+        return v >= 1000 ? v : 100000;
+    }
+
+    public int getHistoryMaxFilesPerSubfolder() {
+        int v = getInt("history.max.files.per.subfolder", 100);
+        return v >= 1 ? v : 100;
     }
 
     private void shiftMarkerY(String key, int dyOffset) {

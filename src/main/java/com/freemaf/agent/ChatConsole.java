@@ -162,6 +162,8 @@ public final class ChatConsole extends JPanel {
 
     private void appendRaw(String line, Color color) {
 
+        if (needsEdtDispatch()) { javax.swing.SwingUtilities.invokeLater(() -> appendRaw(line, color)); return; }
+
         SimpleAttributeSet attrs = new SimpleAttributeSet();
 
         StyleConstants.setForeground(attrs, color);
@@ -184,4 +186,24 @@ public final class ChatConsole extends JPanel {
 
     }
 
+
+
+    
+static boolean needsEdtDispatch() {
+
+    
+    return !javax.swing.SwingUtilities.isEventDispatchThread();
+
+    
+}
+
+
+    
+int documentLengthForTest() {
+
+    
+    return doc.getLength();
+
+    
+}
 }

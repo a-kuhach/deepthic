@@ -320,7 +320,12 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
         String role = activeReviewerRole != null ? activeReviewerRole : "EXECUTOR";
 
-        String msg = "### ROLE_TO_ACT: " + role + System.lineSeparator()
+        String msg = SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator()
+                + (activeReviewerRole != null
+                        ? SystemInstructionProvider.getReviewerRules(activeReviewerRole)
+                        : SystemInstructionProvider.getExecutorRules())
+                + System.lineSeparator() + System.lineSeparator()
+                + "### ROLE_TO_ACT: " + role + System.lineSeparator()
                 + "Пользователь вернулся без ответа на твой вопрос (пустой ответ). Ты вправе переспросить или решить вопрос самостоятельно.";
 
         promptQueue.add(msg);
@@ -871,7 +876,7 @@ config.setExecutorMessageCount(0L);
 
                                 .append("### CONTEXT").append(System.lineSeparator());
 
-                        wrapped.append(new ContextPackager().buildContext());
+                        wrapped.append(new ContextPackager().buildContext(config.getContextPackMaxChars()));
 
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator());
 
@@ -1071,7 +1076,7 @@ config.setExecutorMessageCount(0L);
                     }
                     debug("awaitingMigrationConfirm: response has no CONFIRM, re-requesting");
                     StringBuilder nag = new StringBuilder();
-                    nag.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
+                    nag.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
                     nag.append("Ты в состоянии ожидания подтверждения миграции сессии.").append(System.lineSeparator());
                     nag.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
                     nag.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());
@@ -1107,6 +1112,7 @@ config.setExecutorMessageCount(0L);
                     statusMarker.setState(StatusMarker.State.WORKING);
 
                     StringBuilder plp = new StringBuilder();
+                    plp.append(SystemInstructionProvider.getMinimalFormatRules()).append(System.lineSeparator()).append(System.lineSeparator());
 
                     plp.append("### ROLE_TO_ACT: PLANNER").append(System.lineSeparator());
 
@@ -1130,7 +1136,7 @@ config.setExecutorMessageCount(0L);
                         && mp != MarkerProcessResult.HALT
                         && mp != MarkerProcessResult.PAUSE) {
                     StringBuilder anp = new StringBuilder();
-                                        anp.append("### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
+                                        anp.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: ANALYST").append(System.lineSeparator());
                     anp.append("Твой ответ не содержал ни AGENT_DONE, ни AGENT_PAUSE.").append(System.lineSeparator());
                     anp.append("Определись:").append(System.lineSeparator());
                     anp.append("- Если анализ завершён, отправь: Write-Output \"AGENT_DONE: <итог>\".").append(System.lineSeparator());
@@ -1245,7 +1251,7 @@ config.setExecutorMessageCount(0L);
 
                         StringBuilder cont = new StringBuilder();
 
-                        cont.append("### ROLE_TO_ACT: JUDGE").append(System.lineSeparator());
+                        cont.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: JUDGE").append(System.lineSeparator());
 
                         cont.append("Продолжи проверку. Ниже — вывод твоего предыдущего PS-скрипта.").append(System.lineSeparator());
 
@@ -1268,6 +1274,7 @@ config.setExecutorMessageCount(0L);
                     String verdictTag = hasPlanVerdict ? "JUDGE_VERDICT_PLAN" : "JUDGE_VERDICT_RESULT";
 
                     StringBuilder ep = new StringBuilder();
+                    ep.append(SystemInstructionProvider.getMinimalFormatRules()).append(System.lineSeparator()).append(System.lineSeparator());
 
                     ep.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
 
@@ -1309,7 +1316,7 @@ config.setExecutorMessageCount(0L);
 
                         StringBuilder cont = new StringBuilder();
 
-                        cont.append("### ROLE_TO_ACT: CODE_REVIEWER").append(System.lineSeparator());
+                        cont.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: CODE_REVIEWER").append(System.lineSeparator());
 
                         cont.append("Продолжи проверку. Ниже — вывод твоего предыдущего PS-скрипта.").append(System.lineSeparator());
 
@@ -1330,6 +1337,7 @@ config.setExecutorMessageCount(0L);
                     activeReviewerRole = null;
 
                     StringBuilder ep = new StringBuilder();
+                    ep.append(SystemInstructionProvider.getMinimalFormatRules()).append(System.lineSeparator()).append(System.lineSeparator());
 
                     ep.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
 
@@ -1471,7 +1479,7 @@ config.setExecutorMessageCount(0L);
 
                     StringBuilder retryNoRev = new StringBuilder();
 
-                    retryNoRev.append("### ROLE_TO_ACT: ").append(expectedRole).append(System.lineSeparator());
+                    retryNoRev.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: ").append(expectedRole).append(System.lineSeparator());
 
                     retryNoRev.append("Your previous response did not contain a ROLE marker on the first line of the PS-block.")
 
@@ -1506,7 +1514,7 @@ config.setExecutorMessageCount(0L);
 
                     StringBuilder retry = new StringBuilder();
 
-                    retry.append("### ROLE_TO_ACT: ").append(activeReviewerRole).append(System.lineSeparator());
+                    retry.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: ").append(activeReviewerRole).append(System.lineSeparator());
 
                     retry.append("Твой предыдущий ответ не содержал строку-маркер ROLE на первой строке PS-блока, поэтому роль не определена.")
 
@@ -1557,7 +1565,7 @@ config.setExecutorMessageCount(0L);
                 if (awaitingMigrationConfirm) {
                     debug("getValidResponse failed while awaiting CONFIRM: " + e.getMessage() + " - re-requesting");
                     StringBuilder nag2 = new StringBuilder();
-                    nag2.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
+                    nag2.append(SystemInstructionProvider.getMinimalFormatRules() + System.lineSeparator() + System.lineSeparator() + "### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
                     nag2.append("Ты в состоянии ожидания подтверждения миграции сессии.").append(System.lineSeparator());
                     nag2.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
                     nag2.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());

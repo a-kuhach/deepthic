@@ -133,8 +133,11 @@ public final class DirectiveValidator {
         while (m.find()) {
             String lit = m.group(1) != null ? m.group(1) : m.group(2);
             if (lit == null) continue;
-            String t = lit.strip().toLowerCase(Locale.ROOT);
-            if (t.equals("rules") || t.equals("agent")) return true;
+            String t = lit.strip().toLowerCase(Locale.ROOT).replace('\\', '/');
+            // Block only when the literal names a protected segment. "agent" alone is the
+            // runtime/artifacts root and MUST remain writable (agent/project/*.md, agent/cache).
+            if (t.equals("rules") || t.startsWith("rules/") || t.endsWith("/rules")
+                    || t.contains("/rules/")) return true;
         }
         return false;
     }

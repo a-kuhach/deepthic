@@ -1106,26 +1106,41 @@ private static String toJsonArray(String[] texts) {
      * - marker absent + pre + after<=100 chars -> preText
      * Package-private static for unit testing.
      */
-    static String decideResponseText(String text, String preText, boolean reasoning) {
-        if (reasoning) return "";
-        String t = text == null ? "" : text;
-        String p = preText == null ? "" : preText;
-        if (t.isEmpty()) return "";
-        boolean hasMarker = t.contains("USER_CHAT:")
-                || t.contains("USER_MSG:")
-                || t.contains("AGENT_PAUSE:")
-                || t.contains("AGENT_STOP:")
-                || t.contains("AGENT_DONE:")
-                || t.contains("AGENT_SESSION_MIGRATE_");
-        if (hasMarker) return t;
-        if (p.isEmpty()) return "";
-        int idx = t.indexOf(p);
-        if (idx < 0) return p;
-        String after = t.substring(idx + p.length()).trim();
-        if (after.length() > 100) {
-            return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length();
-        }
-        return p;
+        static String decideResponseText(String text, String preText, boolean reasoning) {
+        if (reasoning) return "";
+        String t = text == null ? "" : text;
+        String p = preText == null ? "" : preText;
+        if (t.isEmpty()) return "";
+        if (!p.isEmpty()) {
+            String pTrim = p.trim();
+            if (!pTrim.isEmpty()) {
+                int idx = t.indexOf(pTrim);
+                if (idx < 0) {
+                    return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + t.length();
+                }
+                String after = t.substring(idx + pTrim.length()).trim();
+                if (containsAnyMarker(after)) {
+                    return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length();
+                }
+                if (after.length() > 100) {
+                    return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + after.length();
+                }
+                return pTrim;
+            }
+        }
+        if (t.contains("USER_CHAT:")) return t;
+        if (containsAnyMarker(t)) return "INVALID_RESPONSE_TEXT_AFTER_BLOCK_" + t.length();
+        return "";
+    }
+
+    private static boolean containsAnyMarker(String s) {
+        if (s == null) return false;
+        return s.contains("USER_CHAT:")
+                || s.contains("USER_MSG:")
+                || s.contains("AGENT_PAUSE:")
+                || s.contains("AGENT_STOP:")
+                || s.contains("AGENT_DONE:")
+                || s.contains("AGENT_SESSION_MIGRATE_");
     }
 
 

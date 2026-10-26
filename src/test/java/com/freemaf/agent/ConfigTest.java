@@ -277,6 +277,32 @@ class ConfigTest {
     }
 
     @Test
+    void contextPackMaxCharsDefaultIs100000() {
+        Config config = new Config();
+        assertEquals(100000, config.getContextPackMaxChars());
+    }
+
+    @Test
+    void contextPackMaxCharsRejectsLowValue() {
+        Config config = new Config();
+        config.set("context.pack.max.chars", "500");
+        assertEquals(100000, config.getContextPackMaxChars());
+    }
+
+    @Test
+    void historyMaxFilesPerSubfolderDefaultIs100() {
+        Config config = new Config();
+        assertEquals(100, config.getHistoryMaxFilesPerSubfolder());
+    }
+
+    @Test
+    void historyMaxFilesPerSubfolderRejectsZero() {
+        Config config = new Config();
+        config.set("history.max.files.per.subfolder", "0");
+        assertEquals(100, config.getHistoryMaxFilesPerSubfolder());
+    }
+
+    @Test
     void migratedV7PromotesCdpEnabledForExistingProfiles() {
         Config config = new Config();
         String prevV7 = config.get("config.migrated.v7", "false");
