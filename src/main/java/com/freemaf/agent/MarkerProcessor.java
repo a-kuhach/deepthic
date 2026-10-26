@@ -13,7 +13,9 @@ public final class MarkerProcessor {
                 case ROLE -> { }
                 case USER_MSG -> chatConsole.appendAgent(event.message());
                 case AGENT_PAUSE -> {
-                    result = MarkerProcessResult.PAUSE;
+                    if (result != MarkerProcessResult.HALT) {
+                        result = MarkerProcessResult.PAUSE;
+                    }
                 }
                 case AGENT_STOP -> {
                     chatConsole.appendSystem("Agent stopped: " + event.message());

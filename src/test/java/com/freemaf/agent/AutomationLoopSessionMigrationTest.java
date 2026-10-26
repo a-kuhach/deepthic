@@ -76,15 +76,9 @@ class AutomationLoopSessionMigrationTest {
         f.set(loop, role);
     }
 
-    private static void setWarningInjected(AutomationLoop loop, boolean v) throws Exception {
-        Field f = AutomationLoop.class.getDeclaredField("warningInjected");
-        f.setAccessible(true);
-        f.set(loop, v);
-    }
 
-    private static MarkerEvent stopEvent() {
-        return new MarkerEvent(MarkerType.AGENT_STOP, "done");
-    }
+
+
 
     private static MarkerEvent startEvent() {
         return new MarkerEvent(MarkerType.AGENT_SESSION_MIGRATE_START, "prep");
@@ -114,6 +108,7 @@ class AutomationLoopSessionMigrationTest {
 
         String out = loop.injectMigrationWarningIfNeeded("PROMPT");
         assertTrue(out.contains("Счётчик сообщений Executor достиг 100"));
+        loop.applyMigrationWarningDelivery(true);
         assertTrue(loop.isWarningInjected());
         assertTrue(out.endsWith("PROMPT"));
     }
@@ -155,18 +150,7 @@ class AutomationLoopSessionMigrationTest {
         assertFalse(loop2.isAwaitingMigrationConfirm());
     }
 
-    @Test
-    void detectMigrationHaltAbsorbsStopAtCounterHundredWithWarning() throws Exception {
-        Config c = newConfig();
-        c.setExecutorMessageCount(100L);
-        AutomationLoop loop = newLoop(c);
-        setWarningInjected(loop, true);
 
-        assertTrue(loop.detectMigrationHalt(List.of(stopEvent()), "EXECUTOR"));
-
-        setWarningInjected(loop, false);
-        assertFalse(loop.detectMigrationHalt(List.of(stopEvent()), "EXECUTOR"));
-    }
 
     @Test
     void performSessionMigrationClosesOldAndResetsState() throws Exception {
@@ -307,5 +291,58 @@ class AutomationLoopSessionMigrationTest {
         String role = extractRawRoleMarkerReflect(script);
         assertEquals("EXECUTOR", role);
         assertTrue(validRolesReflect().contains(role));
+    }
+
+    @Test
+    void injectMigrationWarning_counterBelow100_doesNotSetFlag() throws Exception {
+        Config c = newConfig();
+        c.setExecutorMessageCount(50L);
+        AutomationLoop loop = newLoop(c);
+
+        String out = loop.injectMigrationWarningIfNeeded("PROMPT");
+        assertEquals("PROMPT", out);
+        assertFalse(loop.isWarningInjected());
+        assertFalse(loop.isWarningPrependPending());
+
+        loop.applyMigrationWarningDelivery(true);
+        assertFalse(loop.isWarningInjected());
+    }
+
+    @Test
+    void injectMigrationWarning_counterAt100_setsFlagOnlyAfterDelivery() throws Exception {
+        Config c = newConfig();
+        c.setExecutorMessageCount(100L);
+        AutomationLoop loop = newLoop(c);
+
+        String out = loop.injectMigrationWarningIfNeeded("PROMPT");
+        assertTrue(out.contains("Счётчик сообщений Executor достиг 100"));
+        assertTrue(out.endsWith("PROMPT"));
+        assertFalse(loop.isWarningInjected());
+        assertTrue(loop.isWarningPrependPending());
+
+        loop.applyMigrationWarningDelivery(true);
+        assertTrue(loop.isWarningInjected());
+    }
+
+    @Test
+    void injectMigrationWarning_deliveryFailure_retainsWarning() throws Exception {
+        Config c = newConfig();
+        c.setExecutorMessageCount(100L);
+        AutomationLoop loop = newLoop(c);
+
+        String first = loop.injectMigrationWarningIfNeeded("P1");
+        assertTrue(first.contains("Счётчик сообщений Executor достиг 100"));
+        assertFalse(loop.isWarningInjected());
+
+        // Simulate a delivery throw: skip applyMigrationWarningDelivery entirely.
+        String second = loop.injectMigrationWarningIfNeeded("P2");
+        assertTrue(second.contains("Счётчик сообщений Executor достиг 100"));
+        assertTrue(loop.isWarningPrependPending());
+
+        loop.applyMigrationWarningDelivery(false);
+        assertFalse(loop.isWarningInjected());
+
+        loop.applyMigrationWarningDelivery(true);
+        assertTrue(loop.isWarningInjected());
     }
 }

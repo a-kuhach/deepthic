@@ -64,6 +64,7 @@ public final class AutomationLoop implements Runnable {
 
     private volatile boolean awaitingMigrationConfirm = false;
     private volatile boolean warningInjected = false;
+    private volatile boolean warningPrependPending = false;
     private volatile String pendingPauseOutput = null;
 
     private volatile String lastObservedRole = "EXECUTOR";
@@ -416,6 +417,7 @@ config.setExecutorMessageCount(0L);
             promptQueue.add(Prompt.user(initC.toString(), List.of()));
             awaitingMigrationConfirm = false;
             warningInjected = false;
+            warningPrependPending = false;
             executorContextRequired = true;
             return;
         }
@@ -489,6 +491,7 @@ config.setExecutorMessageCount(0L);
             promptQueue.add(Prompt.user(init.toString(), List.of()));
             awaitingMigrationConfirm = false;
             warningInjected = false;
+            warningPrependPending = false;
             executorContextRequired = true;
             debug("performSessionMigration: done, new hwnd=" + w.hwndValue());
         } catch (Exception e) {
@@ -515,40 +518,22 @@ config.setExecutorMessageCount(0L);
 
 
 
-    String injectMigrationWarningIfNeeded(String prompt) {
 
-        if (activeReviewerRole != null) return prompt;
-
-        if (awaitingMigrationConfirm) return prompt;
-
-        if (config.getExecutorMessageCount() < 100) return prompt;
-        if (warningInjected) return prompt;
-
-        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с одной строкой: Write-Output \"AGENT_SESSION_MIGRATE_START: <текст>\", затем дождись лога и отправь ТОЛЬКО строку маркера: AGENT_SESSION_MIGRATE_CONFIRM: <текст> без скрипта и без обёртки.";
-
-        warningInjected = true;
-
-        debug("injected migration warning (counter=" + config.getExecutorMessageCount() + ")");
-
-        return warn + System.lineSeparator() + System.lineSeparator() + prompt;
-
-    }
+    String injectMigrationWarningIfNeeded(String prompt) {
+        warningPrependPending = false;
+        if (activeReviewerRole != null) return prompt;
+        if (awaitingMigrationConfirm) return prompt;
+        if (config.getExecutorMessageCount() < 100
+                && !Boolean.getBoolean("freemaf.migrationWarn.injectOnRetry")) return prompt;
+        if (warningInjected) return prompt;
+        String warn = "Счётчик сообщений Executor достиг 100. Пора начинать миграцию в новую сессию: подготовь WIP.md, отправь PS-скрипт с одной строкой: Write-Output \"AGENT_SESSION_MIGRATE_START: <текст>\", затем дождись лога и отправь ТОЛЬКО строку маркера: AGENT_SESSION_MIGRATE_CONFIRM: <текст> без скрипта и без обёртки.";
+        warningPrependPending = true;
+        debug("injected migration warning (counter=" + config.getExecutorMessageCount() + ")");
+        return warn + System.lineSeparator() + System.lineSeparator() + prompt;
+    }
 
 
 
-    boolean detectMigrationHalt(List<MarkerEvent> events, String responseRole) {
-
-        boolean isAgentStop = events.stream().anyMatch(ev -> ev.type() == MarkerType.AGENT_STOP);
-
-        return isAgentStop
-
-                && "EXECUTOR".equals(responseRole)
-
-                && config.getExecutorMessageCount() >= 100
-
-                && warningInjected;
-
-    }
 
 
 
@@ -574,11 +559,28 @@ config.setExecutorMessageCount(0L);
 
 
 
-    boolean isAwaitingMigrationConfirm() { return awaitingMigrationConfirm; }
+
+    /**
+     * AUD-54: called by run() only after successful getValidResponse().
+     * Sets the idempotency flag ONLY if the current turn actually prepended
+     * the migration warning (warningPrependPending was true).
+     * success=false is a no-op (used in fixtures and for defensive future
+     * call sites). A throw from getValidResponse skips this call entirely,
+     * leaving warningInjected unset so the next iteration re-prepends.
+     */
+    void applyMigrationWarningDelivery(boolean success) {
+        if (success && warningPrependPending) {
+            warningInjected = true;
+        }
+    }
+
+    boolean isAwaitingMigrationConfirm() { return awaitingMigrationConfirm; }
 
 
 
     boolean isWarningInjected() { return warningInjected; }
+
+    boolean isWarningPrependPending() { return warningPrependPending; }
 
 
     private WindowInfo applyWorkRectToNewWindow(WindowInfo w) throws InterruptedException {
@@ -912,6 +914,7 @@ config.setExecutorMessageCount(0L);
                 deepSeekSession.setAwaitingMigrationConfirm(awaitingMigrationConfirm);
                 deepSeekSession.setUseReviewer(activeReviewerRole != null);
                 AgentResponse response = deepSeekSession.getValidResponse(prompt, incomingFiles);
+                applyMigrationWarningDelivery(true);
 
                 String responseRole = response.role();
 
@@ -1148,17 +1151,7 @@ config.setExecutorMessageCount(0L);
                 }
 
 
-                if (mp == MarkerProcessResult.HALT) {
-
-                    boolean isMigrationHalt = detectMigrationHalt(events, responseRole);
-                    if (isMigrationHalt) {
-                        debug("absorbing old AGENT_STOP, migrating at counter=" + config.getExecutorMessageCount());
-                        warningInjected = false;
-                        awaitingMigrationConfirm = false;
-                        String commitLog = LogReporter.build(result);
-                        performSessionMigration(commitLog);
-                        continue;
-                    }
+                                if (mp == MarkerProcessResult.HALT) {
                     try { switchToExecutor(); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                     return;
                 }
