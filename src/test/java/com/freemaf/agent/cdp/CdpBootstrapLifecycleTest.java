@@ -129,4 +129,23 @@ class CdpBootstrapLifecycleTest {
 
         assertFalse(b.isRunning());
     }
+
+    @Test
+    void pauseForStopKeepsExecutorTabIdAndDoesNotCloseChrome() throws Exception {
+        CdpBootstrap b = newRealMethodsMock();
+        doNothing().when(b).closeReviewer();
+        com.freemaf.agent.Config cfg = Mockito.mock(com.freemaf.agent.Config.class);
+        Mockito.when(cfg.getCdpExecutorTabId()).thenReturn("tab-preserved-123");
+        setField(CdpBootstrap.class, b, "config", cfg);
+        CdpSession sessMock = Mockito.mock(CdpSession.class);
+        setField(CdpBootstrap.class, b, "session", sessMock);
+
+        b.pauseForStop();
+
+        Mockito.verify(b, Mockito.never()).closeExecutor();
+        Mockito.verify(cfg, Mockito.never()).setCdpExecutorTabId(Mockito.anyString());
+        Mockito.verify(sessMock, Mockito.never()).browserClose();
+        Mockito.verify(sessMock, Mockito.never()).close();
+    }
+
 }

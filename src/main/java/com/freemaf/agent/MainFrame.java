@@ -1171,9 +1171,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                 try {
 
-                    cdpBootstrap.closeReviewer();
-
-                    cdpBootstrap.closeExecutor();
+                                        cdpBootstrap.stopAndClose();
+                    try { Thread.sleep(1000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
 
                     if (RECONNECT_FAIL_ONCE && !injectedFailureConsumed) {
 
@@ -1183,10 +1182,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                     }
 
+                                        cdpBootstrap.start(false, true, true);
                     cdpBootstrap.openExecutor();
-
-                    cdpBootstrap.activateExecutor();
-
                     appendSystem("Reconnected in CDP mode.");
 
                     SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(MainFrame.this,
@@ -1428,17 +1425,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                 AppLogger.info("startSequence: CDP mode, async bootstrap start");
 
-                // FIX73: kill any orphan framework chrome processes before starting a new session.
-
-                try {
-
-                    int killed = com.freemaf.agent.cdp.ChromeProcessLauncher.killFrameworkChromiumProcesses(
-
-                        com.freemaf.agent.cdp.ChromeProcessLauncher.resolveProfilePath(), 0L);
-
-                    if (killed > 0) AppLogger.info("startSequence: killed " + killed + " orphan framework chrome process(es)");
-
-                } catch (Exception ignored) { }
+                                // Preserve orphans: adopt existing framework Chrome (see CdpBootstrap.doStart allowReuse path).
 
                 appendSystem("Запуск CDP-сессии, ожидайте...");
 
@@ -1494,7 +1481,11 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                         }
 
-                        cdpBootstrap.ensureExecutorTabFresh();
+                        if (cdpBootstrap.isExecutorTabOpen()) {
+                            AppLogger.info("startSequence: adopting existing executor tab (post-pause resume)");
+                        } else {
+                            cdpBootstrap.ensureExecutorTabFresh();
+                        }
 
                     } catch (CompletionException ce) {
 
@@ -2848,7 +2839,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                 CompletableFuture.runAsync(() -> {
 
-                    try { selfForStop.cdpBootstrap.stop(); }
+                    try { selfForStop.cdpBootstrap.pauseForStop(); }
 
                     catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
 
@@ -2858,7 +2849,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                 start.whenComplete((v, t) -> CompletableFuture.runAsync(() -> {
 
-                    try { selfForStop.cdpBootstrap.stop(); }
+                    try { selfForStop.cdpBootstrap.pauseForStop(); }
 
                     catch (Exception cex) { AppLogger.warn("stopAction: cdpBootstrap.stop failed: " + cex.getMessage()); }
 

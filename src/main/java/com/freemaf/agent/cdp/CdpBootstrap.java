@@ -53,14 +53,9 @@ public final class CdpBootstrap {
         this.config = config;
         this.port = port;
         // FIX34: shutdown hook kills Chrome (prevents orphan processes on JVM exit).
+        // Preserve Chrome on app exit: user closes window manually if desired.
+        // Only release the single-instance lock so a next instance can start.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            try {
-                Process p = this.chromeProcess;
-                if (p != null && p.isAlive()) {
-                    try { ChromeProcessLauncher.stop(p); } catch (Exception ignored) { }
-                }
-                try { ChromeProcessLauncher.killFrameworkChromiumProcesses(ChromeProcessLauncher.resolveProfilePath(), 0L); } catch (Exception ignored) { }
-            } catch (Exception ignored) { }
             releaseLock();
         }, "cdp-shutdown"));
     }
@@ -516,7 +511,7 @@ public final class CdpBootstrap {
                 AppLogger.info("CdpBootstrap.openExecutor: adopting stored tab " + stored);
                 executor = new CdpDeepSeek(session, loginHandler, existing);
                 executorTabInfo = existing;
-                session.activateTab(existing);
+                // A1-focus-preservation-comment (activateTab skipped: focus preservation)
                 return executor;
             }
             config.setCdpExecutorTabId("");
@@ -525,7 +520,7 @@ public final class CdpBootstrap {
         executor = openRole();
         executorTabInfo = executor.activeTabInfo();
         if (executorTabInfo != null) {
-            session.activateTab(executorTabInfo);
+            // A1-focus-preservation-comment (activateTab skipped: focus preservation)
             config.setCdpExecutorTabId(executorTabInfo.id());
         }
         return executor;
@@ -540,7 +535,7 @@ public final class CdpBootstrap {
                 AppLogger.info("CdpBootstrap.openReviewer: adopting stored tab " + stored);
                 reviewer = new CdpDeepSeek(session, loginHandler, existing);
                 reviewerTabInfo = existing;
-                session.activateTab(existing);
+                // A1-focus-preservation-comment (activateTab skipped: focus preservation)
                 return reviewer;
             }
             config.setCdpReviewerTabId("");
@@ -549,7 +544,7 @@ public final class CdpBootstrap {
         reviewer = openRole();
         reviewerTabInfo = reviewer.activeTabInfo();
         if (reviewerTabInfo != null) {
-            session.activateTab(reviewerTabInfo);
+            // A1-focus-preservation-comment (activateTab skipped: focus preservation)
             config.setCdpReviewerTabId(reviewerTabInfo.id());
         }
         return reviewer;
@@ -586,7 +581,7 @@ public final class CdpBootstrap {
 
 
 
-    public synchronized void stop() {
+    public synchronized void stopAndClose() {
 
         try { closeReviewer(); } catch (Exception ignored) { }
 
@@ -640,7 +635,26 @@ public final class CdpBootstrap {
         releaseLock();
 
     }
-    public synchronized boolean isReviewerTabOpen() {
+    /**
+     * STOP semantic: pipeline paused. Reviewer tab closed. Executor tab + Chrome
+     * process + config.cdp.executor.tabId preserved for resume-from-stop.
+     */
+    public synchronized void pauseForStop() {
+        try { closeReviewer(); } catch (Exception ignored) { }
+        String tabId = "";
+        try { tabId = (config != null) ? config.getCdpExecutorTabId() : ""; } catch (Exception ignored) { }
+        AppLogger.info("CdpBootstrap.pauseForStop: reviewer closed, executor preserved (tabId=" + tabId + ")");
+    }
+
+    /** Alias for callers using the old name. */
+    public synchronized void stop() { stopAndClose(); }
+
+    /** App exit: only release lock; Chrome persists for next-session adoption. */
+    public void releaseOnExit() {
+        releaseLock();
+    }
+
+    public synchronized boolean isReviewerTabOpen() {
         if (reviewerTabInfo == null || session == null) return false;
         String id = reviewerTabInfo.id();
         for (CdpTabInfo t : session.listTabs()) if (id.equals(t.id())) return true;
@@ -655,11 +669,11 @@ public final class CdpBootstrap {
     }
 
     public synchronized void activateExecutor() {
-        if (executorTabInfo != null && session != null) session.activateTab(executorTabInfo);
+        // A1-noop-activateTab-marker
     }
 
     public synchronized void activateReviewer() {
-        if (reviewerTabInfo != null && session != null) session.activateTab(reviewerTabInfo);
+        // A1-noop-activateTab-marker
     }
 
     /**

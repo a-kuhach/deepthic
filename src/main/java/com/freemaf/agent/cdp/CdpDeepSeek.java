@@ -106,7 +106,7 @@ public final class CdpDeepSeek {
         if (existingTab == null) throw new IllegalArgumentException("existingTab is null");
         this.activeTabInfo = existingTab;
         this.activeTab = session.attach(existingTab);
-        session.activateTab(existingTab);
+        // A1-focus-preservation-comment
         try {
             Map<String, Object> focus = new HashMap<>();
             focus.put("enabled", Boolean.TRUE);
@@ -166,7 +166,7 @@ public final class CdpDeepSeek {
 
         }
 
-        session.activateTab(activeTabInfo);
+        // A1-focus-preservation-comment
 
         activeTab = session.attach(activeTabInfo);
 
@@ -243,14 +243,18 @@ public final class CdpDeepSeek {
 
 
 
-        try {
-
+                try {
             waitForInput(15_000L);
-
         } catch (TimeoutException te) {
-
-            throw new IllegalStateException("input field not found after navigate: " + te.getMessage(), te);
-
+            AppLogger.warn("CdpDeepSeek.open: waitForInput 15s timeout, dumping diagnostics + retry 30s: " + te.getMessage());
+            dumpTimeoutDiagnostic();
+            try {
+                waitForInput(30_000L);
+            } catch (TimeoutException te2) {
+                AppLogger.warn("CdpDeepSeek.open: waitForInput retry 30s timeout: " + te2.getMessage());
+                dumpTimeoutDiagnostic();
+                throw new IllegalStateException("input field not found after navigate (15s+30s): " + te2.getMessage(), te2);
+            }
         }
 
 
@@ -346,6 +350,27 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
     }
 
 
+
+    private void dumpTimeoutDiagnostic() {
+        try {
+            String href = evaluate("String(location.href)");
+            String title = evaluate("String(document.title)");
+            String outerLen = evaluate("String(document.documentElement.outerHTML.length)");
+            String innerLen = evaluate("String((document.body && document.body.innerText || '').length)");
+            String textareaCount = evaluate("String(document.querySelectorAll('textarea').length)");
+            String searchTa = evaluate("String(document.querySelectorAll('textarea[name=search]').length)");
+            String ceCount = evaluate("String(document.querySelectorAll('[contenteditable]').length)");
+            String iframeCount = evaluate("String(document.querySelectorAll('iframe').length)");
+            String bodySnip = evaluate("String(((document.body && document.body.innerText) || '').substring(0, 200))");
+            AppLogger.warn("CdpDeepSeek TIMEOUT-DIAG: href=" + href + " title=" + title
+                + " outerLen=" + outerLen + " innerLen=" + innerLen
+                + " textareas=" + textareaCount + " searchTa=" + searchTa
+                + " contenteditables=" + ceCount + " iframes=" + iframeCount
+                + " bodySnippet=[" + bodySnip + "]");
+        } catch (Exception e) {
+            AppLogger.warn("CdpDeepSeek TIMEOUT-DIAG failed: " + e.getMessage());
+        }
+    }
 
     private int countAnyMessages() {
 

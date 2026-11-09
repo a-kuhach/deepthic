@@ -18,6 +18,7 @@ import com.sun.jna.platform.win32.WinBase;
 import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.Kernel32;
+import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinUser;
 import com.freemaf.agent.AppLogger;
 
@@ -122,7 +123,7 @@ public final class ChromeProcessLauncher {
             AppLogger.info("FIX85: chrome.exe --headless=new (window will be hidden by hunter)");
         } else {
 
-            args.add("--new-window");
+            args.add("--no-startup-window");
 
         }
 
@@ -394,5 +395,26 @@ public final class ChromeProcessLauncher {
 
 
 
+
+
+    public static long getForegroundWindow() {
+        try {
+            WinDef.HWND hwnd = User32.INSTANCE.GetForegroundWindow();
+            if (hwnd == null) return 0L;
+            return com.sun.jna.Pointer.nativeValue(hwnd.getPointer());
+        } catch (Throwable t) {
+            return 0L;
+        }
+    }
+
+    public static boolean restoreForegroundWindow(long hwnd) {
+        if (hwnd == 0L) return false;
+        try {
+            WinDef.HWND target = new WinDef.HWND(new com.sun.jna.Pointer(hwnd));
+            return User32.INSTANCE.SetForegroundWindow(target);
+        } catch (Throwable t) {
+            return false;
+        }
+    }
 
 }

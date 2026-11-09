@@ -47,8 +47,18 @@ public final class CdpSession {
         return port;
     }
 
-    public CdpTabInfo newTab() {
-        return http.newTab();
+    public CdpTabInfo newTab() {
+        // A1 focus preservation: save foreground before creating tab (first call may create window).
+        long prevFg = ChromeProcessLauncher.getForegroundWindow();
+        CdpTabInfo tab = http.newTab();
+        if (prevFg != 0L) {
+            try { Thread.sleep(150L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+            boolean restored = ChromeProcessLauncher.restoreForegroundWindow(prevFg);
+            if (!restored) {
+                com.freemaf.agent.AppLogger.debug("CdpSession.newTab: foreground restore rejected (best-effort)");
+            }
+        }
+        return tab;
     }
 
     public List<CdpTabInfo> listTabs() {
@@ -80,15 +90,10 @@ public final class CdpSession {
         return new TabSession(pageWs, sessionId, tab);
     }
 
-    public void activateTab(CdpTabInfo tab) {
-        if (tab == null || tab.id().isEmpty()) return;
-        Map<String, Object> params = new HashMap<>();
-        params.put("targetId", tab.id());
-        try {
-            browserWs.send("Target.activateTarget", params).join();
-        } catch (Exception ignored) {
-            // activation is best-effort
-        }
+    public void activateTab(CdpTabInfo tab) {
+        // A1: OS-level tab activation (Target.activateTarget) steals OS focus.
+        // CDP automation operates on attached tabs without OS-level activation.
+        // Never call Target.activateTarget here — see ChromeProcessLauncher focus helpers.
     }
 
     public boolean closeTab(CdpTabInfo tab) {
