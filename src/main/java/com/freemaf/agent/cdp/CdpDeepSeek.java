@@ -141,6 +141,7 @@ public final class CdpDeepSeek {
         }
 
         enableNetworkDiagnostics();
+        installHifRewrite();
 
     }
 
@@ -220,6 +221,7 @@ public final class CdpDeepSeek {
         enableNetworkDiagnostics();
 
         navigate(DEEPSEEK_URL);
+        installHifRewrite();
 
         // FIX35: fast-fail if redirected to sign_in (cold profile, CloudFront sign_in response).
         // Saves ~13 s per open() call when not logged in.
@@ -1629,7 +1631,64 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
         AppLogger.info("NET-DIAG: unsubscribed");
     }
 
-    private static void sleep(long ms) {
+
+    private static final String HIF_REWRITE_JS =
+        "(function(){" +
+        "if(window.__fmafHifRewriteInstalled)return;" +
+        "window.__fmafHifRewriteInstalled=true;" +
+        "var RE=/^(https?:\\/\\/)hif-[a-z0-9]+\\.deepseek\\.com(\\/|$)/i;" +
+        "var FB='hif-leim.deepseek.com';" +
+        "var of=window.fetch;" +
+        "if(of){window.fetch=function(input,init){" +
+        "var url=typeof input==='string'?input:(input&&input.url)||'';" +
+        "var self=this;var p=of.call(self,input,init);" +
+        "if(RE.test(url)&&url.indexOf(FB)<0){" +
+        "return p.catch(function(err){" +
+        "var nu=url.replace(RE,'$1'+FB+'$2');" +
+        "try{console.warn('[FMAF-HIF] fetch fallback '+url+' -> '+nu);}catch(e){}" +
+        "var ni=(typeof input==='string')?nu:new Request(nu,input);" +
+        "return of.call(self,ni,init);});}" +
+        "return p;};}" +
+        "var OES=window.EventSource;" +
+        "if(OES){window.EventSource=function(u,c){" +
+        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
+        "try{console.warn('[FMAF-HIF] EventSource fallback '+u);}catch(e){}" +
+        "return new OES(u.replace(RE,'$1'+FB+'$2'),c);}" +
+        "return new OES(u,c);};" +
+        "window.EventSource.prototype=OES.prototype;" +
+        "window.EventSource.CONNECTING=OES.CONNECTING;" +
+        "window.EventSource.OPEN=OES.OPEN;" +
+        "window.EventSource.CLOSED=OES.CLOSED;}" +
+        "var XO=window.XMLHttpRequest&&XMLHttpRequest.prototype&&XMLHttpRequest.prototype.open;" +
+        "if(XO){XMLHttpRequest.prototype.open=function(m,u){" +
+        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
+        "try{console.warn('[FMAF-HIF] XHR fallback '+u);}catch(e){}" +
+        "return XO.apply(this,[m,u.replace(RE,'$1'+FB+'$2')].concat(Array.prototype.slice.call(arguments,2)));}" +
+        "return XO.apply(this,arguments);};}" +
+        "})()";
+
+    private void installHifRewrite() {
+        if (activeTab == null) return;
+        if ("false".equalsIgnoreCase(System.getProperty("freemaf.hifFix", "true"))) {
+            AppLogger.info("HIF-FIX: disabled by -Dfreemaf.hifFix=false");
+            return;
+        }
+        try {
+            Map<String, Object> p = new HashMap<>();
+            p.put("source", HIF_REWRITE_JS);
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", p);
+            AppLogger.info("HIF-FIX: interceptor registered for next navigations");
+        } catch (Exception e) {
+            AppLogger.warn("HIF-FIX: addScriptToEvaluateOnNewDocument failed: " + e.getMessage());
+        }
+        try {
+            evaluate(HIF_REWRITE_JS);
+            AppLogger.info("HIF-FIX: interceptor installed on current page");
+        } catch (Exception e) {
+            AppLogger.warn("HIF-FIX: Runtime.evaluate failed: " + e.getMessage());
+        }
+    }
+    private static void sleep(long ms) {
 
         try {
 

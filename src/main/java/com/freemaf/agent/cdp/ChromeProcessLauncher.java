@@ -27,6 +27,17 @@ public final class ChromeProcessLauncher {
 
     private ChromeProcessLauncher() {}
 
+    private static String resolveFirstIpv4(String host) {
+        try {
+            for (java.net.InetAddress addr : java.net.InetAddress.getAllByName(host)) {
+                if (addr instanceof java.net.Inet4Address) return addr.getHostAddress();
+            }
+        } catch (Exception e) {
+            AppLogger.warn("resolveFirstIpv4(" + host + "): " + e.getMessage());
+        }
+        return null;
+    }
+
     public static Path resolveProfilePath() {
         return Path.of(PROFILE_DIR).toAbsolutePath().normalize();
     }
@@ -66,6 +77,15 @@ public final class ChromeProcessLauncher {
         args.add("--remote-allow-origins=*");
 
         args.add("--user-data-dir=" + profilePath);
+        // HIF-FIX: hif-dliq.deepseek.com is IPv6-only today (HuaweiCloud WAF backend).
+        // On clients without working IPv6 route the SSE stream fails with ERR_NAME_NOT_RESOLVED.
+        // MAP hif-dliq to an IPv4 CloudFront edge (same *.deepseek.com cert, Host header preserved).
+        if (!"false".equalsIgnoreCase(System.getProperty("freemaf.hifFix", "true"))) {
+            String hifFixIp = resolveFirstIpv4("hif-leim.deepseek.com");
+            if (hifFixIp == null) hifFixIp = "3.173.21.63"; // last-known-good 2026-11-09
+            args.add("--host-resolver-rules=MAP hif-dliq.deepseek.com " + hifFixIp);
+            AppLogger.info("HIF-FIX: mapped hif-dliq.deepseek.com -> " + hifFixIp);
+        }
 
         args.add("--no-first-run");
 
