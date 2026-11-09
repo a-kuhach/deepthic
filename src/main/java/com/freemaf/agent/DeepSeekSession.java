@@ -181,6 +181,10 @@ public final class DeepSeekSession {
     private void applySpeedModeDelay() {
         SpeedMode mode = this.speedMode;
         if (mode == null) { return; }
+        if (mode != SpeedMode.INSTANT) {
+            long elapsedLog = lastSendTimeMs == 0 ? -1L : (System.currentTimeMillis() - lastSendTimeMs);
+            AppLogger.info("SPEED-DIAG: mode=" + mode.name() + " elapsed=" + elapsedLog + "ms min=" + mode.getMinMs() + " max=" + mode.getMaxMs());
+        }
         long delay = mode.getRandomMs();
         if (delay <= 0) {
             lastSendTimeMs = System.currentTimeMillis();

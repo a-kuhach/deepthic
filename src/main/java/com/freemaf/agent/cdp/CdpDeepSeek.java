@@ -67,6 +67,14 @@ public final class CdpDeepSeek {
     private volatile int lastPreSendCount = 0;
     private volatile String lastPreSendText = "";
 
+    // NET-DIAG: opt-in Network.* event logging (activated by -Dfreemaf.netDiag=true).
+    private volatile boolean netDiagSubscribed = false;
+    private volatile long netDiagSendStartMs = 0L;
+    private volatile int netDiagApiRequests = 0;
+    private Consumer<JsonNode> netReqHandler;
+    private Consumer<JsonNode> netRespHandler;
+    private Consumer<JsonNode> netFailHandler;
+
     private CdpTabInfo activeTabInfo;
 
 
@@ -131,6 +139,8 @@ public final class CdpDeepSeek {
             AppLogger.warn("FIX30: stealth script install failed (adopt): " + sx.getMessage());
 
         }
+
+        enableNetworkDiagnostics();
 
     }
 
@@ -207,6 +217,8 @@ public final class CdpDeepSeek {
             AppLogger.warn("Emulation.setFocusEmulationEnabled failed: " + e.getMessage());
         }
 
+        enableNetworkDiagnostics();
+
         navigate(DEEPSEEK_URL);
 
         // FIX35: fast-fail if redirected to sign_in (cold profile, CloudFront sign_in response).
@@ -240,19 +252,32 @@ public final class CdpDeepSeek {
 
         // FIX15: unconditionally force fresh chat via clickNewChat (DOM is virtualized, history not visible)
         
-        // Fix-E (C6, N-62): diagnostic — record the caller of open() so we can identify
-        // unexpected invocation paths (e.g. after async start completes).
-        String callerTrace = "";
-        try {
-            StackTraceElement[] st = Thread.currentThread().getStackTrace();
-            for (int ci = 2; ci < st.length && ci < 10; ci++) {
-                String cn = st[ci].getClassName();
-                if (cn.startsWith("java.") || cn.startsWith("com.freemaf.agent.cdp.CdpDeepSeek")) continue;
-                callerTrace = cn + "." + st[ci].getMethodName() + ":" + st[ci].getLineNumber();
-                break;
-            }
-        } catch (Throwable ignored) { }
-        AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat() [caller=" + callerTrace + "]");
+        // Fix-E (C6, N-62): diagnostic — record the caller of open() so we can identify
+
+        // unexpected invocation paths (e.g. after async start completes).
+
+        String callerTrace = "";
+
+        try {
+
+            StackTraceElement[] st = Thread.currentThread().getStackTrace();
+
+            for (int ci = 2; ci < st.length && ci < 10; ci++) {
+
+                String cn = st[ci].getClassName();
+
+                if (cn.startsWith("java.") || cn.startsWith("com.freemaf.agent.cdp.CdpDeepSeek")) continue;
+
+                callerTrace = cn + "." + st[ci].getMethodName() + ":" + st[ci].getLineNumber();
+
+                break;
+
+            }
+
+        } catch (Throwable ignored) { }
+
+        AppLogger.info("CdpDeepSeek.open: initial count=" + landedCount + "; forcing fresh chat via clickNewChat() [caller=" + callerTrace + "]");
+
         String clickResult = clickNewChatWithRetry();
         AppLogger.info("CdpDeepSeek.open: clickNewChat result = " + clickResult);
         if ("NOT_FOUND".equals(clickResult)) {
@@ -650,6 +675,12 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
             throw new IllegalArgumentException("CdpDeepSeek.sendMessage: prompt is null or blank");
         }
         lastPreSendCount = countAssistantMessages();
+        final boolean __netDiag = "true".equalsIgnoreCase(System.getProperty("freemaf.netDiag", "true"));
+        if (__netDiag) {
+            netDiagSendStartMs = System.currentTimeMillis();
+            netDiagApiRequests = 0;
+            AppLogger.info("NET-DIAG: sendMessage start, textLen=" + text.length() + ", preCount=" + lastPreSendCount);
+        }
         String snapText = readLastResponse();
         lastPreSendText = (snapText == null) ? "" : snapText;
 
@@ -758,6 +789,12 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
         String postText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
 
         AppLogger.info("CdpDeepSeek.sendMessage: postTextareaLen=" + postText.length());
+
+        if (__netDiag) {
+            long __waited = System.currentTimeMillis() - netDiagSendStartMs;
+            int __curCount = countAssistantMessages();
+            AppLogger.info("NET-DIAG: sendMessage returned, waited=" + __waited + "ms, postTextareaLen=" + postText.length() + ", apiRequests=" + netDiagApiRequests + ", curCount=" + __curCount);
+        }
 
     }
 
@@ -1074,38 +1111,70 @@ private static String toJsonArray(String[] texts) {
 
 
     
-    static final String READ_LAST_RESPONSE_EXPR =
-                "(function(){" +
-                "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
-                "if (msgs.length === 0) return JSON.stringify({t:'',p:'',r:false});" +
-                "var m = msgs[msgs.length - 1];" +
-                "if (m.closest('[class*=\"ds-think-content\"]')) return JSON.stringify({t:'',p:'',r:true});" +
-                "var pre = m.querySelector('.md-code-block pre') || m.querySelector('pre');" +
-                "var text = (m.innerText || '').trim();" +
-                "var preText = pre ? (pre.innerText || '') : '';" +
-                "return JSON.stringify({t:text,p:preText,r:false});" +
-                "})()";
-
-    public String readLastResponse() {
-        String raw = evaluate(READ_LAST_RESPONSE_EXPR);
-        if (raw == null || raw.isEmpty()) return "";
-        try {
-            JsonNode n = MAPPER.readTree(raw);
-            return decideResponseText(n.path("t").asText(""), n.path("p").asText(""), n.path("r").asBoolean(false));
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
-    /**
-     * S2.2 / AUD-39 (JUDGE REJECT-CORRECTION, plan Step 4.1 contract):
-     * - reasoning step -> ""
-     * - any of USER_CHAT:/USER_MSG:/AGENT_PAUSE:/AGENT_STOP:/AGENT_DONE:/AGENT_SESSION_MIGRATE_* anywhere in text -> full text
-     * - marker absent + no pre -> ""
-     * - marker absent + pre + after>100 chars -> INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>
-     * - marker absent + pre + after<=100 chars -> preText
-     * Package-private static for unit testing.
-     */
+    static final String READ_LAST_RESPONSE_EXPR =
+
+                "(function(){" +
+
+                "var msgs = document.querySelectorAll(\"div.ds-markdown, [data-message-author-role='assistant'], [class~='ds-markdown'], [data-chat-flow-kind='assistant-step']\");" +
+
+                "if (msgs.length === 0) return JSON.stringify({t:'',p:'',r:false});" +
+
+                "var m = msgs[msgs.length - 1];" +
+
+                "if (m.closest('[class*=\"ds-think-content\"]')) return JSON.stringify({t:'',p:'',r:true});" +
+
+                "var pre = m.querySelector('.md-code-block pre') || m.querySelector('pre');" +
+
+                "var text = (m.innerText || '').trim();" +
+
+                "var preText = pre ? (pre.innerText || '') : '';" +
+
+                "return JSON.stringify({t:text,p:preText,r:false});" +
+
+                "})()";
+
+
+
+    public String readLastResponse() {
+
+        String raw = evaluate(READ_LAST_RESPONSE_EXPR);
+
+        if (raw == null || raw.isEmpty()) return "";
+
+        try {
+
+            JsonNode n = MAPPER.readTree(raw);
+
+            return decideResponseText(n.path("t").asText(""), n.path("p").asText(""), n.path("r").asBoolean(false));
+
+        } catch (Exception e) {
+
+            return "";
+
+        }
+
+    }
+
+
+
+    /**
+
+     * S2.2 / AUD-39 (JUDGE REJECT-CORRECTION, plan Step 4.1 contract):
+
+     * - reasoning step -> ""
+
+     * - any of USER_CHAT:/USER_MSG:/AGENT_PAUSE:/AGENT_STOP:/AGENT_DONE:/AGENT_SESSION_MIGRATE_* anywhere in text -> full text
+
+     * - marker absent + no pre -> ""
+
+     * - marker absent + pre + after>100 chars -> INVALID_RESPONSE_TEXT_AFTER_BLOCK_<len>
+
+     * - marker absent + pre + after<=100 chars -> preText
+
+     * Package-private static for unit testing.
+
+     */
+
         static String decideResponseText(String text, String preText, boolean reasoning) {
         if (reasoning) return "";
         String t = text == null ? "" : text;
@@ -1141,7 +1210,9 @@ private static String toJsonArray(String[] texts) {
                 || s.contains("AGENT_STOP:")
                 || s.contains("AGENT_DONE:")
                 || s.contains("AGENT_SESSION_MIGRATE_");
-    }
+    }
+
+
 
 
 
@@ -1361,18 +1432,30 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
 
 
-    static boolean isResponseComplete(String raw) {
-        if (raw == null || raw.isEmpty()) return false;
-        if (raw.startsWith("INVALID_RESPONSE_")) return true;
-        if (raw.contains("Write-Output") && (raw.contains("USER_MSG:") || raw.contains("AGENT_PAUSE:") || raw.contains("AGENT_STOP:") || raw.contains("AGENT_DONE:") || raw.contains("AGENT_SESSION_MIGRATE_START") || raw.contains("AGENT_SESSION_MIGRATE_CONFIRM"))) return true;
-        if (raw.contains("USER_CHAT:")) return true;
-        if (raw.contains("AGENT_PAUSE:")) return true;
-        if (raw.contains("AGENT_STOP:")) return true;
-        if (raw.contains("AGENT_DONE:")) return true;
-        if (raw.contains("AGENT_SESSION_MIGRATE_")) return true;
-        if (raw.length() > 100) return true;
-        return false;
-    }
+    static boolean isResponseComplete(String raw) {
+
+        if (raw == null || raw.isEmpty()) return false;
+
+        if (raw.startsWith("INVALID_RESPONSE_")) return true;
+
+        if (raw.contains("Write-Output") && (raw.contains("USER_MSG:") || raw.contains("AGENT_PAUSE:") || raw.contains("AGENT_STOP:") || raw.contains("AGENT_DONE:") || raw.contains("AGENT_SESSION_MIGRATE_START") || raw.contains("AGENT_SESSION_MIGRATE_CONFIRM"))) return true;
+
+        if (raw.contains("USER_CHAT:")) return true;
+
+        if (raw.contains("AGENT_PAUSE:")) return true;
+
+        if (raw.contains("AGENT_STOP:")) return true;
+
+        if (raw.contains("AGENT_DONE:")) return true;
+
+        if (raw.contains("AGENT_SESSION_MIGRATE_")) return true;
+
+        if (raw.length() > 100) return true;
+
+        return false;
+
+    }
+
 
 
 
@@ -1429,6 +1512,7 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
 
     public void closeActiveTab() {
+        disableNetworkDiagnostics();
 
         try {
 
@@ -1473,6 +1557,77 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
     }
 
 
+
+    // NET-DIAG: default ON for this diagnostic session. Pass -Dfreemaf.netDiag=false to disable.
+    // TODO(fix): flip default to "false" once the WAF/React no-op issue is resolved.
+    private void enableNetworkDiagnostics() {
+        if (activeTab == null) return;
+        if (!"true".equalsIgnoreCase(System.getProperty("freemaf.netDiag", "true"))) return;
+        if (netDiagSubscribed) return;
+        try {
+            Map<String, Object> params = new HashMap<>();
+            activeTab.send("Network.enable", params);
+            AppLogger.info("NET-DIAG: Network.enable sent");
+        } catch (Exception e) {
+            AppLogger.warn("NET-DIAG: Network.enable failed: " + e.getMessage());
+            return;
+        }
+        netReqHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                JsonNode req = p.get("request");
+                if (req == null) return;
+                String url = req.path("url").asText("");
+                if (!url.contains("deepseek.com")) return;
+                String m = req.path("method").asText("?");
+                String reqId = p.path("requestId").asText("?");
+                netDiagApiRequests++;
+                AppLogger.info("NET-DIAG req: " + m + " " + url + " reqId=" + reqId);
+            } catch (Exception ignored) { }
+        };
+        netRespHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                JsonNode resp = p.get("response");
+                if (resp == null) return;
+                String url = resp.path("url").asText("");
+                if (!url.contains("deepseek.com")) return;
+                int status = resp.path("status").asInt(0);
+                String reqId = p.path("requestId").asText("?");
+                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
+                AppLogger.info("NET-DIAG resp: status=" + status + " url=" + url + " reqId=" + reqId + " elapsed=" + elapsed + "ms");
+            } catch (Exception ignored) { }
+        };
+        netFailHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                String errText = p.path("errorText").asText("?");
+                String blocked = p.path("blockedReason").asText("");
+                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
+                AppLogger.warn("NET-DIAG fail: reqId=" + reqId + " errorText=" + errText + " blockedReason=" + blocked + " elapsed=" + elapsed + "ms");
+            } catch (Exception ignored) { }
+        };
+        activeTab.on("Network.requestWillBeSent", netReqHandler);
+        activeTab.on("Network.responseReceived", netRespHandler);
+        activeTab.on("Network.loadingFailed", netFailHandler);
+        netDiagSubscribed = true;
+        AppLogger.info("NET-DIAG: subscribed to Network.* events");
+    }
+
+    private void disableNetworkDiagnostics() {
+        if (!netDiagSubscribed) return;
+        if (activeTab != null) {
+            try { activeTab.off("Network.requestWillBeSent", netReqHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.responseReceived", netRespHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.loadingFailed", netFailHandler); } catch (Exception ignored) { }
+        }
+        netDiagSubscribed = false;
+        AppLogger.info("NET-DIAG: unsubscribed");
+    }
 
     private static void sleep(long ms) {
 

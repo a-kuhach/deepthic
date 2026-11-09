@@ -205,6 +205,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
         this.hotkeyListener = new GlobalHotkeyListener(this::stopAction);
 
         this.inputSimulator.setSpeedMode(SpeedMode.fromName(config.get("speed.mode", "INSTANT")));
+        this.deepSeekSession.setSpeedMode(SpeedMode.fromName(config.get("speed.mode", "INSTANT")));
 
         this.inputSimulator.setWaitRetryCallback(reason -> {
 
@@ -605,6 +606,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
             SpeedMode next = inputSimulator.getSpeedMode().next();
 
             inputSimulator.setSpeedMode(next);
+            deepSeekSession.setSpeedMode(next);
 
             updateSpeedButtonText(speedButton);
 
