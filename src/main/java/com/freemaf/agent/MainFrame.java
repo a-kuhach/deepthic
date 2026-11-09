@@ -1058,12 +1058,15 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             startAction();
 
-        } else if (currentState == StatusMarker.State.PAUSED && currentLoop != null) {
-
+                } else if (currentState == StatusMarker.State.PAUSED && currentLoop != null) {
             appendSystem("Resuming paused loop to deliver user message.");
-
             currentLoop.resumeAfterUserInput();
-
+        } else if (currentState == StatusMarker.State.WORKING && currentLoop != null) {
+            promptQueue.addPendingUserDuringWorking(text);
+            if (!files.isEmpty()) {
+                AppLogger.warn("submitPrompt(WORKING): " + files.size() + " attachment(s) dropped - pending messages carry text only");
+            }
+            appendSystem("Сообщение будет передано агенту со следующим шагом.");
         }
 
     }

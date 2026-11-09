@@ -983,7 +983,7 @@ config.setExecutorMessageCount(0L);
 
                     corr.append("Nothing before the block and nothing after. The previous script was NOT executed.").append(System.lineSeparator());
 
-                    promptQueue.add(corr.toString());
+                    promptQueue.addDirect(corr.toString());
 
                     continue;
 
@@ -1009,7 +1009,7 @@ config.setExecutorMessageCount(0L);
 
                     chatConsole.appendSystem("Failed to save script.ps1 - " + e.getMessage());
 
-                    promptQueue.add(buildDiagnostic("Could not save script.ps1: " + e.getMessage()));
+                    promptQueue.addDirect(buildDiagnostic("Could not save script.ps1: " + e.getMessage()));
 
                     continue;
 
@@ -1034,7 +1034,7 @@ config.setExecutorMessageCount(0L);
 
                     chatConsole.appendSystem("Failed to run script.ps1 - " + e.getMessage());
 
-                    promptQueue.add(buildDiagnostic("Could not execute script.ps1: " + e.getMessage()));
+                    promptQueue.addDirect(buildDiagnostic("Could not execute script.ps1: " + e.getMessage()));
 
                     continue;
 
@@ -1084,7 +1084,7 @@ config.setExecutorMessageCount(0L);
                     nag.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
                     nag.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());
                     nag.append("Ничего до блока и после блока. Никаких USER_MSG и AGENT_PAUSE. Без fenced-блока ответ не копируется и не принимается.").append(System.lineSeparator());
-                    promptQueue.add(nag.toString());
+                    promptQueue.addDirect(nag.toString());
                     continue;
                 }
                 MarkerProcessResult mp = MarkerProcessor.process(events, chatConsole, statusMarker);
@@ -1111,7 +1111,7 @@ config.setExecutorMessageCount(0L);
 
 
                 if (analystDone) {
-
+                    if (tryConsumePendingOverMarker(responseRole, "AGENT_DONE", "Ты запросил AGENT_DONE до того, как это сообщение пришло. Работа НЕ была остановлена (анализ продолжается), чтобы доставить сообщение.")) { continue; }
                     statusMarker.setState(StatusMarker.State.WORKING);
 
                     StringBuilder plp = new StringBuilder();
@@ -1152,6 +1152,7 @@ config.setExecutorMessageCount(0L);
 
 
                                 if (mp == MarkerProcessResult.HALT) {
+                    if (tryConsumePendingOverMarker(responseRole, "AGENT_STOP", "Ты запросил AGENT_STOP до того, как это сообщение пришло. Работа НЕ была остановлена, чтобы доставить сообщение.")) { continue; }
                     try { switchToExecutor(); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
                     return;
                 }
@@ -1185,6 +1186,7 @@ config.setExecutorMessageCount(0L);
 
 
                                 if (mp == MarkerProcessResult.PAUSE) {
+                    if (tryConsumePendingOverMarker(responseRole, "AGENT_PAUSE", "Ты запросил AGENT_PAUSE до того, как это сообщение пришло. Работа НЕ была приостановлена, чтобы доставить сообщение.")) { continue; }
                     String filteredPause = filterPauseOutput(scriptLog);
                     if (filteredPause != null && !filteredPause.isBlank()) {
                         pendingPauseOutput = filteredPause;
@@ -1484,7 +1486,7 @@ config.setExecutorMessageCount(0L);
 
                     retryNoRev.append("Nothing before the block and nothing after.").append(System.lineSeparator());
 
-                    promptQueue.add(retryNoRev.toString());
+                    promptQueue.addDirect(retryNoRev.toString());
 
                     continue;
 
@@ -1527,7 +1529,7 @@ config.setExecutorMessageCount(0L);
 
                     retry.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
 
-                    promptQueue.add(retry.toString());
+                    promptQueue.addDirect(retry.toString());
 
                     continue;
 
@@ -1563,7 +1565,7 @@ config.setExecutorMessageCount(0L);
                     nag2.append("Ответь ровно ОДНИМ fenced PowerShell-блоком. Внутри блока — ровно одна строка:").append(System.lineSeparator());
                     nag2.append("Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: <короткий текст>\"").append(System.lineSeparator());
                     nag2.append("Ничего до блока и после блока. Никаких USER_MSG и AGENT_PAUSE. Без fenced-блока ответ не копируется и не принимается.").append(System.lineSeparator());
-                    promptQueue.add(nag2.toString());
+                    promptQueue.addDirect(nag2.toString());
                     continue;
                 }
                 chatConsole.appendSystem("Agent paused: " + e.getMessage());
@@ -1609,6 +1611,30 @@ config.setExecutorMessageCount(0L);
      * Accepted forms: ROLE: X / Write-Output "ROLE: X" / Write-Output 'ROLE: X'.
 
      */
+
+    private boolean tryConsumePendingOverMarker(String responseRole, String triggerName, String explanation) {
+        if (!promptQueue.hasPendingUserDuringWorking()) return false;
+        String pending = promptQueue.drainPendingUserDuringWorking();
+        if (pending == null || pending.isBlank()) return false;
+        String role = (responseRole == null || responseRole.isEmpty())
+                ? (activeReviewerRole != null ? activeReviewerRole : "EXECUTOR")
+                : responseRole;
+        StringBuilder sb = new StringBuilder();
+        sb.append(pending).append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append("Сообщение выше передал пользователь. ").append(explanation);
+        sb.append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append("После ответа на это сообщение ты можешь снова запросить ").append(triggerName).append(" при необходимости.");
+        sb.append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append(SystemInstructionProvider.getMinimalFormatRules());
+        sb.append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append("### ROLE_TO_ACT: ").append(role).append(System.lineSeparator());
+        sb.append("Первая строка ответа: [").append(role).append("]. Первая строка PS-блока: Write-Output \"ROLE: ").append(role).append("\" в кавычках.");
+        sb.append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append(SystemInstructionProvider.getFormatReminder());
+        promptQueue.addDirect(sb.toString());
+        AppLogger.info("AutomationLoop: " + triggerName + " overridden by pending user message; role=" + role + ", pendingLen=" + pending.length());
+        return true;
+    }
 
     private static String extractRawRoleMarker(String psScript) {
 
