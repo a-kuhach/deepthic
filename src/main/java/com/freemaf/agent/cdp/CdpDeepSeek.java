@@ -710,6 +710,26 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
         AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertText.length());
 
+        if (afterInsertText.isEmpty()) {
+            AppLogger.warn("sendMessage: textarea empty after insert (insertResult=" + insertResult + "); page may be reloading");
+            try {
+                Map<String, Object> rp = new HashMap<>();
+                activeTab.send("Page.reload", rp);
+            } catch (Exception rex) { AppLogger.warn("sendMessage reload: " + rex.getMessage()); }
+            sleep(3000L);
+            try { waitForInput(15000L); } catch (Exception wtx) { throw new IllegalStateException("sendMessage: textarea missing and not restored after reload: " + wtx.getMessage()); }
+            try { evaluate(focusExpr); } catch (Exception ignored2) { }
+            sleep(300L);
+            String retryInsert = evaluate(setterScript);
+            String retryVal = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+            AppLogger.info("sendMessage: retry after reload insertResult=" + retryInsert + " len=" + retryVal.length());
+            if (retryVal.isEmpty()) {
+                throw new IllegalStateException("sendMessage: page reload did not restore textarea (insertResult=" + retryInsert + ")");
+            }
+            afterInsertText = retryVal;
+            AppLogger.info("sendMessage: reload recovery OK, afterInsertLen=" + afterInsertText.length());
+        }
+
         sleep(500L);
 
         boolean sent = false;
@@ -1632,63 +1652,120 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
     }
 
 
-    private static final String HIF_REWRITE_JS =
-        "(function(){" +
-        "if(window.__fmafHifRewriteInstalled)return;" +
-        "window.__fmafHifRewriteInstalled=true;" +
-        "var RE=/^(https?:\\/\\/)hif-[a-z0-9]+\\.deepseek\\.com(\\/|$)/i;" +
-        "var FB='hif-leim.deepseek.com';" +
-        "var of=window.fetch;" +
-        "if(of){window.fetch=function(input,init){" +
-        "var url=typeof input==='string'?input:(input&&input.url)||'';" +
-        "var self=this;var p=of.call(self,input,init);" +
-        "if(RE.test(url)&&url.indexOf(FB)<0){" +
-        "return p.catch(function(err){" +
-        "var nu=url.replace(RE,'$1'+FB+'$2');" +
-        "try{console.warn('[FMAF-HIF] fetch fallback '+url+' -> '+nu);}catch(e){}" +
-        "var ni=(typeof input==='string')?nu:new Request(nu,input);" +
-        "return of.call(self,ni,init);});}" +
-        "return p;};}" +
-        "var OES=window.EventSource;" +
-        "if(OES){window.EventSource=function(u,c){" +
-        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
-        "try{console.warn('[FMAF-HIF] EventSource fallback '+u);}catch(e){}" +
-        "return new OES(u.replace(RE,'$1'+FB+'$2'),c);}" +
-        "return new OES(u,c);};" +
-        "window.EventSource.prototype=OES.prototype;" +
-        "window.EventSource.CONNECTING=OES.CONNECTING;" +
-        "window.EventSource.OPEN=OES.OPEN;" +
-        "window.EventSource.CLOSED=OES.CLOSED;}" +
-        "var XO=window.XMLHttpRequest&&XMLHttpRequest.prototype&&XMLHttpRequest.prototype.open;" +
-        "if(XO){XMLHttpRequest.prototype.open=function(m,u){" +
-        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
-        "try{console.warn('[FMAF-HIF] XHR fallback '+u);}catch(e){}" +
-        "return XO.apply(this,[m,u.replace(RE,'$1'+FB+'$2')].concat(Array.prototype.slice.call(arguments,2)));}" +
-        "return XO.apply(this,arguments);};}" +
-        "})()";
-
-    private void installHifRewrite() {
-        if (activeTab == null) return;
-        if ("false".equalsIgnoreCase(System.getProperty("freemaf.hifFix", "true"))) {
-            AppLogger.info("HIF-FIX: disabled by -Dfreemaf.hifFix=false");
-            return;
-        }
-        try {
-            Map<String, Object> p = new HashMap<>();
-            p.put("source", HIF_REWRITE_JS);
-            activeTab.send("Page.addScriptToEvaluateOnNewDocument", p);
-            AppLogger.info("HIF-FIX: interceptor registered for next navigations");
-        } catch (Exception e) {
-            AppLogger.warn("HIF-FIX: addScriptToEvaluateOnNewDocument failed: " + e.getMessage());
-        }
-        try {
-            evaluate(HIF_REWRITE_JS);
-            AppLogger.info("HIF-FIX: interceptor installed on current page");
-        } catch (Exception e) {
-            AppLogger.warn("HIF-FIX: Runtime.evaluate failed: " + e.getMessage());
-        }
-    }
-    private static void sleep(long ms) {
+    private static final String HIF_REWRITE_JS =
+
+        "(function(){" +
+
+        "if(window.__fmafHifRewriteInstalled)return;" +
+
+        "window.__fmafHifRewriteInstalled=true;" +
+
+        "var RE=/^(https?:\\/\\/)hif-[a-z0-9]+\\.deepseek\\.com(\\/|$)/i;" +
+
+        "var FB='hif-leim.deepseek.com';" +
+
+        "var of=window.fetch;" +
+
+        "if(of){window.fetch=function(input,init){" +
+
+        "var url=typeof input==='string'?input:(input&&input.url)||'';" +
+
+        "var self=this;var p=of.call(self,input,init);" +
+
+        "if(RE.test(url)&&url.indexOf(FB)<0){" +
+
+        "return p.catch(function(err){" +
+
+        "var nu=url.replace(RE,'$1'+FB+'$2');" +
+
+        "try{console.warn('[FMAF-HIF] fetch fallback '+url+' -> '+nu);}catch(e){}" +
+
+        "var ni=(typeof input==='string')?nu:new Request(nu,input);" +
+
+        "return of.call(self,ni,init);});}" +
+
+        "return p;};}" +
+
+        "var OES=window.EventSource;" +
+
+        "if(OES){window.EventSource=function(u,c){" +
+
+        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
+
+        "try{console.warn('[FMAF-HIF] EventSource fallback '+u);}catch(e){}" +
+
+        "return new OES(u.replace(RE,'$1'+FB+'$2'),c);}" +
+
+        "return new OES(u,c);};" +
+
+        "window.EventSource.prototype=OES.prototype;" +
+
+        "window.EventSource.CONNECTING=OES.CONNECTING;" +
+
+        "window.EventSource.OPEN=OES.OPEN;" +
+
+        "window.EventSource.CLOSED=OES.CLOSED;}" +
+
+        "var XO=window.XMLHttpRequest&&XMLHttpRequest.prototype&&XMLHttpRequest.prototype.open;" +
+
+        "if(XO){XMLHttpRequest.prototype.open=function(m,u){" +
+
+        "if(typeof u==='string'&&RE.test(u)&&u.indexOf(FB)<0){" +
+
+        "try{console.warn('[FMAF-HIF] XHR fallback '+u);}catch(e){}" +
+
+        "return XO.apply(this,[m,u.replace(RE,'$1'+FB+'$2')].concat(Array.prototype.slice.call(arguments,2)));}" +
+
+        "return XO.apply(this,arguments);};}" +
+
+        "})()";
+
+
+
+    private void installHifRewrite() {
+
+        if (activeTab == null) return;
+
+        if ("false".equalsIgnoreCase(System.getProperty("freemaf.hifFix", "true"))) {
+
+            AppLogger.info("HIF-FIX: disabled by -Dfreemaf.hifFix=false");
+
+            return;
+
+        }
+
+        try {
+
+            Map<String, Object> p = new HashMap<>();
+
+            p.put("source", HIF_REWRITE_JS);
+
+            activeTab.send("Page.addScriptToEvaluateOnNewDocument", p);
+
+            AppLogger.info("HIF-FIX: interceptor registered for next navigations");
+
+        } catch (Exception e) {
+
+            AppLogger.warn("HIF-FIX: addScriptToEvaluateOnNewDocument failed: " + e.getMessage());
+
+        }
+
+        try {
+
+            evaluate(HIF_REWRITE_JS);
+
+            AppLogger.info("HIF-FIX: interceptor installed on current page");
+
+        } catch (Exception e) {
+
+            AppLogger.warn("HIF-FIX: Runtime.evaluate failed: " + e.getMessage());
+
+        }
+
+    }
+
+
+    private static void sleep(long ms) {
 
         try {
 
