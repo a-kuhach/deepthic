@@ -74,6 +74,16 @@ public final class CdpDeepSeek {
     private Consumer<JsonNode> netReqHandler;
     private Consumer<JsonNode> netRespHandler;
     private Consumer<JsonNode> netFailHandler;
+    private Consumer<JsonNode> netDataReceivedHandler;
+    private Consumer<JsonNode> netLoadingFinishedHandler;
+    private Consumer<JsonNode> netWsCreatedHandler;
+    private Consumer<JsonNode> netWsClosedHandler;
+    private Consumer<JsonNode> netWsFrameHandler;
+    private Consumer<JsonNode> netConsoleHandler;
+    private Consumer<JsonNode> netExceptionHandler;
+    private final java.util.concurrent.ConcurrentHashMap<String, String> netTrackedReqs = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> netDataTotals = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.concurrent.ConcurrentHashMap<String, Integer> netChunkCounts = new java.util.concurrent.ConcurrentHashMap<>();
 
     private CdpTabInfo activeTabInfo;
 
@@ -709,26 +719,6 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
         String afterInsertText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
 
         AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertText.length());
-
-        if (afterInsertText.isEmpty()) {
-            AppLogger.warn("sendMessage: textarea empty after insert (insertResult=" + insertResult + "); page may be reloading");
-            try {
-                Map<String, Object> rp = new HashMap<>();
-                activeTab.send("Page.reload", rp);
-            } catch (Exception rex) { AppLogger.warn("sendMessage reload: " + rex.getMessage()); }
-            sleep(3000L);
-            try { waitForInput(15000L); } catch (Exception wtx) { throw new IllegalStateException("sendMessage: textarea missing and not restored after reload: " + wtx.getMessage()); }
-            try { evaluate(focusExpr); } catch (Exception ignored2) { }
-            sleep(300L);
-            String retryInsert = evaluate(setterScript);
-            String retryVal = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
-            AppLogger.info("sendMessage: retry after reload insertResult=" + retryInsert + " len=" + retryVal.length());
-            if (retryVal.isEmpty()) {
-                throw new IllegalStateException("sendMessage: page reload did not restore textarea (insertResult=" + retryInsert + ")");
-            }
-            afterInsertText = retryVal;
-            AppLogger.info("sendMessage: reload recovery OK, afterInsertLen=" + afterInsertText.length());
-        }
 
         sleep(500L);
 
@@ -1582,74 +1572,221 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
 
     // NET-DIAG: default ON for this diagnostic session. Pass -Dfreemaf.netDiag=false to disable.
     // TODO(fix): flip default to "false" once the WAF/React no-op issue is resolved.
-    private void enableNetworkDiagnostics() {
-        if (activeTab == null) return;
-        if (!"true".equalsIgnoreCase(System.getProperty("freemaf.netDiag", "true"))) return;
-        if (netDiagSubscribed) return;
-        try {
-            Map<String, Object> params = new HashMap<>();
-            activeTab.send("Network.enable", params);
-            AppLogger.info("NET-DIAG: Network.enable sent");
-        } catch (Exception e) {
-            AppLogger.warn("NET-DIAG: Network.enable failed: " + e.getMessage());
-            return;
-        }
-        netReqHandler = node -> {
-            try {
-                JsonNode p = node.get("params");
-                if (p == null) return;
-                JsonNode req = p.get("request");
-                if (req == null) return;
-                String url = req.path("url").asText("");
-                if (!url.contains("deepseek.com")) return;
-                String m = req.path("method").asText("?");
-                String reqId = p.path("requestId").asText("?");
-                netDiagApiRequests++;
-                AppLogger.info("NET-DIAG req: " + m + " " + url + " reqId=" + reqId);
-            } catch (Exception ignored) { }
-        };
-        netRespHandler = node -> {
-            try {
-                JsonNode p = node.get("params");
-                if (p == null) return;
-                JsonNode resp = p.get("response");
-                if (resp == null) return;
-                String url = resp.path("url").asText("");
-                if (!url.contains("deepseek.com")) return;
-                int status = resp.path("status").asInt(0);
-                String reqId = p.path("requestId").asText("?");
-                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
-                AppLogger.info("NET-DIAG resp: status=" + status + " url=" + url + " reqId=" + reqId + " elapsed=" + elapsed + "ms");
-            } catch (Exception ignored) { }
-        };
-        netFailHandler = node -> {
-            try {
-                JsonNode p = node.get("params");
-                if (p == null) return;
-                String reqId = p.path("requestId").asText("?");
-                String errText = p.path("errorText").asText("?");
-                String blocked = p.path("blockedReason").asText("");
-                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
-                AppLogger.warn("NET-DIAG fail: reqId=" + reqId + " errorText=" + errText + " blockedReason=" + blocked + " elapsed=" + elapsed + "ms");
-            } catch (Exception ignored) { }
-        };
-        activeTab.on("Network.requestWillBeSent", netReqHandler);
-        activeTab.on("Network.responseReceived", netRespHandler);
-        activeTab.on("Network.loadingFailed", netFailHandler);
-        netDiagSubscribed = true;
-        AppLogger.info("NET-DIAG: subscribed to Network.* events");
-    }
 
-    private void disableNetworkDiagnostics() {
-        if (!netDiagSubscribed) return;
-        if (activeTab != null) {
-            try { activeTab.off("Network.requestWillBeSent", netReqHandler); } catch (Exception ignored) { }
-            try { activeTab.off("Network.responseReceived", netRespHandler); } catch (Exception ignored) { }
-            try { activeTab.off("Network.loadingFailed", netFailHandler); } catch (Exception ignored) { }
-        }
-        netDiagSubscribed = false;
-        AppLogger.info("NET-DIAG: unsubscribed");
-    }
+    private void enableNetworkDiagnostics() {
+        if (activeTab == null) return;
+        if (!"true".equalsIgnoreCase(System.getProperty("freemaf.netDiag", "true"))) return;
+        if (netDiagSubscribed) return;
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("maxTotalBufferSize", Integer.valueOf(100000000));
+            params.put("maxResourceBufferSize", Integer.valueOf(10000000));
+            params.put("maxPostDataSize", Integer.valueOf(10000000));
+            activeTab.send("Network.enable", params);
+            AppLogger.info("NET-DIAG: Network.enable sent (large buffers)");
+        } catch (Exception e) {
+            AppLogger.warn("NET-DIAG: Network.enable failed: " + e.getMessage());
+            return;
+        }
+        try {
+            activeTab.send("Runtime.enable", new HashMap<>());
+            AppLogger.info("NET-DIAG: Runtime.enable sent");
+        } catch (Exception e) {
+            AppLogger.warn("NET-DIAG: Runtime.enable failed: " + e.getMessage());
+        }
+        try {
+            Map<String, Object> cacheParams = new HashMap<>();
+            cacheParams.put("cacheDisabled", Boolean.TRUE);
+            activeTab.send("Network.setCacheDisabled", cacheParams);
+            AppLogger.info("NET-DIAG: Network.setCacheDisabled(true)");
+        } catch (Exception e) {
+            AppLogger.warn("NET-DIAG: setCacheDisabled failed: " + e.getMessage());
+        }
+        netReqHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                JsonNode req = p.get("request");
+                if (req == null) return;
+                String url = req.path("url").asText("");
+                if (!url.contains("deepseek.com")) return;
+                String m = req.path("method").asText("?");
+                String reqId = p.path("requestId").asText("?");
+                netDiagApiRequests++;
+                AppLogger.info("NET-DIAG req: " + m + " " + url + " reqId=" + reqId);
+            } catch (Exception ignored) { }
+        };
+        netRespHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                JsonNode resp = p.get("response");
+                if (resp == null) return;
+                String url = resp.path("url").asText("");
+                if (!url.contains("deepseek.com")) return;
+                int status = resp.path("status").asInt(0);
+                String reqId = p.path("requestId").asText("?");
+                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
+                String mime = resp.path("mimeType").asText("");
+                AppLogger.info("NET-DIAG resp: status=" + status + " url=" + url + " reqId=" + reqId + " elapsed=" + elapsed + "ms mime=" + mime);
+                if (url.contains("/chat/completion") || url.contains("/chat/regenerate") || url.contains("/hif-") || mime.contains("event-stream") || mime.contains("websocket")) {
+                    netTrackedReqs.put(reqId, url + " [mime=" + mime + "]");
+                    AppLogger.info("NET-DIAG: tracking reqId=" + reqId + " url=" + url + " mime=" + mime);
+                }
+            } catch (Exception ignored) { }
+        };
+        netFailHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                String errText = p.path("errorText").asText("?");
+                String blocked = p.path("blockedReason").asText("");
+                long elapsed = netDiagSendStartMs > 0 ? (System.currentTimeMillis() - netDiagSendStartMs) : -1L;
+                AppLogger.warn("NET-DIAG fail: reqId=" + reqId + " errorText=" + errText + " blockedReason=" + blocked + " elapsed=" + elapsed + "ms");
+            } catch (Exception ignored) { }
+        };
+        netDataReceivedHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                if (!netTrackedReqs.containsKey(reqId)) return;
+                long dataLen = p.path("dataLength").asLong(0);
+                Long prev = netDataTotals.get(reqId);
+                long total = (prev == null ? 0L : prev.longValue()) + dataLen;
+                netDataTotals.put(reqId, Long.valueOf(total));
+                Integer prevCnt = netChunkCounts.get(reqId);
+                int cnt = (prevCnt == null ? 0 : prevCnt.intValue()) + 1;
+                netChunkCounts.put(reqId, Integer.valueOf(cnt));
+                if (cnt <= 8 || cnt % 20 == 0) {
+                    AppLogger.info("NET-DIAG dataReceived " + reqId + " chunk#" + cnt + "=" + dataLen + " total=" + total);
+                }
+            } catch (Exception ignored) { }
+        };
+        netLoadingFinishedHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                if (!netTrackedReqs.containsKey(reqId)) return;
+                long encodedLen = p.path("encodedDataLength").asLong(0);
+                String trackedUrl = netTrackedReqs.get(reqId);
+                Long total = netDataTotals.get(reqId);
+                long totVal = total == null ? 0L : total.longValue();
+                AppLogger.info("NET-DIAG loadingFinished " + reqId + " url=" + trackedUrl + " encodedLen=" + encodedLen + " totalReceived=" + totVal);
+                Map<String, Object> gb = new HashMap<>();
+                gb.put("requestId", reqId);
+                JsonNode resp = activeTab.send("Network.getResponseBody", gb);
+                if (resp != null && resp.get("error") == null) {
+                    String bodyStr = resp.path("result").path("body").asText("");
+                    String truncated = bodyStr.length() > 1500 ? bodyStr.substring(0, 1500) + "...[trunc " + bodyStr.length() + "]" : bodyStr;
+                    AppLogger.info("NET-DIAG body " + reqId + " (" + bodyStr.length() + " chars): " + truncated);
+                } else {
+                    AppLogger.warn("NET-DIAG getResponseBody " + reqId + " unavailable (error=" + (resp == null ? "null" : resp.get("error")) + ")");
+                }
+            } catch (Exception ex) {
+                AppLogger.warn("NET-DIAG loadingFinished handler: " + ex.getMessage());
+            }
+        };
+        netWsCreatedHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String url = p.path("url").asText("?");
+                if (!url.contains("deepseek.com")) return;
+                String reqId = p.path("requestId").asText("?");
+                AppLogger.info("NET-DIAG ws created: url=" + url + " reqId=" + reqId);
+                netTrackedReqs.put(reqId, "WS:" + url);
+            } catch (Exception ignored) { }
+        };
+        netWsClosedHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                if (!netTrackedReqs.containsKey(reqId)) return;
+                AppLogger.warn("NET-DIAG ws closed: reqId=" + reqId);
+            } catch (Exception ignored) { }
+        };
+        netWsFrameHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String reqId = p.path("requestId").asText("?");
+                if (!netTrackedReqs.containsKey(reqId)) return;
+                Integer prev = netChunkCounts.get("ws-" + reqId);
+                int cnt = (prev == null ? 0 : prev.intValue()) + 1;
+                netChunkCounts.put("ws-" + reqId, Integer.valueOf(cnt));
+                if (cnt > 10) return;
+                String payload = p.path("response").path("payloadData").asText("");
+                String truncated = payload.length() > 300 ? payload.substring(0, 300) + "..." : payload;
+                AppLogger.info("NET-DIAG ws frame#" + cnt + " " + reqId + ": " + truncated);
+            } catch (Exception ignored) { }
+        };
+        netConsoleHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                String type = p.path("type").asText("?");
+                if (!"error".equals(type) && !"warning".equals(type)) return;
+                JsonNode args = p.path("args");
+                StringBuilder sb = new StringBuilder();
+                for (JsonNode a : args) {
+                    String v = a.path("value").asText("");
+                    if (v.isEmpty()) v = a.path("description").asText("");
+                    if (sb.length() > 0) sb.append(" | ");
+                    sb.append(v.length() > 300 ? v.substring(0, 300) + "..." : v);
+                }
+                AppLogger.warn("NET-DIAG console." + type + ": " + sb.toString());
+            } catch (Exception ignored) { }
+        };
+        netExceptionHandler = node -> {
+            try {
+                JsonNode p = node.get("params");
+                if (p == null) return;
+                JsonNode ex = p.path("exceptionDetails");
+                String textEx = ex.path("text").asText("");
+                String desc = ex.path("exception").path("description").asText("");
+                String truncDesc = desc.length() > 800 ? desc.substring(0, 800) + "..." : desc;
+                AppLogger.warn("NET-DIAG uncaught: " + textEx + " | " + truncDesc);
+            } catch (Exception ignored) { }
+        };
+        activeTab.on("Network.requestWillBeSent", netReqHandler);
+        activeTab.on("Network.responseReceived", netRespHandler);
+        activeTab.on("Network.loadingFailed", netFailHandler);
+        activeTab.on("Network.dataReceived", netDataReceivedHandler);
+        activeTab.on("Network.loadingFinished", netLoadingFinishedHandler);
+        activeTab.on("Network.webSocketCreated", netWsCreatedHandler);
+        activeTab.on("Network.webSocketClosed", netWsClosedHandler);
+        activeTab.on("Network.webSocketFrameReceived", netWsFrameHandler);
+        activeTab.on("Runtime.consoleAPICalled", netConsoleHandler);
+        activeTab.on("Runtime.exceptionThrown", netExceptionHandler);
+        netDiagSubscribed = true;
+        AppLogger.info("NET-DIAG: subscribed extended (Network + Runtime + WS)");
+    }
+
+
+    private void disableNetworkDiagnostics() {
+        if (!netDiagSubscribed) return;
+        if (activeTab != null) {
+            try { activeTab.off("Network.requestWillBeSent", netReqHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.responseReceived", netRespHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.loadingFailed", netFailHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.dataReceived", netDataReceivedHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.loadingFinished", netLoadingFinishedHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.webSocketCreated", netWsCreatedHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.webSocketClosed", netWsClosedHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Network.webSocketFrameReceived", netWsFrameHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Runtime.consoleAPICalled", netConsoleHandler); } catch (Exception ignored) { }
+            try { activeTab.off("Runtime.exceptionThrown", netExceptionHandler); } catch (Exception ignored) { }
+        }
+        netDiagSubscribed = false;
+        netTrackedReqs.clear();
+        netDataTotals.clear();
+        netChunkCounts.clear();
+        AppLogger.info("NET-DIAG: unsubscribed");
+    }
 
 
     private static final String HIF_REWRITE_JS =
