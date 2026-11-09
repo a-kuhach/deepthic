@@ -1464,7 +1464,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                         try {
 
-                            cdpBootstrap.start(true, true, true);
+                            cdpBootstrap.start(false, true, true);
 
                         } catch (com.freemaf.agent.cdp.ChromeProcessLauncher.PortBusyException pbe) {
 
@@ -1490,7 +1490,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                             try { Thread.sleep(500L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw new CompletionException(ie); }
 
-                            cdpBootstrap.start(true, true, true);
+                            cdpBootstrap.start(false, true, true);
 
                         }
 

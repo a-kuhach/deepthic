@@ -191,7 +191,10 @@ public final class CdpBootstrap {
         if (!http.waitForPort(PORT_WAIT_MS)) throw new IOException("CDP port " + port + " did not open within " + PORT_WAIT_MS + " ms");
         this.session = new CdpSession(port);
         this.loginHandler = new LoginFallbackHandler(port, profile.toString());
-        if (headless && ensureLogin && !isTestMode()) ensureLoggedInOrRelogin();
+        if (ensureLogin && !isTestMode()) {
+            if (headless) ensureLoggedInOrRelogin();
+            else ensureLoggedInHeadful();
+        }
     }
 
     private CdpTabInfo findTabOnPort(String execId, String revId) {
@@ -221,6 +224,37 @@ public final class CdpBootstrap {
                 if (ts != null) { try { ts.close(); } catch (Exception ignored) { } }
             }
             if (probeSession != null) { try { probeSession.close(); } catch (Exception ignored) { } }
+        }
+    }
+
+    private void ensureLoggedInHeadful() throws IOException {
+        try {
+            CdpDeepSeek probe = new CdpDeepSeek(session, loginHandler);
+            try { probe.open(); } catch (Exception ex) { AppLogger.info("CdpBootstrap(headful): probe.open failed (expected on sign_in): " + ex.getMessage()); }
+            boolean loggedIn = false;
+            try { loggedIn = probe.checkLoggedIn(); } catch (Exception ignored) { }
+            if (loggedIn) {
+                AppLogger.info("CdpBootstrap(headful): session valid");
+                emitStatus("Сессия DeepSeek активна.");
+                try { probe.closeActiveTab(); } catch (Exception ignored) { }
+                return;
+            }
+            AppLogger.info("CdpBootstrap(headful): not logged in; user must log in via visible window");
+            emitStatus("Окно авторизации DeepSeek открыто. Пожалуйста, войдите в аккаунт. Окно нельзя закрывать во время работы.");
+            long deadline = System.currentTimeMillis() + LOGIN_WAIT_MS;
+            while (System.currentTimeMillis() < deadline) {
+                Thread.sleep(5_000L);
+                if (probe.checkLoggedIn()) {
+                    AppLogger.info("CdpBootstrap(headful): login detected, continuing");
+                    emitStatus("Авторизация успешна!");
+                    return;
+                }
+            }
+            throw new IOException("Логин в DeepSeek не выполнен за 2 минуты. Нажмите Play для повторной попытки.");
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            try { stopChromeAndSession(); } catch (Exception ignored) { }
+            throw new IOException("Login flow interrupted");
         }
     }
 

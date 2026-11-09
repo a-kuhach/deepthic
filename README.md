@@ -1,6 +1,6 @@
 # Deepthic
 
-**Version: beta v0.3.142**
+**Version: beta v0.3.143**
 
 A Windows bridge that drives a Chrome tab on the DeepSeek Web chat and uses it as a remote LLM agent for your project.
 
@@ -17,6 +17,22 @@ No Selenium, no Playwright, no browser extensions, no official DeepSeek API, and
 - Either executes the response as a PowerShell script or shows it in the chat window as a user message (if the agent chose the `USER_CHAT:` format).
 - Feeds stdout/stderr/exit code back to the agent as the next prompt.
 - Repeats until the agent emits `AGENT_DONE` / `AGENT_STOP` or the user presses Stop / `Shift+F12`.
+
+## Chrome window lifecycle
+
+Deepthic launches **one dedicated Chrome window** (visible) with a persistent
+profile in `agent/cache/cdp-profile`. This window drives the pipeline and must
+remain open during the session.
+
+**Do not close this window while the pipeline is running.** If you close it,
+the session fails and you will need to press Play to restart (login is
+preserved in the profile, so restart is quick).
+
+- The framework **never** touches Chrome windows opened by you (different
+  `--user-data-dir`). Your personal browsing is unaffected.
+- Orphan framework windows from a previous crashed session are cleaned up
+  automatically on next launch (matched by profile path AND debug port).
+- Do not use the framework-managed Chrome window for manual browsing.
 
 ## Requirements
 

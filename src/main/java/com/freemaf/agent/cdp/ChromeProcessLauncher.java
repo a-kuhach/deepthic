@@ -165,6 +165,10 @@ public final class ChromeProcessLauncher {
     }
 
 
+    public static Process start(int port) throws IOException {
+        return start(false, port);
+    }
+
     public static void stop(Process p) {
         if (p == null) return;
         try {
@@ -329,7 +333,7 @@ public final class ChromeProcessLauncher {
                 "$killed = 0;" +
                 "Get-CimInstance Win32_Process -Filter \"name='chrome.exe' or name='chrome-headless-shell.exe'\" -ErrorAction SilentlyContinue | ForEach-Object {" +
                 "  if ($except -ne 0 -and $_.ProcessId -eq $except) { return }" +
-                "  if ($_.CommandLine -and $_.CommandLine.Contains('--user-data-dir=' + $profile)) {" +
+                "  if ($_.CommandLine -and $_.CommandLine.Contains('--user-data-dir=' + $profile) -and $_.CommandLine.Contains('--remote-debugging-port=')) {" +
                 "    taskkill /F /T /PID $_.ProcessId 2>$null | Out-Null;" +
                 "    $killed++;" +
                 "  }" +
