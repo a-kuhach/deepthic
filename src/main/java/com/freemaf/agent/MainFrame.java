@@ -1598,7 +1598,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
                     if (resumeRole == null || resumeRole.isBlank()) resumeRole = "EXECUTOR";
                     String resumeMsg = "### ROLE_TO_ACT: " + resumeRole + System.lineSeparator()
 
-                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью.";
+                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью." + System.lineSeparator() + "Если ожидал ревью — запроси ревью заново.";
 
                     promptQueue.addUser(resumeMsg, java.util.List.of());
                     try { loop.resetExecutorContext(); } catch (Exception ignored) { }
@@ -1782,7 +1782,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
                     if (resumeRole == null || resumeRole.isBlank()) resumeRole = "EXECUTOR";
                     String resumeMsg = "### ROLE_TO_ACT: " + resumeRole + System.lineSeparator()
 
-                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью.";
+                            + "Работа остановлена, последний выполнявшийся PS-скрипт убит в процессе, его лог утерян. Продолжи задачу с учётом того, что скрипт мог не выполниться, выполниться частично или полностью." + System.lineSeparator() + "Если ожидал ревью — запроси ревью заново.";
 
                     promptQueue.addUser(resumeMsg, java.util.List.of());
                     try { loop.resetExecutorContext(); } catch (Exception ignored) { }
@@ -2821,6 +2821,19 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
+    /**
+     * Q2c: resolve resumeAfterStopRole based on session transport and active role.
+     * CDP: reviewer tab is closed on STOP; it will be reopened by the pipeline on
+     * the next JUDGE/CODE_REVIEWER routing. EXECUTOR is the only valid role to resume.
+     * Legacy: reviewer window stays open, keep its role for RESUME_REVIEWER_SESSION.
+     */
+    static String computeResumeAfterStopRole(boolean cdpEnabled, boolean isReviewerActive, String activeRole) {
+        if (isReviewerActive) {
+            return cdpEnabled ? "EXECUTOR" : (activeRole == null || activeRole.isBlank() ? "EXECUTOR" : activeRole);
+        }
+        return (activeRole == null || activeRole.isBlank()) ? "EXECUTOR" : activeRole;
+    }
+
     private void stopAction() {
 
 
@@ -2892,10 +2905,11 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
             }
 
             
-try {
-                String activeRole = currentLoop.getActiveRole();
-                config.setResumeAfterStopRole((activeRole == null || activeRole.isBlank()) ? "EXECUTOR" : activeRole);
-                AppLogger.info("stopAction: recorded active role=" + config.getResumeAfterStopRole() + " for resume-after-stop");
+try {
+                String activeRole = currentLoop.getActiveRole();
+                String resolvedRole = computeResumeAfterStopRole(cdpBootstrap != null, currentLoop.isReviewerActive(), activeRole);
+                config.setResumeAfterStopRole(resolvedRole);
+                AppLogger.info("stopAction: recorded active role=" + resolvedRole + " for resume-after-stop (cdp=" + (cdpBootstrap != null) + ", reviewerActive=" + currentLoop.isReviewerActive() + ")");
             } catch (Exception roleEx) {
                 AppLogger.warn("stopAction: failed to record active role: " + roleEx.getMessage());
                 config.setResumeAfterStopRole("EXECUTOR");

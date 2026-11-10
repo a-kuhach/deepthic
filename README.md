@@ -1,6 +1,6 @@
 # Deepthic
 
-**Version: beta v0.3.145**
+**Version: beta v0.3.146**
 
 A Windows bridge that drives a Chrome tab on the DeepSeek Web chat and uses it as a remote LLM agent for your project.
 
@@ -39,7 +39,7 @@ preserved in the profile, so restart is quick).
 - Windows 10 or 11 (any display scale; the CDP path is not scale-sensitive).
 - JDK 21 or newer (`java` in PATH).
 - Maven 3.8 or newer (`mvn` in PATH) for the initial build.
-- Google Chrome installed. The framework launches its own Chrome instance with `--remote-debugging-port=9222` and its own `--user-data-dir`; your default Chrome profile is not touched.
+- Google Chrome installed. The framework launches its own Chrome instance with `--remote-debugging-port=9222` and its own `--user-data-dir`; your default Chrome profile is not touched. The framework window is **visible** - see "Chrome window lifecycle" below. Closing it while the pipeline runs aborts the current turn; STOP preserves it (Reconnect or Session Migration will explicitly restart it).
 - Internet connection to reach https://chat.deepseek.com/.
 - A DeepSeek account, logged in once into the persistent profile `agent/cache/cdp-profile`. If the login session drops, the framework temporarily relaunches Chrome in headful mode so you can sign in, then returns to headless.
 
@@ -72,7 +72,7 @@ On upgrade from an older version, schema migration v7 promotes an existing `cdp.
 
 The framework controls Chrome exclusively through the Chrome DevTools Protocol:
 
-- `ChromeProcessLauncher` starts its own Chrome with `--headless=new`, `--remote-debugging-port=9222`, `--remote-allow-origins=*`, `--user-data-dir=agent/cache/cdp-profile`, `--no-startup-window`, and anti-throttling flags.
+- `ChromeProcessLauncher` starts its own Chrome in **headful mode by default** (visible window) with `--remote-debugging-port=9222`, `--remote-allow-origins=*`, `--user-data-dir=agent/cache/cdp-profile`, `--no-startup-window`, and anti-throttling flags. Focus is preserved via `ChromeProcessLauncher.getForegroundWindow()` / `restoreForegroundWindow()` wrappers around `Target.createTarget`; `Target.activateTarget` is intentionally not called (it steals OS focus). STOP preserves the executor tab and the Chrome process (`CdpBootstrap.pauseForStop()`); only Reconnect and Session Migration trigger explicit kill+fresh. `--headless=new` is used only when the `-Dheadless=true` system property is set (tests).
 - `CdpHttpClient` wraps HTTP endpoints under `/json/*`.
 - `CdpWebSocket` implements id-correlated request/response over `java.net.http.WebSocket`.
 - `CdpSession` manages tabs: create, attach (`Target.attachToTarget`), activate (`Target.activateTarget`), close.
@@ -105,7 +105,7 @@ In CDP mode the files are uploaded via `DOM.setFileInputFiles` (with `Page.fileC
 | Aspect             | CDP path (`cdp.enabled=true`, default) | Legacy WinAPI path (`cdp.enabled=false`) |
 |--------------------|----------------------------------------|------------------------------------------|
 | Transport          | CDP over `java.net.http.WebSocket`     | SendInput + clipboard + pixel reads      |
-| Chrome launch      | Own ProcessBuilder, headless           | Finds/focuses a manual Chrome window     |
+| Chrome launch      | Own ProcessBuilder, headful (visible)  | Finds/focuses a manual Chrome window     |
 | Response reading   | `innerText` from DOM                   | Copy button + clipboard sentinel         |
 | Attach files       | `DOM.setFileInputFiles`                | `CF_HDROP` + Ctrl+V                      |
 | Marker calibration | Not required (hardcoded selectors)     | Required (pixel anchors + calibration)   |
