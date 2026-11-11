@@ -66,6 +66,9 @@ public final class AutomationLoop implements Runnable {
     private volatile boolean warningInjected = false;
     private volatile boolean warningPrependPending = false;
     private volatile String pendingPauseOutput = null;
+    private volatile boolean terminating = false;
+    private volatile java.util.function.Supplier<AutomationLoop> currentLoopSupplier = null;
+    private final StatusMarker statusMarkerInternal;
 
     private volatile String lastObservedRole = "EXECUTOR";
 
@@ -121,7 +124,12 @@ public AutomationLoop(ChatConsole chatConsole, ConsolePanel psConsolePanel,
 
         this.psConsolePanel = psConsolePanel;
 
-        this.statusMarker = statusMarker;
+        this.statusMarkerInternal = statusMarker;
+        this.statusMarker = new StatusMarker() {
+            @Override public void setState(StatusMarker.State state) {
+                safeSetState(state);
+            }
+        };
 
         this.promptQueue = promptQueue;
 
@@ -786,11 +794,11 @@ config.setExecutorMessageCount(0L);
 
                 + (executorHwnd == null ? "null" : Pointer.nativeValue(executorHwnd)));
 
-        while (!EmergencyStop.isStopped()) {
+        while (!EmergencyStop.isStopped() && !terminating) {
 
             synchronized (pauseMonitor) {
 
-                while (paused && !EmergencyStop.isStopped()) {
+                while (paused && !EmergencyStop.isStopped() && !terminating) {
 
                     try {
 
@@ -1553,6 +1561,10 @@ config.setExecutorMessageCount(0L);
 
 
             } catch (IllegalStateException e) {
+                if (terminating) {
+                    AppLogger.info("AutomationLoop: terminating, ignoring IllegalStateException: " + e.getMessage());
+                    return;
+                }
                 if (EmergencyStop.isStopped()) {
                     statusMarker.setState(StatusMarker.State.STOPPED);
                     return;
@@ -1581,7 +1593,10 @@ config.setExecutorMessageCount(0L);
                 return;
 
             } catch (Exception e) {
-
+                if (terminating) {
+                    AppLogger.info("AutomationLoop: terminating, ignoring Exception: " + e.getMessage());
+                    return;
+                }
                 chatConsole.appendSystem("Error - " + e.getMessage() + System.lineSeparator()
                         + "Pipeline stopped. Press Play to restart with a fresh session.");
 
@@ -1635,6 +1650,29 @@ config.setExecutorMessageCount(0L);
         AppLogger.info("AutomationLoop: " + triggerName + " overridden by pending user message; role=" + role + ", pendingLen=" + pending.length());
         return true;
     }
+
+    void safeSetState(StatusMarker.State state) {
+        java.util.function.Supplier<AutomationLoop> s = this.currentLoopSupplier;
+        if (s != null) {
+            AutomationLoop active = s.get();
+            if (active != this) {
+                AppLogger.debug("AutomationLoop.safeSetState(" + state + ") ignored: loop not current");
+                return;
+            }
+        }
+        statusMarkerInternal.setState(state);
+    }
+
+    public void setCurrentLoopSupplier(java.util.function.Supplier<AutomationLoop> supplier) {
+        this.currentLoopSupplier = supplier;
+    }
+
+    public void markTerminating() {
+        this.terminating = true;
+        synchronized (pauseMonitor) { pauseMonitor.notifyAll(); }
+    }
+
+    boolean isTerminating() { return terminating; }
 
     private static String extractRawRoleMarker(String psScript) {
 

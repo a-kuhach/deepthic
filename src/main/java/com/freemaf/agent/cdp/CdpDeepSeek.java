@@ -746,9 +746,11 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
         AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertText.length());
 
         sleep(500L);
-
+        String tabAlive = evaluate("String(1)");
+        if (!"1".equals(tabAlive)) {
+            throw new IllegalStateException("sendMessage: active tab is closed or unresponsive");
+        }
         boolean sent = false;
-
         for (int attempt = 1; attempt <= 3 && !sent; attempt++) {
 
             evaluate(focusExpr);

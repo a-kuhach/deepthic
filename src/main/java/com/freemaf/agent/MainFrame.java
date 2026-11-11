@@ -158,6 +158,7 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
     private static final long START_DEBUG_DELAY_MS = Long.getLong("freemaf.start.delayMs", 0L);
     private volatile CompletableFuture<Void> pendingCdpStart;
     private volatile AutomationLoop currentLoop;
+    private volatile Thread cdpLoopThread;
 
     private final com.freemaf.agent.cdp.CdpBootstrap cdpBootstrap;
 
@@ -1516,6 +1517,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                     deepSeekSession, powerShellExecutor, config, windowManager, cdpBootstrap);
 
+            loop.setCurrentLoopSupplier(() -> this.currentLoop);
+
             SessionDetector.SessionDecision decision = loop.bootstrapSession();
 
             WindowInfo activeWindow = decision.activeWindow() != null
@@ -1748,6 +1751,8 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
                     deepSeekSession, powerShellExecutor, config, windowManager, cdpBootstrap);
 
+            loop.setCurrentLoopSupplier(() -> this.currentLoop);
+
             SessionDetector.SessionDecision decision = loop.bootstrapSession();
 
             WindowInfo activeWindow = decision.activeWindow() != null
@@ -1833,29 +1838,45 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             Thread loopThread = new Thread(() -> {
 
+
                 try {
+
 
                     runLoop.run();
 
+
                 } finally {
+
+
+                    cdpLoopThread = null;
+
 
                     SwingUtilities.invokeLater(() -> {
 
+
                         startSequenceRunning = false;
+
 
                         currentLoop = null;
 
+
                         pendingCdpStart = null;
+
 
                         updateStartButton();
 
+
                     });
 
+
                 }
+
 
             }, "CdpAutomationLoop");
 
             loopThread.setDaemon(true);
+
+            this.cdpLoopThread = loopThread;
 
             loopThread.start();
 
@@ -2879,9 +2900,19 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
         lastStopAtMs = System.currentTimeMillis();
-
+        Thread cdpT = cdpLoopThread;
+        if (cdpT != null && cdpT.isAlive()) {
+            AutomationLoop cl = currentLoop;
+            if (cl != null) { try { cl.markTerminating(); } catch (Exception ignored) { } }
+            cdpT.interrupt();
+            final Thread jt = cdpT;
+            CompletableFuture.runAsync(() -> {
+                try { jt.join(5000L); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
+                if (jt.isAlive()) AppLogger.warn("stopAction: cdpLoopThread still alive after 5s join");
+            });
+            AppLogger.info("stopAction: cdpLoopThread interrupted + async join 5s");
+        }
         Thread t = startSequenceThread;
-
         if (t != null && t.isAlive()) {
 
             AppLogger.info("stopAction: interrupting StartSequence thread");
