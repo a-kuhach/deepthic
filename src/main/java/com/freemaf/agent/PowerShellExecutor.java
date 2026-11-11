@@ -9,6 +9,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
 
 public final class PowerShellExecutor {
@@ -103,7 +105,7 @@ String scriptContent = Files.readString(script, StandardCharsets.UTF_8);
                 if (elapsed > timeoutSec * 1000L) {
                     timedOutFlag = true;
                     processManager.killProcessTree(process);
-                    wd.shutdown();
+                    if (!process.isAlive()) { wd.shutdown(); }
                 }
             } catch (Throwable t) {
                 AppLogger.error("watchdog task failed: " + t.getMessage());
@@ -127,15 +129,34 @@ String scriptContent = Files.readString(script, StandardCharsets.UTF_8);
             ProcessRegistry.unregister(process);
             processManager.clearCurrentScriptProcess(process);
         }
+        if (process.isAlive()) {
+            AppLogger.warn("PowerShellExecutor: process still alive after defence loop; killing before stream read");
+            processManager.killProcessTree(process);
+        }
         long elapsedSeconds = (System.currentTimeMillis() - processStartMs) / 1000L;
-        AppLogger.info("PowerShellExecutor: script finished (exit=" + process.exitValue() + ", elapsed=" + elapsedSeconds + "s, timedOut=" + timedOutFlag + ")");
-        String stdout = stdoutFuture.join();
-        String stderr = stderrFuture.join();
-        int exitCode = process.exitValue();
+        AppLogger.info("PowerShellExecutor: script finished (exit=" + guardedExitCode(process) + ", elapsed=" + elapsedSeconds + "s, timedOut=" + timedOutFlag + ")");
+        int exitCode = guardedExitCode(process);
+        String stdout;
+        try { stdout = stdoutFuture.get(30, TimeUnit.SECONDS); }
+        catch (TimeoutException te) { AppLogger.warn("PowerShellExecutor: stdout read timeout after kill; closing stream"); try { process.getInputStream().close(); } catch (Exception ignored) { } try { stdout = stdoutFuture.getNow(""); } catch (Throwable t) { stdout = ""; } }
+        catch (ExecutionException ee) { AppLogger.warn("PowerShellExecutor: stdout read failed: " + ee.getMessage()); stdout = ""; }
+        String stderr;
+        try { stderr = stderrFuture.get(30, TimeUnit.SECONDS); }
+        catch (TimeoutException te) { AppLogger.warn("PowerShellExecutor: stderr read timeout after kill; closing stream"); try { process.getErrorStream().close(); } catch (Exception ignored) { } try { stderr = stderrFuture.getNow(""); } catch (Throwable t) { stderr = ""; } }
+        catch (ExecutionException ee) { AppLogger.warn("PowerShellExecutor: stderr read failed: " + ee.getMessage()); stderr = ""; }
         ExecutionResult result = new ExecutionResult(stdout, stderr, exitCode, timedOutFlag, elapsedSeconds);
         ExecutionLogger.save(result);
         return result;
     }
+    static int guardedExitCode(Process p) {
+        if (p == null) return -1;
+        try {
+            return p.isAlive() ? -1 : p.exitValue();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+
     private static String readStream(InputStream in) {
         try (in) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
