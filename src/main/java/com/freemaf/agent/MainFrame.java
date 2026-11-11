@@ -1003,53 +1003,48 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
 
 
-    private void submitPrompt() {
+    
+private void submitPrompt() {
 
-        String text = inputArea.getText().trim();
+    String text = inputArea.getText().trim();
 
-        java.util.List<java.io.File> files = new java.util.ArrayList<>(attachedFiles);
+    java.util.List<java.io.File> files = new java.util.ArrayList<>(attachedFiles);
 
-        if (!SendButtonState.isEnabled(text, files.size())) return;
+    if (!SendButtonState.isEnabled(text, files.size())) return;
 
-        if (files.isEmpty()) {
+    if (files.isEmpty()) {
 
-            chatConsole.appendUser(text);
+        chatConsole.appendUser(text);
 
-        } else {
+    } else {
 
-            StringBuilder sb = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
 
-            if (!text.isEmpty()) sb.append(text).append(System.lineSeparator());
+        if (!text.isEmpty()) sb.append(text).append(System.lineSeparator());
 
-            sb.append("Attached files:");
+        sb.append("Attached files:");
 
-            for (java.io.File f : files) sb.append(System.lineSeparator()).append("  - ").append(f.getName());
+        for (java.io.File f : files) sb.append(System.lineSeparator()).append("  - ").append(f.getName());
 
-            chatConsole.appendUser(sb.toString());
+        chatConsole.appendUser(sb.toString());
 
-        }
+    }
 
-        promptQueue.addUser(text, files);
+    inputArea.setText("");
 
-        inputArea.setText("");
+    attachedFiles.clear();
 
-        attachedFiles.clear();
+    rebuildAttachmentsList();
 
-        rebuildAttachmentsList();
+    updateSendButtonState();
 
-        updateSendButtonState();
+    SubmitRoute route = computeSubmitRoute(currentState, currentLoop != null);
 
-        if (currentState == StatusMarker.State.STOPPED) {
+    switch (route) {
 
-            long sinceStop = System.currentTimeMillis() - lastStopAtMs;
+        case START -> {
 
-            if (lastStopAtMs > 0L && sinceStop < 3000L) {
-
-                appendSystem("Auto-start suppressed (STOP was " + sinceStop + " ms ago).");
-
-                return;
-
-            }
+            promptQueue.addUser(text, files);
 
             config.setResumeAfterStop(false);
 
@@ -1059,18 +1054,60 @@ public final class MainFrame extends JFrame implements WindowRecoveryHandler {
 
             startAction();
 
-                } else if (currentState == StatusMarker.State.PAUSED && currentLoop != null) {
+        }
+
+        case RESUME -> {
+
+            promptQueue.addUser(text, files);
+
             appendSystem("Resuming paused loop to deliver user message.");
+
             currentLoop.resumeAfterUserInput();
-        } else if (currentState == StatusMarker.State.WORKING && currentLoop != null) {
+
+        }
+
+        case PENDING -> {
+
             promptQueue.addPendingUserDuringWorking(text);
+
             if (!files.isEmpty()) {
-                AppLogger.warn("submitPrompt(WORKING): " + files.size() + " attachment(s) dropped - pending messages carry text only");
+
+                appendSystem("Файлы не будут приложены: pending-сообщения несут только текст. Отправьте файлы отдельным сообщением после текущего шага.");
+
             }
+
             appendSystem("Сообщение будет передано агенту со следующим шагом.");
+
+        }
+
+        case QUEUE_ONLY -> {
+
+            promptQueue.addUser(text, files);
+
         }
 
     }
+
+}
+
+
+
+enum SubmitRoute { START, RESUME, PENDING, QUEUE_ONLY }
+
+
+
+static SubmitRoute computeSubmitRoute(StatusMarker.State state, boolean loopActive) {
+
+    if (state == StatusMarker.State.STOPPED) return SubmitRoute.START;
+
+    if (state == StatusMarker.State.PAUSED && loopActive) return SubmitRoute.RESUME;
+
+    if (state == StatusMarker.State.WORKING && loopActive) return SubmitRoute.PENDING;
+
+    return SubmitRoute.QUEUE_ONLY;
+
+}
+
 
 
 
