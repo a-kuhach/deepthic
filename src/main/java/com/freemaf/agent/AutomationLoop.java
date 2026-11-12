@@ -1629,13 +1629,13 @@ config.setExecutorMessageCount(0L);
 
     private boolean tryConsumePendingOverMarker(String responseRole, String triggerName, String explanation) {
         if (!promptQueue.hasPendingUserDuringWorking()) return false;
-        String pending = promptQueue.drainPendingUserDuringWorking();
-        if (pending == null || pending.isBlank()) return false;
+        PromptQueue.PendingUser pending = promptQueue.drainPendingUser();
+        if (pending == null || pending.text().isBlank()) return false;
         String role = (responseRole == null || responseRole.isEmpty())
                 ? (activeReviewerRole != null ? activeReviewerRole : "EXECUTOR")
                 : responseRole;
         StringBuilder sb = new StringBuilder();
-        sb.append(pending).append(System.lineSeparator()).append(System.lineSeparator());
+        sb.append(pending.text()).append(System.lineSeparator()).append(System.lineSeparator());
         sb.append("Сообщение выше передал пользователь. ").append(explanation);
         sb.append(System.lineSeparator()).append(System.lineSeparator());
         sb.append("После ответа на это сообщение ты можешь снова запросить ").append(triggerName).append(" при необходимости.");
@@ -1646,8 +1646,8 @@ config.setExecutorMessageCount(0L);
         sb.append("Первая строка ответа: [").append(role).append("]. Первая строка PS-блока: Write-Output \"ROLE: ").append(role).append("\" в кавычках.");
         sb.append(System.lineSeparator()).append(System.lineSeparator());
         sb.append(SystemInstructionProvider.getFormatReminder());
-        promptQueue.addDirect(sb.toString());
-        AppLogger.info("AutomationLoop: " + triggerName + " overridden by pending user message; role=" + role + ", pendingLen=" + pending.length());
+        promptQueue.addDirect(new Prompt(sb.toString(), pending.files(), false));
+        AppLogger.info("AutomationLoop: " + triggerName + " overridden by pending user message; role=" + role + ", pendingLen=" + pending.text().length() + ", files=" + pending.files().size());
         return true;
     }
 

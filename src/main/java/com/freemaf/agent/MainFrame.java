@@ -1068,15 +1068,17 @@ private void submitPrompt() {
 
         case PENDING -> {
 
-            promptQueue.addPendingUserDuringWorking(text);
+            promptQueue.addPendingUserDuringWorking(text, files);
 
             if (!files.isEmpty()) {
 
-                appendSystem("Файлы не будут приложены: pending-сообщения несут только текст. Отправьте файлы отдельным сообщением после текущего шага.");
+                appendSystem("Сообщение и файлы будут переданы агенту со следующим шагом.");
+
+            } else {
+
+                appendSystem("Сообщение будет передано агенту со следующим шагом.");
 
             }
-
-            appendSystem("Сообщение будет передано агенту со следующим шагом.");
 
         }
 
