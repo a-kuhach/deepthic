@@ -733,17 +733,44 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
         sleep(300L);
 
-        String safe = escapeJsSingleQuoted(text);
+        
+final int SAFE_CAP = 20000;
+        String maxLenStr = evaluate("String(((document.querySelector('" + escapeJsSingleQuoted(DeepSeekSelectors.INPUT) + "') || {}).maxLength) || 0)");
+        int maxLen = 0;
+        try { maxLen = Integer.parseInt(maxLenStr.trim()); } catch (Exception ignored) { maxLen = 0; }
+        // textarea.maxLength is usually unset (0/-1) on DeepSeek; React's internal
+        // character counter enforces the real limit by disabling the Send button.
+        // Hard cap at SAFE_CAP regardless of maxLength to stay below the observed limit.
+        int effectiveCap = (maxLen > 0 && maxLen < SAFE_CAP) ? maxLen : SAFE_CAP;
+        String textForSend = text;
+        if (text.length() > effectiveCap) {
+            int origLen = text.length();
+            int dropped = origLen - effectiveCap;
+            double pct = (dropped * 100.0) / origLen;
+            textForSend = text.substring(0, effectiveCap);
+            AppLogger.warn("CdpDeepSeek.sendMessage: text truncated to cap=" + effectiveCap
+                    + " (maxLength=" + maxLen + ", original=" + origLen
+                    + ", dropped=" + dropped + " chars, " + String.format("%.1f", pct) + "% over)");
+        }
+        String safe = escapeJsSingleQuoted(textForSend);
 
         String setterScript = "(function(){var el=document.querySelector('" + escapeJsSingleQuoted(DeepSeekSelectors.INPUT) + "');if(!el)return 'no-input';try{var ns=Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value').set;ns.call(el,'" + safe + "');el.dispatchEvent(new Event('input',{bubbles:true}));return 'setter-'+el.value.length;}catch(e){return 'err-'+e.message;}})()";
 
         String insertResult = evaluate(setterScript);
 
-        AppLogger.info("CdpDeepSeek.sendMessage: insertResult=" + insertResult + " textLen=" + text.length());
+        AppLogger.info("CdpDeepSeek.sendMessage: insertResult=" + insertResult + " textLen=" + textForSend.length() + " originalTextLen=" + text.length() + " maxLength=" + maxLen);
 
         String afterInsertText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
 
-        AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertText.length());
+        
+int afterInsertLen = afterInsertText.length();
+        AppLogger.info("CdpDeepSeek.sendMessage: afterInsertLen=" + afterInsertLen);
+        if (afterInsertLen == 0) {
+            throw new IllegalStateException("sendMessage: setter produced empty textarea; expected=" + textForSend.length() + " chars");
+        }
+        if (afterInsertLen < textForSend.length()) {
+            AppLogger.warn("CdpDeepSeek.sendMessage: React truncated text after insert; expected=" + textForSend.length() + " actual=" + afterInsertLen);
+        }
 
         sleep(500L);
         String tabAlive = evaluate("String(1)");
@@ -819,7 +846,13 @@ try { waitForInput(10_000L); } catch (TimeoutException ignored) { }
 
         if (!sent) {
 
-            throw new IllegalStateException("sendMessage failed: textarea still contains text after 3 Enter attempts");
+            
+String finalText = evaluate("String(((document.querySelector(\"" + escapeJs(DeepSeekSelectors.INPUT) + "\") || {}).value) || '')");
+            String domMaxLen = evaluate("String(((document.querySelector('" + escapeJsSingleQuoted(DeepSeekSelectors.INPUT) + "') || {}).maxLength) || 0)");
+            try { dumpTimeoutDiagnostic(); } catch (Exception diagEx) { AppLogger.warn("dumpTimeoutDiagnostic failed: " + diagEx.getMessage()); }
+            throw new IllegalStateException("sendMessage failed: textarea still contains " + finalText.length()
+                    + " chars after 3 Enter attempts; maxLength=" + domMaxLen
+                    + ", attempted=" + textForSend.length() + " chars, original=" + text.length() + " chars");
 
         }
 
@@ -1701,7 +1734,20 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
                 String trackedUrl = netTrackedReqs.get(reqId);
                 Long total = netDataTotals.get(reqId);
                 long totVal = total == null ? 0L : total.longValue();
-                AppLogger.info("NET-DIAG loadingFinished " + reqId + " url=" + trackedUrl + " encodedLen=" + encodedLen + " totalReceived=" + totVal);
+                AppLogger.info("NET-DIAG loadingFinished " + reqId + " url=" + trackedUrl + " encodedLen=" + encodedLen + " totalReceived=" + totVal);
+        // N-103: skip getResponseBody for SSE/WS/known stream URLs.
+        // Network.getResponseBody blocks until EOF; SSE streams have no EOF
+        // within CdpWebSocket.SEND_TIMEOUT_MS (5s), so each call throws
+        // TimeoutException AND blocks the WebSocket listener thread for 5s,
+        // delaying subsequent CDP messages (incl. Runtime.evaluate).
+        if (trackedUrl != null && (trackedUrl.startsWith("WS:")
+                || trackedUrl.contains("event-stream")
+                || trackedUrl.contains("/query")
+                || trackedUrl.contains("/chat/completion")
+                || trackedUrl.contains("/chat/regenerate"))) {
+            AppLogger.info("NET-DIAG body " + reqId + " skipped (stream/ws)");
+            return;
+        }
                 Map<String, Object> gb = new HashMap<>();
                 gb.put("requestId", reqId);
                 JsonNode resp = activeTab.send("Network.getResponseBody", gb);
@@ -1713,7 +1759,7 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
                     AppLogger.warn("NET-DIAG getResponseBody " + reqId + " unavailable (error=" + (resp == null ? "null" : resp.get("error")) + ")");
                 }
             } catch (Exception ex) {
-                AppLogger.warn("NET-DIAG loadingFinished handler: " + ex.getMessage());
+                AppLogger.debug("NET-DIAG loadingFinished handler: " + ex.getMessage());
             }
         };
         netWsCreatedHandler = node -> {
