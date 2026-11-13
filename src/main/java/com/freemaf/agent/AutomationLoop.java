@@ -1133,7 +1133,7 @@ config.setExecutorMessageCount(0L);
 
                     plp.append("Составь план в agent/project/PLAN.md через PS-скрипт, шаг за шагом.").append(System.lineSeparator());
 
-                    plp.append("Не используй AGENT_PAUSE. В конце — Write-Output \"USER_MSG: План сохранён\".").append(System.lineSeparator());
+                    plp.append("Не используй AGENT_PAUSE. В конце — Write-Output \"USER_MSG: READY_FOR_PLAN_REVIEW\".").append(System.lineSeparator());
 
                     promptQueue.add(plp.toString());
 
@@ -1213,6 +1213,34 @@ config.setExecutorMessageCount(0L);
                 if ("PLANNER".equals(responseRole)) {
 
                     String planContent = readFileOrEmpty("agent/project/PLAN.md");
+
+                    if (!planSubmitted(userMsgs)) {
+
+                        AppLogger.warn("PLANNER without READY_FOR_PLAN_REVIEW; re-requesting as EXECUTOR");
+
+                        StringBuilder retry = new StringBuilder();
+
+                        retry.append(SystemInstructionProvider.getMinimalFormatRules()).append(System.lineSeparator()).append(System.lineSeparator());
+
+                        retry.append("### ROLE_TO_ACT: EXECUTOR").append(System.lineSeparator());
+
+                        retry.append("Ты указал роль PLANNER, но не отправил USER_MSG: READY_FOR_PLAN_REVIEW.").append(System.lineSeparator());
+
+                        retry.append("Если план был изменён — отправь снова с токеном USER_MSG: READY_FOR_PLAN_REVIEW.").append(System.lineSeparator());
+
+                        retry.append("Если план не изменён — приступай к его исполнению как EXECUTOR.").append(System.lineSeparator());
+
+                        retry.append("Первая строка ответа: [EXECUTOR]. Первая строка PS-блока: Write-Output \"ROLE: EXECUTOR\" в кавычках.").append(System.lineSeparator());
+
+                        retry.append(System.lineSeparator());
+
+                        retry.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
+
+                        promptQueue.addDirect(retry.toString());
+
+                        continue;
+
+                    }
 
                     StringBuilder jp = new StringBuilder();
 
@@ -1303,6 +1331,8 @@ config.setExecutorMessageCount(0L);
 
                     promptQueue.add(ep.toString());
 
+                    lastObservedRole = "EXECUTOR";
+
                     debug("routed JUDGE -> EXECUTOR (" + verdictTag + ")");
 
                     continue;
@@ -1365,6 +1395,8 @@ config.setExecutorMessageCount(0L);
                     ep.append("### EXECUTION_LOG").append(System.lineSeparator()).append(scriptLog);
 
                     promptQueue.add(ep.toString());
+
+                    lastObservedRole = "EXECUTOR";
 
                     debug("routed CODE_REVIEWER -> EXECUTOR");
 
@@ -1626,6 +1658,15 @@ config.setExecutorMessageCount(0L);
      * Accepted forms: ROLE: X / Write-Output "ROLE: X" / Write-Output 'ROLE: X'.
 
      */
+
+    static boolean planSubmitted(String userMsgs) {
+
+        if (userMsgs == null) return false;
+
+        return userMsgs.contains("READY_FOR_PLAN_REVIEW") || userMsgs.contains("План сохран");
+
+    }
+
 
     private boolean tryConsumePendingOverMarker(String responseRole, String triggerName, String explanation) {
         if (!promptQueue.hasPendingUserDuringWorking()) return false;
