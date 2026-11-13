@@ -1066,7 +1066,17 @@ config.setExecutorMessageCount(0L);
                     AppLogger.info("AutomationLoop: executing script.ps1");
                     result = powerShellExecutor.execute(Path.of("script.ps1"),
 
-                            line -> SwingUtilities.invokeLater(() -> psConsolePanel.append(line)));
+                            line -> {
+
+                String __strip = line.stripLeading();
+
+                if (!__strip.startsWith("USER_MSG:")) {
+
+                    SwingUtilities.invokeLater(() -> psConsolePanel.append(line));
+
+                }
+
+            });
 
                 } catch (IOException e) {
 
@@ -1096,6 +1106,18 @@ config.setExecutorMessageCount(0L);
                 }
 
 
+
+                ExecutionResult filteredResult = new ExecutionResult(
+
+                        stripUserMsgLines(result.stdout()),
+
+                        result.stderr(),
+
+                        result.exitCode(),
+
+                        result.isTimedOut(),
+
+                        result.getElapsedSeconds());
 
                 List<MarkerEvent> events = MarkerParser.parse(result.stdout());
 
@@ -1203,7 +1225,7 @@ config.setExecutorMessageCount(0L);
 
                 int outputLimit = config.getInt("ps.output.limit_chars", 60000);
 
-                boolean outputTooLarge = result.stdout() != null && result.stdout().length() > outputLimit;
+                boolean outputTooLarge = filteredResult.stdout() != null && filteredResult.stdout().length() > outputLimit;
 
                 String scriptLog;
 
@@ -1211,17 +1233,17 @@ config.setExecutorMessageCount(0L);
 
                     appendSystem("PS output exceeded limit " + outputLimit + " chars (stdout="
 
-                            + result.stdout().length() + "); notifying agent, log suppressed.");
+                            + filteredResult.stdout().length() + "); notifying agent, log suppressed.");
 
-                    scriptLog = buildOutputLimitWarning(result, outputLimit);
+                    scriptLog = buildOutputLimitWarning(filteredResult, outputLimit);
 
                 } else {
 
-                    scriptLog = LogReporter.build(result);
+                    scriptLog = LogReporter.build(filteredResult);
 
                 }
 
-                scriptLog = formatFollowUp(result, scriptLog);
+                scriptLog = formatFollowUp(filteredResult, scriptLog);
 
 
 
@@ -1777,14 +1799,44 @@ config.setExecutorMessageCount(0L);
 
 
 
+    static String stripUserMsgLines(String stdout) {
+
+        // v0.3.156 (N-124): USER_MSG is Chat-only. Strip from PS-console stream and from
+
+        // scriptLog sent back to the agent (not useful as agent context).
+
+        if (stdout == null) return null;
+
+        StringBuilder sb = new StringBuilder();
+
+        boolean first = true;
+
+        for (String line : stdout.split("\\R", -1)) {
+
+            String t = line.stripLeading();
+
+            if (t.startsWith("USER_MSG:")) continue;
+
+            if (!first) sb.append(System.lineSeparator());
+
+            first = false;
+
+            sb.append(line);
+
+        }
+
+        return sb.toString();
+
+    }
+
     private static String filterPauseOutput(String log) {
 
         if (log == null || log.isBlank()) return null;
         StringBuilder sb = new StringBuilder();
         for (String line : log.split("\\R")) {
             String t = line.stripLeading();
-                        // S2.5.x-fix7 (N-122): keep USER_MSG in pendingPauseOutput so the agent sees its own questions
-            if (t.startsWith("AGENT_PAUSE:")
+                        // v0.3.156 (N-124): USER_MSG is Chat-only; strip from scriptLog AND from pendingPauseOutput.
+            if (t.startsWith("USER_MSG:") || t.startsWith("AGENT_PAUSE:")
                     || t.startsWith("AGENT_STOP:") || t.startsWith("AGENT_DONE:")) {
                 continue;
             }

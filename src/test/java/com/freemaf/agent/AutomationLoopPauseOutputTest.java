@@ -37,15 +37,15 @@ class AutomationLoopPauseOutputTest {
 
     @Test
 
-    void keepsUserMsgAndContinuationLines() throws Exception {
+    void dropsUserMsgAndKeepsBody() throws Exception {
 
-        // S2.5.x-fix7 (N-122): USER_MSG must reach pendingPauseOutput so the agent
+        // v0.3.156 (N-124): USER_MSG is Chat-only; strip from pendingPauseOutput too.
 
-        // sees its own questions in the next prompt.
+        // Body lines (without marker prefix) survive and reach the agent.
 
         String log = "USER_MSG: 1) q1" + System.lineSeparator()
 
-                + "2) q2" + System.lineSeparator()
+                + "body note" + System.lineSeparator()
 
                 + "AGENT_PAUSE: wait";
 
@@ -53,9 +53,9 @@ class AutomationLoopPauseOutputTest {
 
         assertTrue(result != null, "expected non-null filtered output");
 
-        assertTrue(result.contains("USER_MSG: 1) q1"), "USER_MSG line must be kept, got: " + result);
+        assertFalse(result.contains("USER_MSG:"), "USER_MSG must be filtered out, got: " + result);
 
-        assertTrue(result.contains("2) q2"), "continuation line must be kept, got: " + result);
+        assertTrue(result.contains("body note"), "body line must be kept, got: " + result);
 
         assertFalse(result.contains("AGENT_PAUSE:"), "AGENT_PAUSE must be filtered out, got: " + result);
 
@@ -79,9 +79,9 @@ class AutomationLoopPauseOutputTest {
 
     @Test
 
-    void mixedKeepsOnlyInformativeLines() throws Exception {
+    void mixedDropsMarkersAndUserMsg() throws Exception {
 
-        String log = "USER_MSG: keep" + System.lineSeparator()
+        String log = "USER_MSG: drop0" + System.lineSeparator()
 
                 + "AGENT_PAUSE: drop1" + System.lineSeparator()
 
@@ -95,7 +95,7 @@ class AutomationLoopPauseOutputTest {
 
         assertTrue(result != null);
 
-        assertTrue(result.contains("USER_MSG: keep"), "got: " + result);
+        assertFalse(result.contains("USER_MSG:"), "got: " + result);
 
         assertTrue(result.contains("body text"), "got: " + result);
 
