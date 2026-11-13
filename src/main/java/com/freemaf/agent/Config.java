@@ -209,9 +209,10 @@ DEFAULTS.put("config.migrated.v5", "false");
         DEFAULTS.put("window.size.max.height", "0");
         DEFAULTS.put("cdp.enabled", "true");
         DEFAULTS.put("config.migrated.v7", "false");
+        DEFAULTS.put("config.migrated.v8", "false");
         DEFAULTS.put("cdp.executor.tabId", "");
         DEFAULTS.put("cdp.reviewer.tabId", "");
-        DEFAULTS.put("context.pack.max.chars", "100000");
+        DEFAULTS.put("context.pack.max.chars", "12000");
         DEFAULTS.put("history.max.files.per.subfolder", "100");
 
     }
@@ -389,6 +390,25 @@ DEFAULTS.put("config.migrated.v5", "false");
             props.setProperty("config.migrated.v7", "true");
             changed = true;
         }
+
+        // Schema migration v8 (S2.7-pre): lower context.pack.max.chars 100000 -> 12000.
+        // DeepSeek UI silently rejects / disables Send when prompt exceeds ~22k chars
+        // (React-internal counter, not textarea.maxLength). 12000 keeps whole prompt
+        // under ~19k. User-set values below 12000 preserved (respect explicit choice).
+        if (!isMigratedV8()) {
+            int capV8 = 0;
+            try { capV8 = Integer.parseInt(props.getProperty("context.pack.max.chars", "100000").trim()); }
+            catch (NumberFormatException ignored) { }
+            if (capV8 >= 12000) {
+                props.setProperty("context.pack.max.chars", "12000");
+                AppLogger.info("Config: schema migration v8 applied (context.pack.max.chars -> 12000)");
+            } else {
+                AppLogger.info("Config: schema migration v8 applied (context.pack.max.chars preserved at " + capV8 + ", below new default)");
+            }
+            props.setProperty("config.migrated.v8", "true");
+            changed = true;
+        }
+
 java.util.List<String> obsolete = new java.util.ArrayList<>();
         for (Object rawKey : props.keySet()) {
             String key = String.valueOf(rawKey);
@@ -847,7 +867,16 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
         props.setProperty("config.migrated.v7", String.valueOf(value));
     }
 
-    public int getWindowGrowthStepPx() {
+
+    public boolean isMigratedV8() {
+        return "true".equalsIgnoreCase(get("config.migrated.v8", "false"));
+    }
+
+    public void setMigratedV8(boolean value) {
+        props.setProperty("config.migrated.v8", String.valueOf(value));
+    }
+
+        public int getWindowGrowthStepPx() {
         int value = getInt("window.growth.step.px", 10);
         return value >= 1 ? value : 10;
     }
@@ -904,8 +933,8 @@ java.util.List<String> obsolete = new java.util.ArrayList<>();
     }
 
     public int getContextPackMaxChars() {
-        int v = getInt("context.pack.max.chars", 100000);
-        return v >= 1000 ? v : 100000;
+        int v = getInt("context.pack.max.chars", 12000);
+        return v >= 1000 ? v : 12000;
     }
 
     public int getHistoryMaxFilesPerSubfolder() {

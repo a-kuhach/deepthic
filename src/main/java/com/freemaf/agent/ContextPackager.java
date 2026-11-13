@@ -9,7 +9,7 @@ import java.util.List;
 
 public final class ContextPackager {
 
-    static final int DEFAULT_MAX_CHARS = 100_000;
+    static final int DEFAULT_MAX_CHARS = 12_000;
 
     static final String PLAN_OMIT_MARKER_PREFIX = "[PLAN omitted: over-budget";
 

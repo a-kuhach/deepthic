@@ -1811,7 +1811,13 @@ private static final java.util.regex.Pattern BARE_CMDLET_VERB =
                     if (sb.length() > 0) sb.append(" | ");
                     sb.append(v.length() > 300 ? v.substring(0, 300) + "..." : v);
                 }
-                AppLogger.warn("NET-DIAG console." + type + ": " + sb.toString());
+                
+String __payload = sb.toString();
+                if (__payload.startsWith("[FMAF-HIF]")) {
+                    AppLogger.debug("NET-DIAG console." + type + " [HIF-expected]: " + __payload);
+                } else {
+                    AppLogger.warn("NET-DIAG console." + type + ": " + __payload);
+                }
             } catch (Exception ignored) { }
         };
         netExceptionHandler = node -> {

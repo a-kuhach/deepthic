@@ -128,8 +128,8 @@ class ContextPackagerTest {
     }
 
     @Test
-    void defaultMaxCharsIs100000() {
-        assertEquals(100_000, ContextPackager.DEFAULT_MAX_CHARS);
+    void defaultMaxCharsIs12000() {
+        assertEquals(12_000, ContextPackager.DEFAULT_MAX_CHARS);
     }
 
     private static String captureStdout(Runnable r) {

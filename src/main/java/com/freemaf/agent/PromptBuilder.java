@@ -9,7 +9,26 @@ public final class PromptBuilder {
 
             + "Первая строка ответа: [ROLE]. Первая строка внутри PS-блока: Write-Output \"ROLE: ТЕГ\"." + System.lineSeparator()
 
-            + "Ровно один fenced-блок PowerShell. После закрывающих тройных кавычек — ничего." + System.lineSeparator();
+            
++ "REQUIRED: первая строка ответа = [ROLE], где ROLE one of: ANALYST, PLANNER, EXECUTOR, JUDGE, CODE_REVIEWER." + System.lineSeparator()
+            + "REQUIRED: ровно ОДИН fenced PowerShell-блок (```powershell ... ```)." + System.lineSeparator()
+            + "REQUIRED: первая строка внутри блока = Write-Output \"ROLE: <ROLE>\" в двойных кавычках." + System.lineSeparator()
+            + "Ничего вне fenced-блока после закрывающих кавычек." + System.lineSeparator()
+            + System.lineSeparator()
+            + "WRONG examples (will be rejected, regeneration costs a turn):" + System.lineSeparator()
+            + "  X ответ без fenced-блока" + System.lineSeparator()
+            + "  X два fenced-блока в одном ответе" + System.lineSeparator()
+            + "  X [ROLE] отсутствует или вне fenced-блока" + System.lineSeparator()
+            + "  X Write-Output ROLE: EXECUTOR без кавычек (нужно Write-Output \"ROLE: EXECUTOR\")" + System.lineSeparator()
+            + "  X текст после закрывающих ``` (только внутри блока)" + System.lineSeparator()
+            + System.lineSeparator()
+            + "CORRECT skeleton:" + System.lineSeparator()
+            + "  [EXECUTOR]" + System.lineSeparator()
+            + "  ```powershell" + System.lineSeparator()
+            + "  Write-Output \"ROLE: EXECUTOR\"" + System.lineSeparator()
+            + "  Write-Output \"USER_MSG: <status>\"" + System.lineSeparator()
+            + "  <тело скрипта>" + System.lineSeparator()
+            + "  ```" + System.lineSeparator();
 
     private PromptBuilder() {}
 

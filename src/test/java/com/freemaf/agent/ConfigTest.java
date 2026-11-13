@@ -279,14 +279,14 @@ class ConfigTest {
     @Test
     void contextPackMaxCharsDefaultIs100000() {
         Config config = new Config();
-        assertEquals(100000, config.getContextPackMaxChars());
+        assertEquals(12000, config.getContextPackMaxChars());
     }
 
     @Test
     void contextPackMaxCharsRejectsLowValue() {
         Config config = new Config();
         config.set("context.pack.max.chars", "500");
-        assertEquals(100000, config.getContextPackMaxChars());
+        assertEquals(12000, config.getContextPackMaxChars());
     }
 
     @Test
@@ -357,5 +357,63 @@ class ConfigTest {
             config.set("cdp.enabled", prevCdp);
             try { config.save(); } catch (Exception ignored) { }
         }
+    }
+
+
+    @Test
+    void migratedV8LowersDefaultCapTo12000() {
+        Config config = new Config();
+        String prevV8 = config.get("config.migrated.v8", "false");
+        String prevCap = config.get("context.pack.max.chars", "100000");
+        config.set("config.migrated.v8", "false");
+        config.set("context.pack.max.chars", "100000");
+        try {
+            config.migrate();
+            assertEquals("12000", config.get("context.pack.max.chars", ""));
+            assertTrue(config.isMigratedV8());
+        } finally {
+            config.set("config.migrated.v8", prevV8);
+            config.set("context.pack.max.chars", prevCap);
+            try { config.save(); } catch (Exception ignored) { }
+        }
+    }
+
+    @Test
+    void migratedV8PreservesUserValueBelowDefault() {
+        Config config = new Config();
+        String prevV8 = config.get("config.migrated.v8", "false");
+        String prevCap = config.get("context.pack.max.chars", "100000");
+        config.set("config.migrated.v8", "false");
+        config.set("context.pack.max.chars", "5000");
+        try {
+            config.migrate();
+            assertEquals("5000", config.get("context.pack.max.chars", ""));
+            assertTrue(config.isMigratedV8());
+        } finally {
+            config.set("config.migrated.v8", prevV8);
+            config.set("context.pack.max.chars", prevCap);
+            try { config.save(); } catch (Exception ignored) { }
+        }
+    }
+
+    @Test
+    void migratedV8Idempotent() {
+        Config config = new Config();
+        String prevV8 = config.get("config.migrated.v8", "false");
+        String prevCap = config.get("context.pack.max.chars", "100000");
+        config.set("config.migrated.v8", "false");
+        config.set("context.pack.max.chars", "50000");
+        try {
+            config.migrate();
+            assertEquals("12000", config.get("context.pack.max.chars", ""));
+            config.set("context.pack.max.chars", "8000");
+            config.migrate();
+            assertEquals("8000", config.get("context.pack.max.chars", ""));
+            assertTrue(config.isMigratedV8());
+        } finally {
+            config.set("config.migrated.v8", prevV8);
+            config.set("context.pack.max.chars", prevCap);
+            try { config.save(); } catch (Exception ignored) { }
+        }
     }
 }
