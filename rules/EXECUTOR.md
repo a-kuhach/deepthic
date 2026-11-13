@@ -98,6 +98,25 @@ JUDGE и CODE_REVIEWER не передают работу друг другу и
 Запрещено: "USER_MSG: План переписан, READY_FOR_PLAN_REVIEW" и любые вольные формулировки. Обычный USER_MSG — просто сообщение, продолжаем.
 AGENT_DONE — только на этапе 3 (ANALYST) для передачи управления PLANNER.
 
+## ОДНОСТРОЧНЫЙ USER_MSG (CRITICAL)
+
+USER_MSG должен быть ОДНОСТРОЧНЫМ. Никаких встроенных переносов строк внутри текста.
+
+Запрещено: Write-Output ("USER_MSG: " + $multiLine), где $multiLine содержит `n.
+Запрещено: Write-Output "USER_MSG: строка1`nстрока2" (backtick-n внутри кавычек).
+
+Разрешено для нескольких пунктов:
+  Write-Output "USER_MSG: 1) первый"
+  Write-Output "USER_MSG: 2) второй"
+  Write-Output "USER_MSG: 3) третий"
+
+Или в одну строку через "; ": Write-Output "USER_MSG: 1) a; 2) b; 3) c".
+
+Причина (v0.3.155 N-121 rollback): framework парсит stdout построчно; embedded `n
+внутри Write-Output склеивает весь диагностический блок в один Agent-чат-месседж.
+
+Диагностика идёт в PS-Console без префикса USER_MSG — тогда она не попадает в чат.
+
 ## WIP.md / MEMORY.md
 
 WIP.md создаётся ANALYST при получении задачи, обновляется на каждом шаге.

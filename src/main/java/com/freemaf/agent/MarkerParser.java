@@ -13,47 +13,27 @@ public final class MarkerParser {
 
         if (stdout == null || stdout.isBlank()) return List.of();
 
-        // S2.5.x-fix7 (N-121): continuation-aware parsing.
+        // Rolled back in v0.3.155 (N-121 rollback): continuation-aware parsing glued
 
-        // Multi-line USER_MSG emitted via `Write-Output ("USER_MSG: " + $multiLine)`
+        // multi-Write-Output diagnostic lines into a single USER_MSG event, causing
 
-        // would otherwise lose lines 2..N (no marker prefix -> dropped by old filter).
+        // the entire PS-console diagnostic block to appear in chat as "Agent: <text>".
 
-        List<MarkerEvent> events = new java.util.ArrayList<>();
+        // Rule-layer now enforces single-line USER_MSG (rules/MINIMAL_FORMAT.md + EXECUTOR.md).
 
-        MarkerType lastType = null;
+        return stdout.lines()
 
-        StringBuilder lastMsg = null;
+                .map(String::strip)
 
-        for (String rawLine : stdout.split("\\R", -1)) {
+                .filter(line -> !line.isEmpty())
 
-            String line = rawLine.strip();
+                .map(MarkerParser::toEvent)
 
-            if (line.isEmpty()) continue;
+                .filter(Optional::isPresent)
 
-            Optional<MarkerEvent> opt = toEvent(line);
+                .map(Optional::get)
 
-            if (opt.isPresent()) {
-
-                if (lastType != null) events.add(new MarkerEvent(lastType, lastMsg.toString()));
-
-                MarkerEvent ev = opt.get();
-
-                lastType = ev.type();
-
-                lastMsg = new StringBuilder(ev.message());
-
-            } else if (lastType == MarkerType.USER_MSG) {
-
-                lastMsg.append("\n").append(line);
-
-            }
-
-        }
-
-        if (lastType != null) events.add(new MarkerEvent(lastType, lastMsg.toString()));
-
-        return events;
+                .toList();
 
     }
 
