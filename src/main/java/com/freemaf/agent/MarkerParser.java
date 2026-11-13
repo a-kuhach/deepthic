@@ -13,19 +13,47 @@ public final class MarkerParser {
 
         if (stdout == null || stdout.isBlank()) return List.of();
 
-        return stdout.lines()
+        // S2.5.x-fix7 (N-121): continuation-aware parsing.
 
-                .map(String::strip)
+        // Multi-line USER_MSG emitted via `Write-Output ("USER_MSG: " + $multiLine)`
 
-                .filter(line -> !line.isEmpty())
+        // would otherwise lose lines 2..N (no marker prefix -> dropped by old filter).
 
-                .map(MarkerParser::toEvent)
+        List<MarkerEvent> events = new java.util.ArrayList<>();
 
-                .filter(Optional::isPresent)
+        MarkerType lastType = null;
 
-                .map(Optional::get)
+        StringBuilder lastMsg = null;
 
-                .toList();
+        for (String rawLine : stdout.split("\\R", -1)) {
+
+            String line = rawLine.strip();
+
+            if (line.isEmpty()) continue;
+
+            Optional<MarkerEvent> opt = toEvent(line);
+
+            if (opt.isPresent()) {
+
+                if (lastType != null) events.add(new MarkerEvent(lastType, lastMsg.toString()));
+
+                MarkerEvent ev = opt.get();
+
+                lastType = ev.type();
+
+                lastMsg = new StringBuilder(ev.message());
+
+            } else if (lastType == MarkerType.USER_MSG) {
+
+                lastMsg.append("\n").append(line);
+
+            }
+
+        }
+
+        if (lastType != null) events.add(new MarkerEvent(lastType, lastMsg.toString()));
+
+        return events;
 
     }
 

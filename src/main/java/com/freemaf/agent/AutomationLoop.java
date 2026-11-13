@@ -878,6 +878,38 @@ config.setExecutorMessageCount(0L);
 
                     if (activeReviewerRole == null && executorContextRequired) {
 
+                        // S2.5.x-fix7 (N-120): budget-aware wrapping. Reserve space for user
+
+                        // message + format reminder BEFORE ContextPackager; otherwise the
+
+                        // resulting prompt exceeds CdpDeepSeek.SAFE_CAP and loses the task tail.
+
+                        String __minRules = SystemInstructionProvider.getMinimalFormatRules();
+
+                        String __execRules = SystemInstructionProvider.getExecutorRules();
+
+                        String __fmtRem = SystemInstructionProvider.getFormatReminder();
+
+                        String __sep = System.lineSeparator();
+
+                        int __maxTotal = 20000;
+
+                        int __headersLen = ("### SYSTEM_INSTRUCTION" + __sep + __sep + "### CONTEXT" + __sep + __sep + "### USER_MESSAGE" + __sep + __sep).length();
+
+                        int __fixedLen = __minRules.length() + __execRules.length() + prompt.length() + __fmtRem.length() + __headersLen + 200;
+
+                        int __configuredCap = config.getContextPackMaxChars();
+
+                        int __contextBudget = __configuredCap;
+
+                        if (__fixedLen + __configuredCap > __maxTotal) {
+
+                            __contextBudget = Math.max(500, __maxTotal - __fixedLen);
+
+                            AppLogger.warn("wrapped user prompt: context capped from " + __configuredCap + " to " + __contextBudget + " (fixed=" + __fixedLen + ", maxTotal=" + __maxTotal + ")");
+
+                        }
+
                         wrapped.append(SystemInstructionProvider.getMinimalFormatRules());
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator());
                         wrapped.append(SystemInstructionProvider.getExecutorRules());
@@ -886,7 +918,7 @@ config.setExecutorMessageCount(0L);
 
                                 .append("### CONTEXT").append(System.lineSeparator());
 
-                        wrapped.append(new ContextPackager().buildContext(config.getContextPackMaxChars()));
+                        wrapped.append(new ContextPackager().buildContext(__contextBudget));
 
                         wrapped.append(System.lineSeparator()).append(System.lineSeparator());
 
@@ -1751,7 +1783,8 @@ config.setExecutorMessageCount(0L);
         StringBuilder sb = new StringBuilder();
         for (String line : log.split("\\R")) {
             String t = line.stripLeading();
-            if (t.startsWith("USER_MSG:") || t.startsWith("AGENT_PAUSE:")
+                        // S2.5.x-fix7 (N-122): keep USER_MSG in pendingPauseOutput so the agent sees its own questions
+            if (t.startsWith("AGENT_PAUSE:")
                     || t.startsWith("AGENT_STOP:") || t.startsWith("AGENT_DONE:")) {
                 continue;
             }

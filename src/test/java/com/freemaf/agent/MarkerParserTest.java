@@ -103,6 +103,56 @@ class MarkerParserTest {
     }
 
     @Test
+
+    void multilineUserMsgCaptured() {
+
+        // S2.5.x-fix7 (N-121): Write-Output ("USER_MSG: " + $multiLine) emits one string with embedded newlines;
+
+        // MarkerParser must attach continuation lines (no marker prefix) to the preceding USER_MSG.
+
+        String stdout = "USER_MSG: 1) q1" + System.lineSeparator()
+
+                + "2) q2" + System.lineSeparator()
+
+                + "3) q3" + System.lineSeparator()
+
+                + "AGENT_PAUSE: wait";
+
+        List<MarkerEvent> events = MarkerParser.parse(stdout);
+
+        assertEquals(2, events.size());
+
+        assertEquals(MarkerType.USER_MSG, events.get(0).type());
+
+        String msg = events.get(0).message();
+
+        assertTrue(msg.contains("1) q1"), "USER_MSG must retain first line, got: " + msg);
+
+        assertTrue(msg.contains("2) q2"), "USER_MSG must retain continuation line 2, got: " + msg);
+
+        assertTrue(msg.contains("3) q3"), "USER_MSG must retain continuation line 3, got: " + msg);
+
+        assertEquals(MarkerType.AGENT_PAUSE, events.get(1).type());
+
+    }
+
+    @Test
+
+    void separateUserMsgsStaySeparate() {
+
+        String stdout = "USER_MSG: first" + System.lineSeparator() + "USER_MSG: second";
+
+        List<MarkerEvent> events = MarkerParser.parse(stdout);
+
+        assertEquals(2, events.size());
+
+        assertEquals("first", events.get(0).message());
+
+        assertEquals("second", events.get(1).message());
+
+    }
+
+    @Test
     void ignoresMigrateMarkersInsideWriteOutputString() {
         String stdout = "Write-Output \"AGENT_SESSION_MIGRATE_START: prepare\"" + System.lineSeparator()
                 + "Write-Output \"AGENT_SESSION_MIGRATE_CONFIRM: done\"";
